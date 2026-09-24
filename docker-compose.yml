@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: traj
+      POSTGRES_PASSWORD: traj
+      POSTGRES_DB: traj
+    ports:
+      - "5432:5432"
+    volumes:
+      - traj_pg:/var/lib/postgresql/data
+
+volumes:
+  traj_pg:

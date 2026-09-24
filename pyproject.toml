@@ -1,0 +1,32 @@
+[project]
+name = "domain-trajectory"
+version = "0.1.0"
+description = "Banking trajectory studio scaffold"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.14",
+  "cryptography>=44",
+  "fastapi>=0.115",
+  "httpx>=0.28",
+  "pydantic>=2.10",
+  "pyjwt>=2.10",
+  "python-multipart>=0.0.20",
+  "sqlalchemy>=2.0",
+  "uvicorn>=0.34",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2"]
+dev = ["pytest>=8.3", "psycopg[binary]>=3.2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [
+  "packages/trajectory_contract/src",
+  "packages/sectors/src",
+  "apps/api",
+]
+addopts = "-q"
+
+[tool.setuptools.packages.find]
+where = ["packages/trajectory_contract/src", "packages/sectors/src", "apps/api"]
