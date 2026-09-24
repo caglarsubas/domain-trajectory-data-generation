@@ -32,7 +32,7 @@ services:
       INFERENCE_ENGINE_ORG_ID: ${INFERENCE_ENGINE_ORG_ID:-org-trajdata}
       INFERENCE_ENGINE_KEY_ID: ${INFERENCE_ENGINE_KEY_ID:-[REDACTED]}
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-18000}:8000"
     volumes:
       - traj_uploads:/app/data/uploads
     depends_on:
