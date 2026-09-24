@@ -25,4 +25,6 @@ Each cycle runs local banking hard checks first. A failed check does not call th
 
 Verdicts are stored on the run. Scores under the run thresholds become revision notes. Another cycle is allowed until `max_cycles`.
 
-Human notes are separate. A note targets the run, one trajectory, or one event, with stance `keep`, `revise`, or `drop`. Re-run copies the configuration, `parent_run_id`, and the selected note ids, then regenerates events from those notes and from any revision notes on the parent. A dropped event type is left out of the next bundle. A revised event type is delayed. A kept event type is retained when it still fits the length limit. Provider deep search stays unimplemented.
+Human notes are separate. A note targets the run, one trajectory, or one event, with stance `keep`, `revise`, or `drop`. Re-run copies the configuration, `parent_run_id`, and the selected note ids, then regenerates events from those notes and from any revision notes on the parent. A dropped event type is left out of the next bundle. A revised event type is delayed. A kept event type is retained when it still fits the length limit.
+
+Provider deep search uses the selected account key to call that provider's web search, then stores a scrubbed report on the study. Named banking events in the report are kept on the next generation when they belong to the selected sub-domains. A drop note still removes an event the report named. The generator does not call the provider.

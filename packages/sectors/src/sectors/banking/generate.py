@@ -305,6 +305,13 @@ def generate_banking_bundle(
     revisions = [item for item in (revision_notes or []) if item]
     event_index, trajectory_index = _parent_index(parent_bundle)
     dropped_types, kept_types, revised, dropped_variants, kept_variants = _interpret(notes, event_index, trajectory_index)
+    allowed = set()
+    for domain in domains:
+        allowed.update(DOMAIN_EVENTS[domain])
+    blocked = _expand_drops(dropped_types)
+    for event_type in steering.events:
+        if event_type in allowed and event_type not in blocked and event_type not in kept_types:
+            kept_types.append(event_type)
     enrich = any("helpfulness" in item.lower() for item in revisions)
     suppress_delinquent = any("correctness" in item.lower() for item in revisions)
     variants = _variants(set(domains), suppress_delinquent, dropped_variants, kept_variants)
@@ -752,10 +759,13 @@ def _sample(
     )
     if cold:
         reference = "Cold start. No warm-start corpus was used."
-    elif steering.terms:
-        reference = "Warm corpus terms: " + ", ".join(steering.terms) + "."
     else:
-        reference = "Warm corpus attached. No banking terms matched."
+        parts = []
+        if steering.terms:
+            parts.append("Warm corpus terms: " + ", ".join(steering.terms) + ".")
+        if steering.events:
+            parts.append("Corpus events: " + ", ".join(steering.events) + ".")
+        reference = " ".join(parts) or "Warm corpus attached. No banking terms matched."
     system = " ".join(
         (
             f"Synthetic banking study. Language {language}.",

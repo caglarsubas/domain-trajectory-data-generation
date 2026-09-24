@@ -34,7 +34,7 @@ export default function Admin() {
   return (
     <Shell>
       <h1 className="word" style={{ fontSize: 52, marginBottom: 0 }}>Platform keys</h1>
-      <p className="lede">These keys are stored for later provider deep search. The studio generates banking trajectories without calling the provider. User and demo runs cannot select platform keys. The evaluation tenant key stays in the server environment.</p>
+      <p className="lede">These keys can run provider deep search for an admin study. User and demo runs cannot select them. Journey generation stays in the studio. The evaluation tenant key stays in the server environment.</p>
       {error ? <div className="error">{error}</div> : null}
       <form onSubmit={save} style={{ maxWidth: 520 }}>
         <label>Provider</label>

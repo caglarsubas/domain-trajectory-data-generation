@@ -366,14 +366,105 @@ def test_event_budget_limits_how_many_journeys_are_stored(client):
     assert body["generation"]["event_count"] == len(body["bundle"]["events"])
 
 
-def test_deep_search_is_stubbed():
-    from app.providers import get_provider
+def test_deep_search_stores_a_scrubbed_report_and_hides_the_key(client):
+    headers = _auth(client, "search@example.com", "password-123")
+    project_id = _project(client, headers)
+    secret = "sk-search-user-key-0001"
+    credential_id = _ready_key(client, headers, secret=secret)
 
-    try:
-        get_provider("openai").deep_search("banking ontology", key="sk-test")
-    except NotImplementedError:
-        return
-    raise AssertionError("deep_search should stay unimplemented")
+    class RecordingSearcher:
+        def __init__(self):
+            self.keys = []
+            self.queries = []
+
+        def search(self, query, *, provider, key):
+            from app.search import DeepSearchResult
+
+            self.keys.append(key)
+            self.queries.append(query)
+            return DeepSearchResult(
+                text=(
+                    "Customers fund savings accounts in USD via mobile. "
+                    "card.issued comes before card.activated. "
+                    f"Contact ada@example.com {secret} 1234567890123456"
+                ),
+                sources=["https://example.test/savings", "not a url"],
+                model="search-model",
+            )
+
+    runtime.searcher = RecordingSearcher()
+    response = client.post(
+        f"/projects/{project_id}/deep-search",
+        headers=headers,
+        json={"credential_id": credential_id, "sub_domains": ["deposits", "cards_and_payments"], "language": "en"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    dumped = json.dumps(body)
+    assert secret not in dumped
+    assert "ada@example.com" not in dumped
+    assert "1234567890123456" not in dumped
+    assert body["kind"] == "deep_search"
+    assert body["provider"] == "openai"
+    assert body["sources"] == ["https://example.test/savings"]
+    assert "USD" in body["excerpt"]
+    assert "deposits" in runtime.searcher.queries[0]
+    assert runtime.searcher.keys == [secret]
+
+    created = _run(
+        client,
+        headers,
+        project_id,
+        credential_id,
+        sub_domains=["deposits", "cards_and_payments", "onboarding_and_kyc"],
+        target_trajectory_count=2,
+        min_events=6,
+        max_events=20,
+        event_budget=200,
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()
+    assert secret not in json.dumps(run)
+    assert any(event.get("currency") == "USD" for event in run["bundle"]["events"])
+    assert any(event["event_type"] == "product.viewed" and event["channel_id"] == "mobile" for event in run["bundle"]["events"])
+    assert "card.issued" in json.dumps(run["bundle"]["samples"])
+
+
+def test_user_cannot_deep_search_with_a_platform_key_and_failures_hide_the_secret(client):
+    from app.search import DeepSearchError
+
+    user = _auth(client, "nosearch@example.com", "password-123")
+    admin = _admin(client)
+    project_id = _project(client, user)
+    platform = client.post(
+        "/credentials",
+        headers=admin,
+        json={"provider": "openai", "label": "house", "secret": "sk-platform-search-key", "scope": "platform"},
+    )
+    assert platform.status_code == 200, platform.text
+    denied = client.post(
+        f"/projects/{project_id}/deep-search",
+        headers=user,
+        json={"credential_id": platform.json()["id"], "sub_domains": ["deposits"], "language": "en"},
+    )
+    assert denied.status_code in {403, 404}
+    assert "sk-platform-search-key" not in denied.text
+
+    own = _ready_key(client, user, secret="sk-user-search-key-001")
+
+    class FailingSearcher:
+        def search(self, query, *, provider, key):
+            raise DeepSearchError(provider, 401, f"rejected {key}")
+
+    runtime.searcher = FailingSearcher()
+    failed = client.post(
+        f"/projects/{project_id}/deep-search",
+        headers=user,
+        json={"credential_id": own, "sub_domains": ["deposits"], "language": "en"},
+    )
+    assert failed.status_code == 502, failed.text
+    assert "sk-user-search-key-001" not in failed.text
+    assert "OpenAI deep search failed" in failed.json()["detail"]
 
 
 def test_inference_client_sends_bearer_token():

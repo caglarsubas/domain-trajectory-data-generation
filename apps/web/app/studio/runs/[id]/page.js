@@ -141,7 +141,6 @@ export default function RunPage() {
           {run.generation.limited_by === "studio_cap"
             ? ` ${run.generation.requested_trajectories} were requested; this view stores ${run.generation.primary_trajectories}.`
             : null}
-          {" "}Provider deep search is still off.
         </p>
       ) : null}
       {run.inherited_feedback_ids?.length ? (
@@ -220,6 +219,7 @@ export default function RunPage() {
                 <span>Recorded</span><b>{event.recorded_at ? new Date(event.recorded_at).toLocaleString() : "—"}</b>
                 <span>Status</span><b>{event.observation_status}</b>
                 <span>Channel</span><b>{event.channel_id || "—"}</b>
+                <span>Amount</span><b>{event.amount != null ? `${event.amount} ${event.currency || ""}`.trim() : "—"}</b>
               </div>
               {transitions.map((item) => (
                 <p key={item.state_dimension}>{item.state_dimension}: {item.state_before || "none"} → {item.state_after}</p>

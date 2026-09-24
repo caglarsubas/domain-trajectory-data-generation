@@ -57,6 +57,9 @@ function Composer() {
   const [parent, setParent] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [projectId, setProjectId] = useState("");
+  const [searches, setSearches] = useState([]);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     api("/sectors").then((data) => setSectors(data.data)).catch((err) => setError(err.message));
@@ -71,6 +74,7 @@ function Composer() {
     if (!from) return;
     api(`/runs/${from}`).then(async (run) => {
       setParent(run);
+      setProjectId(run.project_id);
       setForm((current) => ({
         ...current,
         ...run.config,
@@ -89,6 +93,34 @@ function Composer() {
   const signal = SIGNALS.find((item) => item[0] === form.signal_mechanism);
   const docCount = existingDocs.length + files.length + links.length;
   const slots = useMemo(() => Array.from({ length: Math.min(form.max_events, 32) }, (_, i) => i < form.min_events), [form.max_events, form.min_events]);
+
+  async function deepSearch() {
+    setSearching(true);
+    setError("");
+    try {
+      let id = projectId;
+      if (!id) {
+        if (from) throw new Error("The previous study is still loading.");
+        const project = await api("/projects", { method: "POST", body: JSON.stringify({ name: form.name, sector: "banking" }) });
+        id = project.id;
+        setProjectId(id);
+      }
+      const result = await api(`/projects/${id}/deep-search`, {
+        method: "POST",
+        body: JSON.stringify({
+          credential_id: form.credential_id,
+          sub_domains: form.sub_domains,
+          language: form.language,
+        }),
+      });
+      setSearches((current) => [...current, result]);
+      setExistingDocs((current) => [...current, result]);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSearching(false);
+    }
+  }
 
   function patch(partial) {
     setForm((current) => ({ ...current, ...partial }));
@@ -117,19 +149,26 @@ function Composer() {
         router.push(`/studio/runs/${child.id}`);
         return;
       }
-      const project = await api("/projects", { method: "POST", body: JSON.stringify({ name: form.name, sector: "banking" }) });
+      let id = projectId;
+      if (!id) {
+        const project = await api("/projects", { method: "POST", body: JSON.stringify({ name: form.name, sector: "banking" }) });
+        id = project.id;
+        setProjectId(id);
+      }
       for (const file of files) {
         const body = new FormData();
         body.append("kind", file.kind);
         body.append("upload", file.file);
-        await api(`/projects/${project.id}/corpus`, { method: "POST", body });
+        await api(`/projects/${id}/corpus`, { method: "POST", body });
       }
       for (const link of links) {
-        await api(`/projects/${project.id}/corpus/link`, { method: "POST", body: JSON.stringify(link) });
+        await api(`/projects/${id}/corpus/link`, { method: "POST", body: JSON.stringify(link) });
       }
+      setFiles([]);
+      setLinks([]);
       const run = await api("/runs", {
         method: "POST",
-        body: JSON.stringify({ ...form, project_id: project.id, sector: "banking" }),
+        body: JSON.stringify({ ...form, project_id: id, sector: "banking" }),
       });
       router.push(`/studio/runs/${run.id}`);
     } catch (err) {
@@ -190,7 +229,7 @@ function Composer() {
               ) : (
                 <div className="drop">
                   <strong>Drop documents</strong>
-                  <p className="lede">Text from these documents is read for currency, channel, and product terms. Those terms steer the generator. Provider deep search stays off.</p>
+                  <p className="lede">Text from these documents is read for currency, channel, product, and named banking events. A provider search can be run on the Signals step and is stored with this study.</p>
                   <input
                     type="file"
                     multiple
@@ -316,6 +355,19 @@ function Composer() {
                 ))}
               </select>
               {keys.length === 0 ? <p className="lede">Add a bring-your-own key under Keys before confirming.</p> : null}
+              <div className="actions">
+                <button className="ghost" type="button" disabled={searching || !form.credential_id || form.sub_domains.length === 0} onClick={deepSearch}>
+                  {searching ? "Searching" : "Run provider deep search"}
+                </button>
+              </div>
+              <p className="lede">The key runs a web search at the provider. The report is scrubbed and saved here. It can take a minute. The journey itself is still generated in the studio.</p>
+              {searches.map((item) => (
+                <div className="doc" key={item.id}>
+                  <span>{item.name}</span>
+                  <small>{item.provider} · {item.model || "search"}</small>
+                  <p>{item.excerpt}</p>
+                </div>
+              ))}
             </>
           ) : null}
           {step === 3 ? (
