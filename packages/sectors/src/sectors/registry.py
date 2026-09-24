@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from sectors.banking.pack import BANKING
 from sectors.base import SectorPack
+from sectors.insurance.pack import INSURANCE
 
-_PACKS: dict[str, SectorPack] = {BANKING.id: BANKING}
+_PACKS: dict[str, SectorPack] = {BANKING.id: BANKING, INSURANCE.id: INSURANCE}
 
 
 def known_sectors() -> list[str]:

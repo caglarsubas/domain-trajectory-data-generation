@@ -1,13 +1,13 @@
 # Domain trajectory studio
 
-A banking-only studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Journeys come from a constrained banking generator. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
+A studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Banking and insurance each have a constrained generator on the same run schema. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
 
 ## Layout
 
 - `apps/api` — FastAPI accounts, encrypted keys, runs, and the judge client
 - `apps/web` — the studio interface
 - `packages/trajectory_contract` — object-centric records and the Sample / Sequence / Context / Segment hierarchy
-- `packages/sectors` — sector packs; only `banking` is registered
+- `packages/sectors` — sector packs; `banking` and `insurance` are registered
 - `docs/banking` — the warm-start research reports
 
 ## Run locally

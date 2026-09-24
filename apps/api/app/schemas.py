@@ -52,7 +52,7 @@ class CredentialBody(BaseModel):
 
 class ProjectBody(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    sector: Literal["banking"] = "banking"
+    sector: Literal["banking", "insurance"] = "banking"
 
 
 class CorpusLinkBody(BaseModel):
@@ -63,7 +63,7 @@ class CorpusLinkBody(BaseModel):
 
 class RunBody(BaseModel):
     project_id: str
-    sector: Literal["banking"] = "banking"
+    sector: Literal["banking", "insurance"] = "banking"
     target_trajectory_count: int = Field(ge=1, le=100_000)
     event_budget: int | None = Field(default=None, ge=1, le=5_000_000)
     min_events: int = Field(ge=1, le=10_000)

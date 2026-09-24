@@ -152,15 +152,44 @@ def test_warm_start_and_cold_start_rules(client):
     assert warm.status_code == 200
 
 
-def test_non_banking_sector_is_rejected(client):
+def test_later_sectors_are_rejected_and_insurance_uses_the_same_run_shape(client):
     headers = _auth(client, "sector@example.com", "password-123")
-    response = client.post("/projects", headers=headers, json={"name": "Later", "sector": "insurance"})
+    response = client.post("/projects", headers=headers, json={"name": "Later", "sector": "airways"})
     assert response.status_code == 422
     project_id = _project(client, headers)
     _link(client, headers, project_id)
     credential_id = _ready_key(client, headers)
-    run = _run(client, headers, project_id, credential_id, sector="airways")
+    run = _run(client, headers, project_id, credential_id, sector="telecommunication")
     assert run.status_code == 422
+
+    insurance = client.post("/projects", headers=headers, json={"name": "Motor quote", "sector": "insurance"})
+    assert insurance.status_code == 200, insurance.text
+    assert insurance.json()["sector"] == "insurance"
+    insurance_id = insurance.json()["id"]
+    _link(client, headers, insurance_id)
+    mismatch = _run(client, headers, insurance_id, credential_id, sector="banking")
+    assert mismatch.status_code == 422
+    created = _run(
+        client,
+        headers,
+        insurance_id,
+        credential_id,
+        sector="insurance",
+        sub_domains=["quoting", "underwriting", "policy_administration", "billing"],
+        target_trajectory_count=2,
+        min_events=6,
+        max_events=16,
+        event_budget=200,
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["generation"]["generator_id"] == "insurance-semi-markov-v1"
+    assert body["config"]["sector"] == "insurance"
+    types = {event["event_type"] for event in body["bundle"]["events"]}
+    assert "policy.issued" in types
+    assert "premium.paid" in types
+    assert "card.issued" not in types
+    assert "account.opened" not in types
 
 
 def test_failed_lifecycle_does_not_call_the_judge(client):

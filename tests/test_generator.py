@@ -137,11 +137,12 @@ def test_language_reward_and_studio_cap():
     assert capped.generation.limited_by == "studio_cap"
 
 
-def test_same_seed_is_stable_and_other_sectors_stay_unregistered():
+def test_same_seed_is_stable_and_later_sectors_stay_unregistered():
     first = _bundle(seed="same").model_dump(mode="json")
     second = _bundle(seed="same").model_dump(mode="json")
     assert first == second
-    assert known_sectors() == ["banking"]
+    assert known_sectors() == ["banking", "insurance"]
+    assert "telecommunication" not in known_sectors()
 
 
 def test_warm_corpus_names_events_unless_a_note_drops_them():

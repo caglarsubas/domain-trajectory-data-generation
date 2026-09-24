@@ -111,7 +111,7 @@ def _generation(run: Run) -> dict | None:
         return None
     trajectories = candidate.get("trajectories") or []
     meta = candidate.get("generation")
-    generated = isinstance(meta, dict) or any(item.get("generator_id") == GENERATOR_ID for item in trajectories)
+    generated = isinstance(meta, dict) or any(item.get("generator_id") for item in trajectories)
     if not generated:
         return None
     if isinstance(meta, dict):

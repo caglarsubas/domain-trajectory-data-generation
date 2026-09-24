@@ -34,11 +34,11 @@ export default function Gate() {
     <div className="gate">
       <section className="gate-copy">
         <p className="word" style={{ fontSize: 22, margin: 0 }}>
-          Trajectory <em style={{ color: "var(--copper)" }}>Banking</em>
+          Trajectory <em style={{ color: "var(--copper)" }}>Studio</em>
         </p>
         <h1 className="word">Journeys you can inspect, mark, and run again.</h1>
         <p>
-          Compose a banking study, look at the path event by event, leave a note on the step that feels wrong, and start the next iteration from that note.
+          Compose a banking or insurance study, look at the path event by event, leave a note on the step that feels wrong, and start the next iteration from that note.
         </p>
       </section>
       <form className="gate-form" onSubmit={submit}>

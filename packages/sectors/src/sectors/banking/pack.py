@@ -73,5 +73,10 @@ class BankingPack:
     def hard_checks(self, bundle: TrajectoryBundle) -> list[str]:
         return banking_hard_checks(bundle)
 
+    def generate(self, **kwargs) -> TrajectoryBundle:
+        from sectors.banking.generate import generate_banking_bundle
+
+        return generate_banking_bundle(**kwargs)
+
 
 BANKING = BankingPack()

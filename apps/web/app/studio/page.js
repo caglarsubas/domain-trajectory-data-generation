@@ -15,7 +15,7 @@ export default function Studio() {
 
   return (
     <Shell>
-      <p className="lede">Banking studies, newest last. Open one to inspect the journey.</p>
+      <p className="lede">Banking and insurance studies, newest last. Open one to inspect the journey.</p>
       <h1 className="word" style={{ fontSize: 56, margin: "0 0 8px" }}>The studio</h1>
       {error ? <div className="error">{error}</div> : null}
       {runs && runs.length === 0 ? (
@@ -35,7 +35,7 @@ export default function Studio() {
                 {(run.config.sub_domains || []).join(" · ")}
               </h2>
               <p>
-                {run.config.language} · {run.generation && run.generation.primary_trajectories !== run.config.target_trajectory_count
+                {(run.config.sector || "banking").replaceAll("_", " ")} · {run.config.language} · {run.generation && run.generation.primary_trajectories !== run.config.target_trajectory_count
                   ? `${run.generation.primary_trajectories} of ${run.config.target_trajectory_count} trajectories`
                   : `${run.config.target_trajectory_count} trajectories`} · {run.config.min_events}–{run.config.max_events} events
                 {run.parent_run_id ? " · continues a previous run" : ""}
