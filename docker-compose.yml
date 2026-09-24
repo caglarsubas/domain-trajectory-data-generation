@@ -32,7 +32,7 @@ services:
       INFERENCE_ENGINE_ORG_ID: ${INFERENCE_ENGINE_ORG_ID:-org-trajdata}
       INFERENCE_ENGINE_KEY_ID: ${INFERENCE_ENGINE_KEY_ID:-[REDACTED]}
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-18000}:8000"
     volumes:
       - traj_uploads:/app/data/uploads
     depends_on:
@@ -43,7 +43,9 @@ services:
     build:
       context: apps/web
       args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+    environment:
+      API_PROXY_TARGET: http://api:8000
     ports:
       - "3000:3000"
     depends_on:
