@@ -9,6 +9,46 @@ services:
       - "5432:5432"
     volumes:
       - traj_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U traj -d traj"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://traj:traj@postgres:5432/traj
+      CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:-local-compose-master-key-32b}
+      JWT_SECRET: ${JWT_SECRET:-local-compose-jwt-secret-32-characters}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-choose-a-password-123}
+      UPLOAD_DIR: /app/data/uploads
+      INFERENCE_ENGINE_BASE_URL: ${INFERENCE_ENGINE_BASE_URL:-}
+      INFERENCE_ENGINE_API_KEY: ${INFERENCE_ENGINE_API_KEY:-}
+      INFERENCE_ENGINE_TENANT: ${INFERENCE_ENGINE_TENANT:-domain-trajectory-data-generation}
+      INFERENCE_ENGINE_ORG_ID: ${INFERENCE_ENGINE_ORG_ID:-org-trajdata}
+      INFERENCE_ENGINE_KEY_ID: ${INFERENCE_ENGINE_KEY_ID:-[REDACTED]}
+    ports:
+      - "8000:8000"
+    volumes:
+      - traj_uploads:/app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: apps/web
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
 
 volumes:
   traj_pg:
+  traj_uploads:
