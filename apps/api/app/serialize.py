@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Feedback, Project, Run
+from sectors.banking.generate import GENERATOR_ID
 from trajectory_contract import banking_fixture
 
 
@@ -99,5 +100,28 @@ def run_out(run: Run, db: Session) -> dict:
         "headline_score": headline,
         "bundle": bundle,
         "bundle_source": source,
-        "generation_active": False,
+        "generation_active": _generation(run) is not None,
+        "generation": _generation(run),
+    }
+
+
+def _generation(run: Run) -> dict | None:
+    candidate = run.candidate if isinstance(run.candidate, dict) else None
+    if not candidate:
+        return None
+    trajectories = candidate.get("trajectories") or []
+    meta = candidate.get("generation")
+    generated = isinstance(meta, dict) or any(item.get("generator_id") == GENERATOR_ID for item in trajectories)
+    if not generated:
+        return None
+    if isinstance(meta, dict):
+        return meta
+    primaries = [item for item in trajectories if not item.get("parent_trajectory_id")]
+    return {
+        "generator_id": GENERATOR_ID,
+        "requested_trajectories": run.config.get("target_trajectory_count"),
+        "primary_trajectories": len(primaries),
+        "alternative_trajectories": len(trajectories) - len(primaries),
+        "event_count": len(candidate.get("events") or []),
+        "limited_by": None,
     }

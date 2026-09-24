@@ -241,6 +241,9 @@ textarea { min-height: 90px; resize: vertical; }
 .mark.application { transform: rotate(45deg); background: var(--muted); }
 .mark.card { border-radius: 50% 50% 50% 0; background: var(--good); }
 .mark.kyc_case, .mark.product_offering { border-radius: 2px; background: #8a6a3b; }
+.mark.loan { border-radius: 2px; background: #2c4c7c; }
+.mark.complaint { border-radius: 50%; background: var(--warn); }
+.journey-picker { max-width: 360px; margin-bottom: 8px; }
 
 .inspector, .scores {
   background: white;

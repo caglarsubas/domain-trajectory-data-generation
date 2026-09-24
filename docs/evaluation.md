@@ -23,6 +23,6 @@ Each cycle runs local banking hard checks first. A failed check does not call th
 - `safety` — synthetic data only, no personal or real account identifiers
 - `pairwise_quality` — only when the candidate has a parent trajectory and an alternative branch
 
-Verdicts are stored on the run. Scores under the run thresholds become revision notes. Another cycle is allowed until `max_cycles`. This slice does not regenerate events from those notes.
+Verdicts are stored on the run. Scores under the run thresholds become revision notes. Another cycle is allowed until `max_cycles`.
 
-Human notes are separate. A note targets the run, one trajectory, or one event, with stance `keep`, `revise`, or `drop`. Re-run copies the configuration, `parent_run_id`, and the selected note ids.
+Human notes are separate. A note targets the run, one trajectory, or one event, with stance `keep`, `revise`, or `drop`. Re-run copies the configuration, `parent_run_id`, and the selected note ids, then regenerates events from those notes and from any revision notes on the parent. A dropped event type is left out of the next bundle. A revised event type is delayed. A kept event type is retained when it still fits the length limit. Provider deep search stays unimplemented.

@@ -1,6 +1,6 @@
 # Domain trajectory studio
 
-A banking-only studio for configuring trajectory runs, inspecting a sample journey, leaving feedback, and running again. Generation and provider deep search are stubbed. The evaluation cycle judges a candidate through `llm_inference_engine`.
+A banking-only studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Journeys come from a constrained banking generator. Provider deep search is still stubbed. The evaluation cycle judges a candidate through `llm_inference_engine`.
 
 ## Layout
 

@@ -35,7 +35,9 @@ export default function Studio() {
                 {(run.config.sub_domains || []).join(" · ")}
               </h2>
               <p>
-                {run.config.language} · {run.config.target_trajectory_count} trajectories · {run.config.min_events}–{run.config.max_events} events
+                {run.config.language} · {run.generation && run.generation.primary_trajectories !== run.config.target_trajectory_count
+                  ? `${run.generation.primary_trajectories} of ${run.config.target_trajectory_count} trajectories`
+                  : `${run.config.target_trajectory_count} trajectories`} · {run.config.min_events}–{run.config.max_events} events
                 {run.parent_run_id ? " · continues a previous run" : ""}
               </p>
               {run.headline_score != null ? <span className="score-pill">Judge {run.headline_score}</span> : null}

@@ -122,8 +122,10 @@ def test_user_cannot_store_platform_key_and_demo_needs_byok(client):
     own = _ready_key(client, demo, secret="sk-demo-own-key-00001")
     created = _run(client, demo, project_id, own)
     assert created.status_code == 200, created.text
-    assert created.json()["bundle_source"] == "fixture"
-    assert created.json()["generation_active"] is False
+    assert created.json()["bundle_source"] == "candidate"
+    assert created.json()["status"] == "generated"
+    assert created.json()["generation_active"] is True
+    assert created.json()["generation"]["generator_id"] == "banking-semi-markov-v1"
 
 
 def test_warm_start_and_cold_start_rules(client):
@@ -205,10 +207,11 @@ def test_eval_stores_verdicts_and_rerun_keeps_feedback(client):
         "pairwise_quality",
     }
     assert cycle["judge_key_id"] == "domain-trajectory-data-generation-primary"
+    event_id = created.json()["bundle"]["events"][0]["event_id"]
     note = client.post(
         f"/runs/{run_id}/feedback",
         headers=headers,
-        json={"target_type": "event", "target_id": "E09", "stance": "revise", "comment": "Activation felt early."},
+        json={"target_type": "event", "target_id": event_id, "stance": "revise", "comment": "Activation felt early."},
     )
     assert note.status_code == 200, note.text
     child = client.post(
@@ -250,6 +253,117 @@ def test_missing_judge_configuration_returns_503(client):
     assert response.status_code == 503
     assert "INFERENCE_ENGINE_API_KEY" in response.json()["detail"]
     assert "sk-" not in response.text
+
+
+def test_rerun_applies_drop_and_revise_notes(client):
+    headers = _auth(client, "regen@example.com", "password-123")
+    project_id = _project(client, headers)
+    _link(client, headers, project_id)
+    credential_id = _ready_key(client, headers)
+    created = _run(
+        client,
+        headers,
+        project_id,
+        credential_id,
+        sub_domains=["onboarding_and_kyc", "cards_and_payments"],
+        target_trajectory_count=4,
+        min_events=6,
+        max_events=16,
+        event_budget=400,
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    purchase = next(event["event_id"] for event in body["bundle"]["events"] if event["event_type"] == "card.purchase_authorised")
+    activation = next(event["event_id"] for event in body["bundle"]["events"] if event["event_type"] == "card.activated")
+    dropped = client.post(
+        f"/runs/{body['id']}/feedback",
+        headers=headers,
+        json={"target_type": "event", "target_id": purchase, "stance": "drop", "comment": "Leave the purchase out."},
+    )
+    revised = client.post(
+        f"/runs/{body['id']}/feedback",
+        headers=headers,
+        json={"target_type": "event", "target_id": activation, "stance": "revise", "comment": "Wait a week before activation."},
+    )
+    assert dropped.status_code == 200, dropped.text
+    assert revised.status_code == 200, revised.text
+    child = client.post(
+        f"/runs/{body['id']}/rerun",
+        headers=headers,
+        json={"feedback_ids": [dropped.json()["id"], revised.json()["id"]]},
+    )
+    assert child.status_code == 200, child.text
+    payload = child.json()
+    types = {event["event_type"] for event in payload["bundle"]["events"]}
+    assert "card.purchase_authorised" not in types
+    assert "card.activated" in types
+    rendered = json.dumps(payload["bundle"]["samples"])
+    assert "Wait a week before activation." in rendered
+    events = {event["event_id"]: event for event in payload["bundle"]["events"]}
+    for trajectory in payload["bundle"]["trajectories"]:
+        if trajectory["parent_trajectory_id"]:
+            continue
+        issued = next((events[item] for item in trajectory["event_ids"] if events[item]["event_type"] == "card.issued"), None)
+        activated = next((events[item] for item in trajectory["event_ids"] if events[item]["event_type"] == "card.activated"), None)
+        if issued and activated:
+            from datetime import datetime
+
+            gap = datetime.fromisoformat(activated["event_time"]) - datetime.fromisoformat(issued["event_time"])
+            assert gap.total_seconds() >= 7 * 24 * 3600
+
+
+def test_warm_corpus_steers_generation_and_scrubs_identifiers(client):
+    headers = _auth(client, "steer@example.com", "password-123")
+    project_id = _project(client, headers)
+    upload = client.post(
+        f"/projects/{project_id}/corpus",
+        headers=headers,
+        data={"kind": "paper"},
+        files={"upload": ("notes.txt", b"Customers fund savings accounts in USD via mobile. Contact ada@example.com account 1234567890123456 sk-supersecretkey", "text/plain")},
+    )
+    assert upload.status_code == 200, upload.text
+    credential_id = _ready_key(client, headers)
+    created = _run(
+        client,
+        headers,
+        project_id,
+        credential_id,
+        sub_domains=["deposits", "onboarding_and_kyc"],
+        target_trajectory_count=2,
+        event_budget=200,
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    dumped = json.dumps(body)
+    assert "ada@example.com" not in dumped
+    assert "1234567890123456" not in dumped
+    assert "sk-supersecretkey" not in dumped
+    assert any(event.get("currency") == "USD" for event in body["bundle"]["events"])
+    assert any(obj.get("subtype") == "savings" for obj in body["bundle"]["objects"])
+    assert any(event["event_type"] == "product.viewed" and event["channel_id"] == "mobile" for event in body["bundle"]["events"])
+
+
+def test_event_budget_limits_how_many_journeys_are_stored(client):
+    headers = _auth(client, "budget@example.com", "password-123")
+    project_id = _project(client, headers)
+    _link(client, headers, project_id)
+    credential_id = _ready_key(client, headers)
+    created = _run(
+        client,
+        headers,
+        project_id,
+        credential_id,
+        target_trajectory_count=20,
+        min_events=8,
+        max_events=10,
+        event_budget=15,
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["generation"]["primary_trajectories"] < 20
+    assert body["generation"]["limited_by"] == "event_budget"
+    assert body["generation"]["event_count"] <= 15
+    assert body["generation"]["event_count"] == len(body["bundle"]["events"])
 
 
 def test_deep_search_is_stubbed():
