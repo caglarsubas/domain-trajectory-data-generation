@@ -11,6 +11,8 @@ function markClass(type) {
   if (type === "account") return "account";
   if (type === "application") return "application";
   if (type === "card") return "card";
+  if (type === "loan") return "loan";
+  if (type === "complaint") return "complaint";
   return "kyc_case";
 }
 
@@ -24,6 +26,7 @@ export default function RunPage() {
   const [picked, setPicked] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [focus, setFocus] = useState("");
 
   async function load(id) {
     const [current, all] = await Promise.all([api(`/runs/${id}`), api("/runs")]);
@@ -46,6 +49,8 @@ export default function RunPage() {
   }
 
   useEffect(() => {
+    setFocus("");
+    setSelected(null);
     load(params.id).catch((err) => setError(err.message));
   }, [params.id]);
 
@@ -58,13 +63,15 @@ export default function RunPage() {
       const object = run.bundle.objects.find((item) => item.object_id === link.object_id);
       links[link.event_id].push({ ...link, object_type: object?.object_type || "party" });
     }
-    const parent = run.bundle.trajectories.find((item) => !item.parent_trajectory_id) || run.bundle.trajectories[0];
-    const alt = run.bundle.trajectories.find((item) => item.parent_trajectory_id);
+    const primaries = run.bundle.trajectories.filter((item) => !item.parent_trajectory_id);
+    const parent = primaries.find((item) => item.trajectory_id === focus) || primaries[0];
+    if (!parent) return null;
+    const alt = run.bundle.trajectories.find((item) => item.parent_trajectory_id === parent.trajectory_id);
     const altOnly = alt ? alt.event_ids.filter((id) => !parent.event_ids.includes(id)) : [];
     const branchAt = alt ? parent.event_ids.indexOf(alt.branch_event_id) : -1;
     const columns = Math.max(parent.event_ids.length, branchAt + 1 + altOnly.length, 1);
-    return { events, links, parent, alt, altOnly, branchAt, columns };
-  }, [run]);
+    return { events, links, parent, alt, altOnly, branchAt, columns, primaries };
+  }, [run, focus]);
 
   if (!run || !layout) {
     return <Shell>{error ? <div className="error">{error}</div> : <p>Opening the journey.</p>}</Shell>;
@@ -125,6 +132,18 @@ export default function RunPage() {
       {run.bundle_source === "fixture" ? (
         <p className="note">This is the banking sample. Generation is not running yet, so the canvas stays filled while you practice the loop.</p>
       ) : null}
+      {run.generation ? (
+        <p className="note">
+          Generated {run.generation.primary_trajectories} synthetic {run.generation.primary_trajectories === 1 ? "journey" : "journeys"} ({run.generation.event_count} events).
+          {run.generation.limited_by === "event_budget"
+            ? ` ${run.generation.requested_trajectories} were requested; the event budget stored fewer.`
+            : null}
+          {run.generation.limited_by === "studio_cap"
+            ? ` ${run.generation.requested_trajectories} were requested; this view stores ${run.generation.primary_trajectories}.`
+            : null}
+          {" "}Provider deep search is still off.
+        </p>
+      ) : null}
       {run.inherited_feedback_ids?.length ? (
         <p className="warn">This iteration inherited {run.inherited_feedback_ids.length} note{run.inherited_feedback_ids.length === 1 ? "" : "s"} from the previous run.</p>
       ) : null}
@@ -143,6 +162,26 @@ export default function RunPage() {
       {cycle?.revision_notes?.length ? <p className="warn">{cycle.revision_notes.join(" ")}</p> : null}
       <div className="stage">
         <div className="canvas-wrap">
+          {layout.primaries.length > 1 ? (
+            <div className="journey-picker">
+              <label htmlFor="journey">Journey</label>
+              <select
+                id="journey"
+                value={layout.parent.trajectory_id}
+                onChange={(e) => {
+                  setFocus(e.target.value);
+                  setSelected(null);
+                }}
+              >
+                {layout.primaries.map((item, index) => (
+                  <option key={item.trajectory_id} value={item.trajectory_id}>
+                    {index + 1}. {item.trajectory_type.replaceAll("_", " ")}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {layout.alt ? <p className="lede">The lower row is a simulated alternative branch, not a causal counterfactual.</p> : null}
           <div className="canvas" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(108px, 1fr))` }}>
             {layout.parent.event_ids.map((id, index) => (
               <EventNode

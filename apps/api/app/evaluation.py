@@ -28,8 +28,9 @@ def render_trajectory(bundle: TrajectoryBundle, trajectory_id: str) -> str:
 
 
 def corpus_excerpt(items: list) -> str:
-    parts = [f"{item.kind}: {item.name}" for item in items]
-    return "\n".join(parts)
+    from app.corpus_text import read_corpus_excerpt
+
+    return read_corpus_excerpt(items)
 
 
 def evaluate_bundle(

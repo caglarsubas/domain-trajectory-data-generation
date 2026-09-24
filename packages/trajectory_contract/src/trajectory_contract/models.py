@@ -110,6 +110,15 @@ class Sample(BaseModel):
     sequences: list[Sequence]
 
 
+class GenerationMeta(BaseModel):
+    generator_id: str
+    requested_trajectories: int
+    primary_trajectories: int
+    alternative_trajectories: int
+    event_count: int
+    limited_by: Literal["event_budget", "studio_cap"] | None = None
+
+
 class TrajectoryBundle(BaseModel):
     objects: list[ObjectRecord]
     relationships: list[Relationship]
@@ -118,3 +127,4 @@ class TrajectoryBundle(BaseModel):
     state_transitions: list[StateTransition]
     trajectories: list[Trajectory]
     samples: list[Sample] = Field(default_factory=list)
+    generation: GenerationMeta | None = None

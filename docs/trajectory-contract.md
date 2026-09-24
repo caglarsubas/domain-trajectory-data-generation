@@ -25,3 +25,5 @@ MiMo-V2.6 (LLM-Core Xiaomi, 2026) organizes an agent rollout as Sample, Sequence
 - A **segment** is one turn. Only segments with role `assistant` are trainable.
 
 The banking sector pack names the event types and state dimensions that hard checks enforce. Other sectors will supply their own packs later without changing these records.
+
+`banking-semi-markov-v1` fills these records for a banking run. Domain order is fixed, dwell times vary, and a branch is a simulated alternative rather than a causal counterfactual. The studio stores at most 64 primary trajectories for a run, and fewer when the event budget is exhausted. Warm-start text contributes only matched banking terms such as currency, channel, and product. Cold start ignores the corpus.

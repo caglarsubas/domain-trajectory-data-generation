@@ -190,7 +190,7 @@ function Composer() {
               ) : (
                 <div className="drop">
                   <strong>Drop documents</strong>
-                  <p className="lede">They stay on this study and are hashed, not sent to the generator yet.</p>
+                  <p className="lede">Text from these documents is read for currency, channel, and product terms. Those terms steer the generator. Provider deep search stays off.</p>
                   <input
                     type="file"
                     multiple
@@ -321,10 +321,10 @@ function Composer() {
           {step === 3 ? (
             <>
               <h1 className="word">Review the study</h1>
-              <p className="lede">Confirming saves the configuration. It does not generate trajectories. The investigation view opens on the banking sample.</p>
+              <p className="lede">Confirming generates synthetic banking journeys for this configuration. The investigation view opens on the first one.</p>
               <div className="actions">
                 <button className="primary" type="button" disabled={busy || !form.credential_id || form.sub_domains.length === 0} onClick={confirm}>
-                  {busy ? "Saving" : from ? "Run again" : "Open investigation"}
+                  {busy ? "Generating" : from ? "Run again" : "Generate journeys"}
                 </button>
               </div>
             </>

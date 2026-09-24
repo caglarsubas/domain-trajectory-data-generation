@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.evaluation import evaluate_bundle
+from app.generation import candidate_for_run
 from app.judge import EvalNotConfigured, InferenceEngineClient
 from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Project, Run
 from app.providers import PROVIDERS, get_provider
@@ -265,12 +266,14 @@ def link_corpus(project_id: str, body: CorpusLinkBody, account: AccountDep, db: 
 @router.post("/runs")
 def create_run(body: RunBody, account: AccountDep, db: Db) -> dict:
     config = config_from_body(body, account, db)
+    bundle = candidate_for_run(db, config, project_id=body.project_id, feedback_rows=[], parent=None)
     run = Run(
         project_id=body.project_id,
         owner_id=account.id,
-        status="stubbed",
+        status="generated",
         config=config,
         inherited_feedback_ids=[],
+        candidate=bundle.model_dump(mode="json"),
         cycle_count=0,
     )
     db.add(run)
@@ -324,13 +327,20 @@ def add_feedback(run_id: str, body: FeedbackBody, account: AccountDep, db: Db) -
 def rerun(run_id: str, body: RerunBody, account: AccountDep, db: Db) -> dict:
     parent = require_run(db, run_id, account)
     config, feedback_ids = rerun_config(parent, body, account, db)
+    rows = []
+    if feedback_ids:
+        rows = list(db.scalars(select(Feedback).where(Feedback.id.in_(feedback_ids))))
+        order = {item: index for index, item in enumerate(feedback_ids)}
+        rows.sort(key=lambda row: order.get(row.id, 0))
+    bundle = candidate_for_run(db, config, project_id=parent.project_id, feedback_rows=rows, parent=parent)
     child = Run(
         project_id=parent.project_id,
         owner_id=account.id,
         parent_run_id=parent.id,
-        status="stubbed",
+        status="generated",
         config=config,
         inherited_feedback_ids=feedback_ids,
+        candidate=bundle.model_dump(mode="json"),
         cycle_count=0,
     )
     db.add(child)
