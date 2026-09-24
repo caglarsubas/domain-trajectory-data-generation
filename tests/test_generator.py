@@ -144,6 +144,66 @@ def test_same_seed_is_stable_and_other_sectors_stay_unregistered():
     assert known_sectors() == ["banking"]
 
 
+def test_warm_corpus_names_events_unless_a_note_drops_them():
+    scope = ["onboarding_and_kyc", "risk_and_compliance", "deposits"]
+    notes = [
+        {"target_type": "trajectory", "target_id": "kyc_review", "stance": "drop", "comment": "Skip review."},
+        {"target_type": "trajectory", "target_id": "application_declined", "stance": "drop", "comment": "Skip decline."},
+    ]
+    kept = _bundle(
+        start_mode="warm",
+        sub_domains=scope,
+        corpus_text="Public notes: kyc.document_submitted before the check passes. Customers use USD on mobile.",
+        seed="events",
+        target_trajectory_count=2,
+        min_events=6,
+        max_events=16,
+        event_budget=200,
+        feedback=notes,
+    )
+    by_id = {event.event_id: event for event in kept.events}
+    primaries = [item for item in kept.trajectories if item.parent_trajectory_id is None]
+    assert primaries
+    assert all(
+        any(by_id[event_id].event_type == "kyc.document_submitted" for event_id in item.event_ids)
+        for item in primaries
+    )
+    assert any(event.currency == "USD" for event in kept.events)
+    assert any(event.event_type == "product.viewed" and event.channel_id == "mobile" for event in kept.events)
+    assert banking_hard_checks(kept) == []
+    plain = _bundle(
+        start_mode="warm",
+        sub_domains=scope,
+        corpus_text="Customers use USD on mobile.",
+        seed="events",
+        target_trajectory_count=2,
+        min_events=6,
+        max_events=16,
+        event_budget=200,
+        feedback=notes,
+    )
+    plain_events = {event.event_id: event for event in plain.events}
+    plain_primaries = [item for item in plain.trajectories if item.parent_trajectory_id is None]
+    assert all(
+        all(plain_events[event_id].event_type != "kyc.document_submitted" for event_id in item.event_ids)
+        for item in plain_primaries
+    )
+    dropped = _bundle(
+        start_mode="warm",
+        sub_domains=["cards_and_payments", "onboarding_and_kyc"],
+        corpus_text="card.issued then card.activated",
+        seed="drop-issued",
+        target_trajectory_count=2,
+        min_events=4,
+        max_events=16,
+        event_budget=200,
+        feedback=[{"target_type": "event", "target_id": "card.issued", "stance": "drop", "comment": "No issuance."}],
+    )
+    assert all(event.event_type != "card.issued" for event in dropped.events)
+    assert all(event.event_type != "card.activated" for event in dropped.events)
+    assert banking_hard_checks(dropped) == []
+
+
 def test_helpfulness_revision_adds_a_longer_journey():
     bundle = _bundle(revision_notes=["helpfulness 1 below 3. Make the journey more representative."], seed="help")
     primaries = [item for item in bundle.trajectories if item.parent_trajectory_id is None]

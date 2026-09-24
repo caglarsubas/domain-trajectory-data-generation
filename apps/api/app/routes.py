@@ -17,6 +17,7 @@ from app.providers import PROVIDERS, get_provider
 from app.schemas import (
     CorpusLinkBody,
     CredentialBody,
+    DeepSearchBody,
     EvaluateBody,
     FeedbackBody,
     LoginBody,
@@ -25,8 +26,11 @@ from app.schemas import (
     RerunBody,
     RunBody,
 )
+from app.search import DeepSearchError, default_query, run_deep_search
 from app import runtime
-from app.security import encrypt_secret, fingerprint, hash_password, issue_token, read_token, verify_password
+from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_password, issue_token, read_token, verify_password
+from sectors.banking.corpus import scrub_text
+from sectors.registry import get_sector
 from app.serialize import project_out, run_out
 from app.service import config_from_body, require_project, require_run, rerun_config
 from app.settings import Settings, load_settings
@@ -260,6 +264,75 @@ def link_corpus(project_id: str, body: CorpusLinkBody, account: AccountDep, db: 
         "uri": item.uri,
         "content_hash": item.content_hash,
         "provenance": item.provenance,
+    }
+
+
+@router.post("/projects/{project_id}/deep-search")
+def deep_search_corpus(project_id: str, body: DeepSearchBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
+    project = require_project(db, project_id, account)
+    try:
+        sector = get_sector("banking")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    unknown = [name for name in body.sub_domains if name not in sector.sub_domains]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"unknown sub-domains: {', '.join(unknown)}")
+    credential = db.get(Credential, body.credential_id)
+    if credential is None or credential.account_id != account.id:
+        raise HTTPException(status_code=404, detail="credential not found")
+    if credential.scope == "platform" and account.kind != "admin":
+        raise HTTPException(status_code=403, detail="platform credentials are only available to admin")
+    if account.kind in {"user", "demo"} and credential.scope != "byok":
+        raise HTTPException(status_code=403, detail="user and demo runs require your own key")
+    if not credential.ready:
+        raise HTTPException(status_code=422, detail="credential is not ready for deep search")
+    try:
+        spec = get_provider(credential.provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    secret = decrypt_secret(cfg.credential_master_key, credential.ciphertext)
+    query = (body.query or "").strip() or default_query(body.sub_domains, body.language)
+    try:
+        if runtime.searcher is not None:
+            result = runtime.searcher.search(query, provider=spec.id, key=secret)
+        else:
+            result = run_deep_search(spec.id, query, key=secret)
+    except DeepSearchError as exc:
+        raise HTTPException(status_code=502, detail=f"{spec.label} deep search failed") from exc
+    text = scrub_text(result.text).strip()
+    if secret and secret in text:
+        text = text.replace(secret, "")
+    if not text:
+        raise HTTPException(status_code=502, detail=f"{spec.label} deep search returned no text")
+    sources = [item for item in result.sources if item.startswith(("https://", "http://"))][:12]
+    stored = text[:12000]
+    if sources:
+        stored = f"{stored}\n\nSources:\n" + "\n".join(sources)
+    digest = hashlib.sha256(stored.encode()).hexdigest()
+    cfg.upload_dir.mkdir(parents=True, exist_ok=True)
+    path = cfg.upload_dir / f"{digest}-deep-search-{spec.id}.txt"
+    path.write_text(stored, encoding="utf-8")
+    item = CorpusItem(
+        project_id=project.id,
+        kind="deep_search",
+        name=f"Deep search · {spec.label}",
+        storage_path=str(path),
+        content_hash=digest,
+        provenance=f"provider:{spec.id}",
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {
+        "id": item.id,
+        "kind": item.kind,
+        "name": item.name,
+        "content_hash": item.content_hash,
+        "provenance": item.provenance,
+        "provider": spec.id,
+        "model": result.model,
+        "sources": sources,
+        "excerpt": text[:600],
     }
 
 

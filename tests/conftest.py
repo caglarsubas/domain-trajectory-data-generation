@@ -21,6 +21,8 @@ from app import runtime
 def client():
     init_db("sqlite://")
     runtime.judge = None
+    runtime.searcher = None
     with TestClient(app) as test_client:
         yield test_client
     runtime.judge = None
+    runtime.searcher = None

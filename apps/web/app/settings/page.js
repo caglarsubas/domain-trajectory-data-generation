@@ -34,7 +34,7 @@ export default function Settings() {
   return (
     <Shell>
       <h1 className="word" style={{ fontSize: 52, marginBottom: 0 }}>Your keys</h1>
-      <p className="lede">OpenAI, Anthropic, Google, and xAI keys stay on your account and must support deep search. The secret is not shown again.</p>
+      <p className="lede">OpenAI, Anthropic, Google, and xAI keys stay on your account. A warm study can send a web search to the provider you choose. The secret is not shown again.</p>
       {error ? <div className="error">{error}</div> : null}
       <form onSubmit={save} style={{ maxWidth: 520 }}>
         <label>Provider</label>

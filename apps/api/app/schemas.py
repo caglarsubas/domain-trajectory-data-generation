@@ -121,5 +121,12 @@ class RerunBody(BaseModel):
     credential_id: str | None = None
 
 
+class DeepSearchBody(BaseModel):
+    credential_id: str
+    query: str | None = Field(default=None, max_length=2000)
+    sub_domains: list[str] = Field(default_factory=list)
+    language: str = Field(default="en", min_length=2, max_length=16)
+
+
 class EvaluateBody(BaseModel):
     candidate: dict[str, Any] | None = None

@@ -22,8 +22,10 @@ class ProviderSpec:
             return "xAI keys start with xai-"
         return None
 
-    def deep_search(self, query: str, *, key: str) -> None:
-        raise NotImplementedError(f"{self.id} deep search is not implemented")
+    def deep_search(self, query: str, *, key: str):
+        from app.search import run_deep_search
+
+        return run_deep_search(self.id, query, key=key)
 
 
 PROVIDERS: dict[str, ProviderSpec] = {

@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from sectors.banking.pack import EVENT_NAMESPACE
+
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 _SECRET = re.compile(r"\b(?:sk|xai|AIza)[A-Za-z0-9_\-]{6,}\b")
 _LONG_NUMBER = re.compile(r"\d{6,}")
@@ -47,6 +49,7 @@ class CorpusSteering:
     channel: str | None
     products: tuple[str, ...]
     terms: tuple[str, ...]
+    events: tuple[str, ...] = ()
 
 
 def scrub_text(text: str) -> str:
@@ -66,4 +69,18 @@ def steering_from_text(text: str) -> CorpusSteering:
         if token in folded and name not in products:
             products.append(name)
     terms = tuple(dict.fromkeys(item for item in (currency, channel, *products) if item))
-    return CorpusSteering(currency=currency, channel=channel, products=tuple(products), terms=terms)
+    return CorpusSteering(
+        currency=currency,
+        channel=channel,
+        products=tuple(products),
+        terms=terms,
+        events=_events(folded),
+    )
+
+
+def _events(folded: str) -> tuple[str, ...]:
+    found: list[str] = []
+    for name in EVENT_NAMESPACE:
+        if name in folded or name.replace(".", " ") in folded:
+            found.append(name)
+    return tuple(found)
