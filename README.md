@@ -33,6 +33,8 @@ cd apps/web && npm install && npm run dev
 
 `docker compose up --build` starts Postgres, the API, and the studio. The API listens on port 8000 and the studio on port 3000. Tables are created when the API starts.
 
+The studio calls the API through its own server, so sign-in works when the page is opened on a host other than localhost. Set `NEXT_PUBLIC_API_URL` only when the browser should call the API directly.
+
 Compose fills local defaults when these are unset or empty in `.env`: `CREDENTIAL_MASTER_KEY`, `JWT_SECRET`, `ADMIN_EMAIL` (`admin@example.com`), and `ADMIN_PASSWORD` (`choose-a-password-123`). Put a real inference-engine key in `.env` when you want the judge to run. Do not commit `.env`.
 
 ```bash
