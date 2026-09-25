@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import KeyRows from "../../components/KeyRows";
 import Shell from "../../components/Shell";
 import { api } from "../../lib/api";
 
@@ -50,14 +51,7 @@ export default function Settings() {
         <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} required />
         <div className="actions"><button className="primary" type="submit">Save key</button></div>
       </form>
-      <div className="docs">
-        {rows.map((row) => (
-          <div className="doc" key={row.id}>
-            <span>{row.label} · {row.provider}</span>
-            <small>{row.fingerprint} · {row.ready ? "ready" : "not ready"}</small>
-          </div>
-        ))}
-      </div>
+      <KeyRows rows={rows} onChange={refresh} onError={setError} />
     </Shell>
   );
 }

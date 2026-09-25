@@ -10,12 +10,13 @@ from app.db import SessionLocal, init_db
 from app.models import Account
 from app.routes import router
 from app.security import hash_password
-from app.settings import load_settings
+from app.settings import check_startup, load_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = load_settings()
+    check_startup(cfg)
     init_db(cfg.database_url)
     if cfg.admin_email and cfg.admin_password:
         db = SessionLocal()

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import KeyRows from "../../components/KeyRows";
 import Shell from "../../components/Shell";
 import { account, api } from "../../lib/api";
 
@@ -13,9 +14,13 @@ export default function Admin() {
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
 
+  function refresh() {
+    return api("/credentials").then((data) => setRows(data.data.filter((item) => item.scope === "platform")));
+  }
+
   useEffect(() => {
     if (account() && account().kind !== "admin") router.replace("/studio");
-    api("/credentials").then((data) => setRows(data.data.filter((item) => item.scope === "platform"))).catch((err) => setError(err.message));
+    refresh().catch((err) => setError(err.message));
   }, [router]);
 
   async function save(event) {
@@ -24,8 +29,7 @@ export default function Admin() {
     try {
       await api("/credentials", { method: "POST", body: JSON.stringify({ provider, label, secret, scope: "platform" }) });
       setSecret("");
-      const data = await api("/credentials");
-      setRows(data.data.filter((item) => item.scope === "platform"));
+      await refresh();
     } catch (err) {
       setError(err.message);
     }
@@ -50,11 +54,7 @@ export default function Admin() {
         <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} required />
         <div className="actions"><button className="primary" type="submit">Store platform key</button></div>
       </form>
-      <div className="docs">
-        {rows.map((row) => (
-          <div className="doc" key={row.id}><span>{row.label} · {row.provider}</span><small>{row.fingerprint}</small></div>
-        ))}
-      </div>
+      <KeyRows rows={rows} onChange={refresh} onError={setError} />
     </Shell>
   );
 }

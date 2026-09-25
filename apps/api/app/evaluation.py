@@ -5,6 +5,8 @@ from trajectory_contract.models import TrajectoryBundle
 from app.judge import Judge
 from sectors.registry import get_sector
 
+UNREADABLE = "_unreadable"
+
 DEFAULT_THRESHOLDS = {
     "helpfulness": 3.0,
     "correctness": 0.5,
@@ -110,6 +112,12 @@ def evaluate_bundle(
         result = judge.run_eval(rubric=rubric, **payload)
         score = float(result["score"])
         minimum = float(thresholds.get(rubric, DEFAULT_THRESHOLDS[rubric]))
+        if not result.get("readable", True):
+            # No verdict is not a low score: keep it out of the revision notes that steer the next run.
+            accepted = False
+            parsed = {**(result.get("parsed") or {}), UNREADABLE: True}
+            verdicts.append({"rubric": rubric, "score": score, **{k: result[k] for k in ("raw", "judge_model", "duration_ms")}, "parsed": parsed})
+            continue
         if score < minimum:
             accepted = False
             justification = ""

@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.evaluation import evaluate_bundle
 from app.generation import candidate_for_run
-from app.judge import EvalNotConfigured, InferenceEngineClient
+from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
 from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Project, Run
 from app.providers import PROVIDERS, get_provider
 from app.schemas import (
     CorpusLinkBody,
     CredentialBody,
+    CredentialUpdateBody,
     DeepSearchBody,
     EvaluateBody,
     FeedbackBody,
@@ -170,6 +171,36 @@ def create_credential(body: CredentialBody, account: AccountDep, db: Db, cfg: Cf
 def list_credentials(account: AccountDep, db: Db) -> dict:
     rows = list(db.scalars(select(Credential).where(Credential.account_id == account.id)))
     return {"data": [_credential_out(row) for row in rows]}
+
+
+def _own_credential(db: Session, credential_id: str, account: Account) -> Credential:
+    row = db.get(Credential, credential_id)
+    if row is None or row.account_id != account.id:
+        raise HTTPException(status_code=404, detail="credential not found")
+    return row
+
+
+@router.patch("/credentials/{credential_id}")
+def update_credential(credential_id: str, body: CredentialUpdateBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
+    row = _own_credential(db, credential_id, account)
+    if body.label is not None:
+        row.label = body.label
+    if body.secret is not None:
+        problem = get_provider(row.provider).validate(body.secret)
+        if problem:
+            raise HTTPException(status_code=422, detail=problem)
+        row.ciphertext = encrypt_secret(cfg.credential_master_key, body.secret)
+        row.fingerprint = fingerprint(body.secret)
+    db.commit()
+    db.refresh(row)
+    return _credential_out(row)
+
+
+@router.delete("/credentials/{credential_id}", status_code=204)
+def delete_credential(credential_id: str, account: AccountDep, db: Db) -> None:
+    row = _own_credential(db, credential_id, account)
+    db.delete(row)
+    db.commit()
 
 
 def _credential_out(row: Credential) -> dict:
@@ -437,6 +468,7 @@ def _judge_for(cfg: Settings) -> InferenceEngineClient:
             tenant=cfg.inference_tenant,
             org_id=cfg.inference_org_id,
             key_id=cfg.inference_key_id,
+            judge_model=cfg.inference_judge_model,
         )
     except EvalNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -482,11 +514,11 @@ def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: 
             thresholds=run.config["thresholds"],
             judge=_Lazy(),
         )
+    except JudgeUnavailable as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
     finally:
         for client in created:
             client.close()
-    if result["called_judge"] is False and result["hard_check_passed"] is False:
-        pass
     cycle = EvalCycle(
         run_id=run.id,
         cycle_index=run.cycle_count + 1,

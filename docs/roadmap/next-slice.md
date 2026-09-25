@@ -33,6 +33,8 @@ Exporting now would ship eight sequences with repeated events and contradictions
 
 Exit: a live evaluation succeeds from the Compose stack with the new key.
 
+Result, 25 September 2026: done. The key was rotated, and the old key now gets 401 from the engine. A live evaluation through the studio API reached the engine through the configured address, which still ends in `/v1.`, and got verdicts from `qwen3.8:27b` in about a minute. The same run exposed empty verdicts from the engine, so Slice 0 also stops treating an unreadable verdict as a score of 0. It leaves the rubric unscored, adds no revision note, and says so on the run page.
+
 ## Slice 1: trustworthy journeys
 
 ### A shared lifecycle engine
