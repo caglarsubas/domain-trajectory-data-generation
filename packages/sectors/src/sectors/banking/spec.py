@@ -373,6 +373,16 @@ FOLLOW_UPS = {
 }
 
 
+def intent(types: list[str]) -> str | None:
+    if "loan.disbursed" in types:
+        return "loan"
+    if "card.issued" in types:
+        return "card"
+    if "account.opened" in types:
+        return "account"
+    return None
+
+
 def subtype(kind: str, default: str, steering: Any) -> str:
     if kind in {"offering", "account"} and "savings" in steering.products:
         return "savings"
@@ -461,4 +471,5 @@ PACK = PackSpec(
     success=success,
     subtype=subtype,
     correctness_drops=("loan.delinquent",),
+    intent=intent,
 )

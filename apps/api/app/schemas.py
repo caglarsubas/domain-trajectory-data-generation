@@ -102,6 +102,7 @@ class RunBody(BaseModel):
     target_family: Literal["llm", "jev"]
     thresholds: dict[str, float] | None = None
     max_cycles: int = Field(default=2, ge=1, le=8)
+    group_size: int = Field(default=1, ge=1, le=16)
     credential_id: str
 
 
@@ -129,6 +130,7 @@ class RerunBody(BaseModel):
     target_family: str | None = None
     thresholds: dict[str, float] | None = None
     max_cycles: int | None = Field(default=None, ge=1, le=8)
+    group_size: int | None = Field(default=None, ge=1, le=16)
     credential_id: str | None = None
 
 

@@ -66,6 +66,7 @@ def candidate_for_run(
         revision_notes=revisions,
         parent_bundle=parent.candidate if parent is not None else None,
         seed=json.dumps(seed_payload, sort_keys=True, default=str),
+        group_size=int(config.get("group_size") or 1),
     )
     errors = sector.hard_checks(bundle)
     if errors:

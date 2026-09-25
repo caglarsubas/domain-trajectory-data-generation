@@ -86,6 +86,8 @@ class Trajectory(BaseModel):
     probability: float | None = None
     # False on a simulated alternative: it makes no causal claim about what would have happened.
     causal_claim: bool | None = None
+    # Trajectories drawn for the same prompt share a group id, the id of their sample.
+    group_id: str | None = None
     event_ids: list[str]
 
 
@@ -94,19 +96,30 @@ class Segment(BaseModel):
     role: Literal["system", "user", "assistant", "tool"]
     text: str
     trainable: bool = False
+    # A penalty rule that fired on this turn, and the advantage the turn carries after penalties.
+    flagged_reason: str | None = None
+    advantage: float | None = None
 
 
 class Context(BaseModel):
     context_id: str
     segments: list[Segment]
+    dropped: bool | None = None
 
 
 class Sequence(BaseModel):
     sequence_id: str
+    trajectory_id: str | None = None
     contexts: list[Context]
     reward: float | None = None
     advantage: float | None = None
     mask: list[int] | None = None
+    outcome: Literal["pass", "fail"] | None = None
+    solution_score: float | None = None
+    behavior_score: float | None = None
+    quality_factor: float | None = None
+    token_estimate: int | None = None
+    dropped: bool | None = None
 
 
 class Sample(BaseModel):
@@ -115,6 +128,9 @@ class Sample(BaseModel):
     trajectory_id: str | None = None
     prompt: str
     sequences: list[Sequence]
+    # The dynamic sampler rejects all-pass and all-fail groups; a group of one carries no group signal.
+    group_accepted: bool | None = None
+    group_pass_rate: float | None = None
 
 
 class GenerationMeta(BaseModel):
@@ -125,6 +141,8 @@ class GenerationMeta(BaseModel):
     event_count: int
     limited_by: Literal["event_budget", "studio_cap"] | None = None
     pack_version: str | None = None
+    group_size: int | None = None
+    rewards: dict[str, Any] | None = None
     steering: dict[str, Any] | None = None
     quality: dict[str, Any] | None = None
 

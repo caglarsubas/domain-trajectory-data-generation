@@ -26,6 +26,7 @@ from trajectory_contract.models import (
 )
 
 from sectors.lifecycle import LifecycleSpec, Path, Walker, allowed_events, dwell
+from sectors import rewards
 from sectors.quality import quality_report
 
 STUDIO_TRAJECTORY_CAP = 64
@@ -88,6 +89,8 @@ class PackSpec:
     effective_lag_hours: dict[str, tuple[float, float]] = field(default_factory=dict)
     # A "correctness" revision note removes these events, which the judge found unsupported.
     correctness_drops: tuple[str, ...] = ()
+    # What the customer is after, such as a loan; the sequences of one group keep the same intent.
+    intent: Callable[[list[str]], str | None] = lambda types: None
 
 
 @dataclass(frozen=True)
@@ -107,12 +110,13 @@ class _Ids:
         return f"{prefix}{self.counts[prefix]:05d}"
 
 
-class _Scored:
-    def __init__(self, sample: Sample, types: list[str], success: bool, coverage: float) -> None:
-        self.sample = sample
+class _Member:
+    """One sequence of a group: the events it narrates and how it scores."""
+
+    def __init__(self, types: list[str], trajectory_id: str, success: bool, coverage: float) -> None:
         self.types = types
+        self.trajectory_id = trajectory_id
         self.success = success
-        self.length = len(types)
         self.coverage = coverage
 
 
@@ -124,7 +128,8 @@ class _Journey:
         self.links: list[EventObject] = []
         self.transitions: list[StateTransition] = []
         self.trajectories: list[Trajectory] = []
-        self.scored: list[_Scored] = []
+        # Each group becomes one sample; a group of one is a sample with a single sequence.
+        self.groups: list[list[_Member]] = []
 
 
 def generate_bundle(
@@ -150,6 +155,7 @@ def generate_bundle(
     parent_bundle: TrajectoryBundle | dict[str, Any] | None = None,
     seed: str = "trajectory",
     materialization_cap: int = STUDIO_TRAJECTORY_CAP,
+    group_size: int = 1,
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -170,8 +176,10 @@ def generate_bundle(
     walker = Walker(lifecycle, allowed=allowed, sub_domains=domains, named=named, kept=tuple(kept))
     # Separate streams: timing or wording changes never change which journeys are drawn.
     paths, clock, words = _rng(seed), _rng(seed + "|time"), _rng(seed + "|text")
+    size = min(max(int(group_size), 1), MAX_GROUP_SIZE)
     requested = max(int(target_trajectory_count), 1)
-    limit = min(requested, max(int(materialization_cap), 1))
+    # The cap counts every sequence the studio stores, so larger groups mean fewer prompts.
+    limit = min(requested, max(int(materialization_cap) // size, 1))
     floor, cap = _bounds(min_events, max_events)
     if enrich:
         floor = min(floor + 1, cap)
@@ -191,13 +199,20 @@ def generate_bundle(
         if not path.steps:
             # Nothing is legal from the start, for example when notes dropped every opening event.
             break
-        branch = walker.branch(path, paths, cap=cap)
-        extra = 0
-        if branch is not None:
-            extra = len(branch[0].steps) - branch[1]
+        if size > 1:
+            split, rollouts = _rollouts(walker, pack, paths, path, size, floor=floor, cap=cap, dropped=dropped_kinds)
+            extra = sum(len(item.steps) - split for item in rollouts)
             if remaining is not None and len(path.steps) + extra > remaining:
-                branch, extra = None, 0
-        built.append(_materialize(context, path=path, branch=branch))
+                rollouts, extra = [], 0
+            built.append(_materialize_group(context, path=path, split=split, rollouts=rollouts))
+        else:
+            branch = walker.branch(path, paths, cap=cap)
+            extra = 0
+            if branch is not None:
+                extra = len(branch[0].steps) - branch[1]
+                if remaining is not None and len(path.steps) + extra > remaining:
+                    branch, extra = None, 0
+            built.append(_materialize(context, path=path, branch=branch))
         if remaining is not None:
             remaining -= len(path.steps) + extra
             if remaining <= 0:
@@ -206,8 +221,9 @@ def generate_bundle(
 
     if limited_by is None and len(built) < requested:
         limited_by = "studio_cap"
-    scored = [item for journey in built for item in journey.scored]
-    _apply_rewards(scored, reward_mechanism)
+    samples = [_group_sample(context, group) for journey in built for group in journey.groups]
+    groups = [group for journey in built for group in journey.groups]
+    reward_summary = score_samples(samples, groups, reward_mechanism)
     events = [event for journey in built for event in journey.events]
     bundle = TrajectoryBundle(
         objects=[item for journey in built for item in journey.objects],
@@ -216,13 +232,15 @@ def generate_bundle(
         event_objects=[item for journey in built for item in journey.links],
         state_transitions=[item for journey in built for item in journey.transitions],
         trajectories=[item for journey in built for item in journey.trajectories],
-        samples=[item.sample for item in scored],
+        samples=samples,
         generation=GenerationMeta(
             generator_id=pack.generator_id,
             pack_version=pack.pack_version,
+            group_size=size,
+            rewards=reward_summary,
             requested_trajectories=requested,
             primary_trajectories=len(built),
-            alternative_trajectories=sum(1 for journey in built if len(journey.trajectories) > 1),
+            alternative_trajectories=sum(len(journey.trajectories) - 1 for journey in built),
             event_count=len(events),
             limited_by=limited_by,
             steering=None if cold else {
@@ -315,7 +333,7 @@ def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, floa
             event_ids=[item.event_id for item in primary],
         )
     )
-    journey.scored.append(_score(context, types, trajectory_id))
+    journey.groups.append([_member(context, types, trajectory_id)])
     if branch is not None:
         alt_path, split, probability = branch
         anchor = primary[split - 1]
@@ -338,21 +356,122 @@ def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, floa
                 event_ids=[item.event_id for item in primary[:split]] + [item.event_id for item in alt_events],
             )
         )
-        journey.scored.append(_score(context, alt_path.types, alt_id))
+        journey.groups.append([_member(context, alt_path.types, alt_id)])
     _relate(pack, catalog, primary[0].event_time, context.ids, journey)
     return journey
 
 
-def _score(context: _Context, types: list[str], trajectory_id: str) -> _Scored:
+def _first_decision(path: Path) -> int:
+    """Index of the first step, after the opening, where the machines offered more than one choice."""
+    for index, step in enumerate(path.steps):
+        if index and len(step.options) > 1:
+            return index
+    return len(path.steps)
+
+
+def _rollouts(
+    walker: Walker,
+    pack: PackSpec,
+    rng: random.Random,
+    path: Path,
+    size: int,
+    *,
+    floor: int,
+    cap: int,
+    dropped: set[str],
+) -> tuple[int, list[Path]]:
+    """Further sequences for the same prompt: the shared prefix, then a fresh walk from the first decision.
+
+    A rollout keeps the first sequence's intent, such as a loan, so one opening fits the whole group.
+    """
+    split = _first_decision(path)
+    if split >= len(path.steps):
+        return split, []
+    step = path.steps[split]
+    intent = pack.intent(path.types)
+    rollouts = []
+    for _ in range(size - 1):
+        best: Path | None = None
+        for _attempt in range(PATH_ATTEMPTS):
+            walked = walker.walk(rng, floor=floor, cap=cap, state=step.state_before, counts=step.counts_before, prefix=path.steps[:split])
+            fits = pack.intent(walked.types) in (None, intent)
+            wanted = pack.classify(walked.types) not in dropped
+            best = walked if best is None else best
+            if fits and wanted and len(walked.steps) >= floor:
+                best = walked
+                break
+        assert best is not None
+        rollouts.append(best)
+    return split, rollouts
+
+
+def _materialize_group(context: _Context, *, path: Path, split: int, rollouts: list[Path]) -> _Journey:
+    pack = context.pack
+    journey = _Journey()
+    catalog: dict[str, ObjectRecord] = {}
+    state: dict[tuple[str, str], str] = {}
+    snapshots: dict[str, dict[tuple[str, str], str]] = {}
+    start = _start_time(context.clock)
+    _ensure(pack, "party", start, catalog, context.steering, context.ids, journey)
+    primary = _emit(context, path.types, start=start, advance_first=False, catalog=catalog, state=state,
+                    snapshots=snapshots, journey=journey)
+    root = catalog["party"].object_id
+    trajectory_id = context.ids.take("T")
+    group_id = f"G{trajectory_id[1:]}"
+    journey.trajectories.append(
+        Trajectory(
+            trajectory_id=trajectory_id,
+            root_party_id=root,
+            trajectory_type=pack.classify(path.types),
+            start=primary[0].event_time,
+            end=primary[-1].event_time,
+            observed_or_synthetic="synthetic",
+            generator_id=pack.generator_id,
+            probability=1.0,
+            group_id=group_id,
+            event_ids=[item.event_id for item in primary],
+        )
+    )
+    members = [_member(context, path.types, trajectory_id)]
+    anchor = primary[split - 1] if rollouts else None
+    for number, rollout in enumerate(rollouts, start=2):
+        assert anchor is not None
+        # A rollout may end at the decision point itself: the customer went no further.
+        probability = None
+        if len(rollout.steps) > split:
+            step = rollout.steps[split]
+            probability = round(dict(step.options)[step.event_type] / sum(weight for _, weight in step.options), 2)
+        events = _emit(context, rollout.types[split:], start=anchor.event_time, advance_first=True, catalog=catalog,
+                       state=dict(snapshots[anchor.event_id]), snapshots=snapshots, journey=journey)
+        rollout_id = f"{trajectory_id}R{number:02d}"
+        journey.trajectories.append(
+            Trajectory(
+                trajectory_id=rollout_id,
+                root_party_id=root,
+                trajectory_type=pack.classify(rollout.types),
+                start=primary[0].event_time,
+                end=events[-1].event_time if events else anchor.event_time,
+                observed_or_synthetic="alternative",
+                parent_trajectory_id=trajectory_id,
+                branch_event_id=anchor.event_id,
+                generator_id=pack.generator_id,
+                probability=probability,
+                causal_claim=False,
+                group_id=group_id,
+                event_ids=[item.event_id for item in primary[:split]] + [item.event_id for item in events],
+            )
+        )
+        members.append(_member(context, rollout.types, rollout_id))
+    journey.groups.append(members)
+    _relate(pack, catalog, primary[0].event_time, context.ids, journey)
+    return journey
+
+
+def _member(context: _Context, types: list[str], trajectory_id: str) -> _Member:
     lifecycle = context.pack.lifecycle
     touched = set(types)
     covered = sum(1 for domain in context.domains if any(domain in lifecycle[name].sub_domains for name in touched))
-    return _Scored(
-        _sample(context, types=types, trajectory_id=trajectory_id),
-        types,
-        context.pack.success(types),
-        covered / len(context.domains),
-    )
+    return _Member(types, trajectory_id, context.pack.success(types), covered / len(context.domains))
 
 
 # Relative likelihood of a journey starting on each weekday (Monday first) and in each hour.
@@ -499,7 +618,8 @@ def _relate(pack: PackSpec, catalog: dict[str, ObjectRecord], when: datetime, id
             )
 
 
-def _sample(context: _Context, *, types: list[str], trajectory_id: str) -> Sample:
+def _group_sample(context: _Context, members: list[_Member]) -> Sample:
+    """One prompt, one opening, and one sequence per member. The first member sets the prompt."""
     pack, words, ids, steering = context.pack, context.words, context.ids, context.steering
     phrases = pack.phrases[context.lang]
     if context.cold:
@@ -528,29 +648,30 @@ def _sample(context: _Context, *, types: list[str], trajectory_id: str) -> Sampl
     if context.revisions:
         system += " Revision notes: " + " | ".join(context.revisions)
     system = system[:2000]
-    kind = pack.classify(types)
+    first = members[0].types
     openings = pack.openings[context.lang]
-    segments = [
-        Segment(segment_id=ids.take("G"), role="system", text=system, trainable=False),
-        Segment(
-            segment_id=ids.take("G"),
-            role="user",
-            text=words.choice(openings.get(f"@{types[0]}") or openings.get(kind) or openings["*"]),
-            trainable=False,
-        ),
-    ]
-    for index, turn in enumerate(_turns([phrases[item] for item in types], context.turns)):
-        if index:
-            segments.append(
-                Segment(segment_id=ids.take("G"), role="user", text=words.choice(pack.follow_ups[context.lang]), trainable=False)
+    opening = words.choice(openings.get(f"@{first[0]}") or openings.get(pack.classify(first)) or openings["*"])
+    prompt = words.choice(pack.prompts[context.lang])
+    sequences = []
+    for member in members:
+        segments = [
+            Segment(segment_id=ids.take("G"), role="system", text=system, trainable=False),
+            Segment(segment_id=ids.take("G"), role="user", text=opening, trainable=False),
+        ]
+        for index, turn in enumerate(_turns([phrases[item] for item in member.types], context.turns)):
+            if index:
+                segments.append(
+                    Segment(segment_id=ids.take("G"), role="user", text=words.choice(pack.follow_ups[context.lang]), trainable=False)
+                )
+            segments.append(Segment(segment_id=ids.take("G"), role="assistant", text=turn, trainable=True))
+        sequences.append(
+            Sequence(
+                sequence_id=ids.take("Q"),
+                trajectory_id=member.trajectory_id,
+                contexts=[Context(context_id=ids.take("X"), segments=segments)],
             )
-        segments.append(Segment(segment_id=ids.take("G"), role="assistant", text=turn, trainable=True))
-    return Sample(
-        sample_id=ids.take("S"),
-        trajectory_id=trajectory_id,
-        prompt=words.choice(pack.prompts[context.lang]),
-        sequences=[Sequence(sequence_id=ids.take("Q"), contexts=[Context(context_id=ids.take("X"), segments=segments)])],
-    )
+        )
+    return Sample(sample_id=ids.take("S"), trajectory_id=members[0].trajectory_id, prompt=prompt, sequences=sequences)
 
 
 def _turns(sentences: list[str], turns: int) -> list[str]:
@@ -566,27 +687,121 @@ def _turns(sentences: list[str], turns: int) -> list[str]:
     return grouped
 
 
-def _apply_rewards(scored: list[_Scored], mechanism: str) -> None:
-    if not scored:
-        return
-    successes = [1.0 if item.success else 0.0 for item in scored]
-    lengths = [max(item.length, 1) for item in scored]
-    mean_success = sum(successes) / len(successes)
-    median = statistics.median(lengths)
-    for item, success, length in zip(scored, successes, lengths):
-        sequence = item.sample.sequences[0]
+MAX_GROUP_SIZE = 16
+OVERLONG_TOKENS = 400
+# Penalty rules detect; strategies act. Every rule starts in record-only mode: it is flagged and
+# counted, and changes no reward, mask, or advantage until it is switched to a masking strategy.
+ENFORCED_RULES: frozenset[str] = frozenset()
+
+
+def token_estimate(text: str) -> int:
+    return round(len(text.split()) * 4 / 3)
+
+
+def _flag(segments: list[Segment]) -> None:
+    previous = None
+    for segment in segments:
+        if segment.role != "assistant":
+            continue
+        if not segment.text.strip():
+            segment.flagged_reason = "empty_turn"
+        elif segment.text == previous:
+            segment.flagged_reason = "repeated_turn"
+        elif token_estimate(segment.text) > OVERLONG_TOKENS:
+            segment.flagged_reason = "overlong_turn"
+        previous = segment.text
+
+
+def score_samples(samples: list[Sample], groups: list[list[_Member]], mechanism: str) -> dict:
+    """Rewards and advantages per group with the shared MiMo mechanisms, then segment advantages across the run."""
+    flags: dict[str, int] = {}
+    accepted = judged = passes = total = 0
+    all_sequences: list[Sequence] = []
+    for sample, members in zip(samples, groups):
+        passed = [member.success for member in members]
+        solution = [0.5 + 0.5 * member.coverage for member in members]
+        # Behavior is conformance to the pack's machines: every generated journey replays legally.
+        behavior = [1.0 for _ in members]
+        lengths = []
+        for sequence in sample.sequences:
+            segments = [segment for context in sequence.contexts for segment in context.segments]
+            _flag(segments)
+            for segment in segments:
+                if segment.flagged_reason:
+                    flags[segment.flagged_reason] = flags.get(segment.flagged_reason, 0) + 1
+            sequence.token_estimate = sum(token_estimate(segment.text) for segment in segments if segment.trainable)
+            lengths.append(sequence.token_estimate)
+        binary = [1.0 if ok else 0.0 for ok in passed]
+        quality = [None] * len(members)
         if mechanism == "groupwise_reward_synthesis":
-            sequence.reward = round(success * (0.5 + 0.5 * item.coverage), 4)
-        elif mechanism == "group_relative_length_penalty":
-            sequence.reward = round(success * min(1.0, median / length), 4)
+            reward = [rewards.multiplicative_reward(ok, sol, beh) for ok, sol, beh in zip(passed, solution, behavior)]
+            advantage = rewards.group_advantages(reward)
         elif mechanism == "groupwise_advantage_redistribution":
-            sequence.reward = success
-            sequence.advantage = round(success - mean_success, 4)
-        elif mechanism == "segment_penalty":
-            sequence.reward = success
-            sequence.mask = [1 if segment.trainable else 0 for context in sequence.contexts for segment in context.segments]
+            reward = binary
+            best = max((sol * beh for ok, sol, beh in zip(passed, solution, behavior) if ok), default=1.0)
+            quality = [(sol * beh) / best if ok else None for ok, sol, beh in zip(passed, solution, behavior)]
+            advantage = rewards.redistribute(reward, passed, [value or 1.0 for value in quality])
+        elif mechanism == "group_relative_length_penalty":
+            reward = rewards.length_penalty(binary, passed, lengths)
+            advantage = rewards.group_advantages(reward)
         else:
-            sequence.reward = success
+            reward = binary
+            advantage = rewards.group_advantages(reward)
+        survives = []
+        for sequence, value, adv, ok, sol, beh, factor in zip(sample.sequences, reward, advantage, passed, solution, behavior, quality):
+            sequence.reward = round(value, 4)
+            sequence.advantage = round(adv, 4)
+            sequence.outcome = "pass" if ok else "fail"
+            sequence.solution_score = round(sol, 4)
+            sequence.behavior_score = round(beh, 4)
+            sequence.quality_factor = None if factor is None else round(factor, 4)
+            survives.append(
+                [
+                    [segment.trainable and segment.flagged_reason not in ENFORCED_RULES for segment in context.segments if segment.trainable]
+                    for context in sequence.contexts
+                ]
+            )
+        dropped = rewards.cascade(survives)
+        for sequence, contexts, gone in zip(sample.sequences, dropped.context_dropped, dropped.sequence_dropped):
+            sequence.dropped = gone
+            if gone:
+                sequence.advantage = 0.0
+            for context, context_gone in zip(sequence.contexts, contexts):
+                context.dropped = context_gone
+        sample.group_accepted = False if dropped.rejected else rewards.group_accepted(passed)
+        sample.group_pass_rate = round(sum(passed) / len(passed), 4)
+        if sample.group_accepted is not None:
+            judged += 1
+            accepted += int(sample.group_accepted)
+        passes += sum(passed)
+        total += len(passed)
+        all_sequences.extend(sample.sequences)
+
+    trainable = [[segment for context in sequence.contexts for segment in context.segments if segment.trainable] for sequence in all_sequences]
+    enforce = mechanism == "segment_penalty"
+    per_segment = rewards.segment_advantages(
+        [sequence.advantage or 0.0 for sequence in all_sequences],
+        [[enforce and segment.flagged_reason in ENFORCED_RULES for segment in row] for row in trainable],
+        [[token_estimate(segment.text) for segment in row] for row in trainable],
+    )
+    for sequence, row, values in zip(all_sequences, trainable, per_segment):
+        for segment, value in zip(row, values):
+            segment.advantage = round(value, 4)
+        sequence.mask = [
+            1 if segment.trainable and not (sequence.dropped or segment.flagged_reason in ENFORCED_RULES) else 0
+            for context in sequence.contexts
+            for segment in context.segments
+        ]
+    return {
+        "mechanism": mechanism,
+        "groups": len(samples),
+        "groups_with_signal": judged,
+        "accepted_groups": accepted,
+        "pass_rate": round(passes / total, 4) if total else None,
+        "penalty_mode": "record",
+        "flags": flags,
+        "note": None if judged else "Groups of one carry no group-relative signal; set a group size above 1.",
+    }
 
 
 def _interpret(
