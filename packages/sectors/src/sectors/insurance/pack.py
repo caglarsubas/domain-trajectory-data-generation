@@ -27,6 +27,7 @@ class InsurancePack:
     event_namespace = EVENT_NAMESPACE
     state_dimensions = STATE_DIMENSIONS
     languages = ("en", "tr")
+    lifecycle = LIFECYCLE
 
     def judge_brief(
         self,

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Shell from "../../../../components/Shell";
 import { api } from "../../../../lib/api";
+import { ProcessMap, QualityCard, TimeAxis, VariantList, journeysOf, variantsOf } from "../../../../components/RunViews";
 
 function markClass(type) {
   if (type === "party") return "party";
@@ -26,10 +27,15 @@ export default function RunPage() {
   const [selected, setSelected] = useState(null);
   const [stance, setStance] = useState("revise");
   const [comment, setComment] = useState("");
+  const [journeyStance, setJourneyStance] = useState("keep");
+  const [journeyComment, setJourneyComment] = useState("");
   const [picked, setPicked] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [focus, setFocus] = useState("");
+  const [sectors, setSectors] = useState([]);
+  const [variant, setVariant] = useState("");
+  const [view, setView] = useState("time");
 
   async function load(id) {
     const [current, all] = await Promise.all([api(`/runs/${id}`), api("/runs")]);
@@ -54,8 +60,13 @@ export default function RunPage() {
   useEffect(() => {
     setFocus("");
     setSelected(null);
+    setVariant("");
     load(params.id).catch((err) => setError(err.message));
   }, [params.id]);
+
+  useEffect(() => {
+    api("/sectors").then((data) => setSectors(data.data)).catch(() => setSectors([]));
+  }, []);
 
   const layout = useMemo(() => {
     if (!run) return null;
@@ -66,15 +77,19 @@ export default function RunPage() {
       const object = run.bundle.objects.find((item) => item.object_id === link.object_id);
       links[link.event_id].push({ ...link, object_type: object?.object_type || "party" });
     }
-    const primaries = run.bundle.trajectories.filter((item) => !item.parent_trajectory_id);
+    const journeys = journeysOf(run.bundle);
+    const variants = variantsOf(journeys);
+    const chosen = variants.find((item) => item.key === variant);
+    const members = chosen ? new Set(chosen.members.map((item) => item.trajectory_id)) : null;
+    const primaries = run.bundle.trajectories.filter((item) => !item.parent_trajectory_id && (!members || members.has(item.trajectory_id)));
     const parent = primaries.find((item) => item.trajectory_id === focus) || primaries[0];
     if (!parent) return null;
     const alt = run.bundle.trajectories.find((item) => item.parent_trajectory_id === parent.trajectory_id);
     const altOnly = alt ? alt.event_ids.filter((id) => !parent.event_ids.includes(id)) : [];
     const branchAt = alt ? parent.event_ids.indexOf(alt.branch_event_id) : -1;
     const columns = Math.max(parent.event_ids.length, branchAt + 1 + altOnly.length, 1);
-    return { events, links, parent, alt, altOnly, branchAt, columns, primaries };
-  }, [run, focus]);
+    return { events, links, parent, alt, altOnly, branchAt, columns, primaries, journeys, variants, chosen };
+  }, [run, focus, variant]);
 
   if (!run || !layout) {
     return <Shell>{error ? <div className="error">{error}</div> : <p>Opening the journey.</p>}</Shell>;
@@ -84,15 +99,18 @@ export default function RunPage() {
   const transitions = event ? run.bundle.state_transitions.filter((item) => item.event_id === event.event_id) : [];
   const cycle = run.cycles.at(-1);
   const notesFor = (id) => (run.feedback || []).filter((note) => note.target_id === id);
+  const pack = sectors.find((item) => item.id === (run.config.sector || "banking"));
+  const eventKinds = pack?.event_kinds || {};
+  const lanes = pack?.lanes || [{ kind: "party", object_type: "party" }];
 
-  async function saveFeedback(targetType, targetId) {
+  async function saveFeedback(targetType, targetId, note = { stance, comment, reset: () => setComment("") }) {
     setError("");
     try {
       await api(`/runs/${run.id}/feedback`, {
         method: "POST",
-        body: JSON.stringify({ target_type: targetType, target_id: targetId, stance, comment }),
+        body: JSON.stringify({ target_type: targetType, target_id: targetId, stance: note.stance, comment: note.comment }),
       });
-      setComment("");
+      note.reset();
       await load(run.id);
     } catch (err) {
       setError(err.message);
@@ -168,6 +186,22 @@ export default function RunPage() {
         </p>
       ) : null}
       {cycle?.revision_notes?.length ? <p className="warn">{cycle.revision_notes.join(" ")}</p> : null}
+      <QualityCard quality={run.generation?.quality} />
+      {pack && layout.journeys.length > 1 ? (
+        <div className="overview">
+          <ProcessMap journeys={layout.journeys} highlight={layout.chosen?.types} eventKinds={eventKinds} lanes={lanes} />
+          <VariantList
+            variants={layout.variants}
+            total={layout.journeys.length}
+            active={variant}
+            onPick={(key) => {
+              setVariant(key);
+              setFocus("");
+              setSelected(null);
+            }}
+          />
+        </div>
+      ) : null}
       <div className="stage">
         <div className="canvas-wrap">
           {layout.primaries.length > 1 ? (
@@ -189,7 +223,20 @@ export default function RunPage() {
               </select>
             </div>
           ) : null}
-          {layout.alt ? <p className="lede">The lower row is a simulated alternative branch, not a causal counterfactual.</p> : null}
+          <div className="tabs" role="tablist">
+            {[["time", "Time axis"], ["sequence", "Sequence"]].map(([id, label]) => (
+              <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} onClick={() => setView(id)}>{label}</button>
+            ))}
+          </div>
+          {layout.alt ? (
+            <p className="lede">
+              {view === "time" ? "Hollow marks and the dashed line are" : "The lower row is"} a simulated alternative branch
+              {layout.alt.probability != null ? `, chosen with probability ${layout.alt.probability} at the branch point` : ""}, not a causal counterfactual.
+            </p>
+          ) : null}
+          {view === "time" ? (
+            <TimeAxis parent={layout.parent} alt={layout.alt} events={layout.events} eventKinds={eventKinds} lanes={lanes} selected={selected} onSelect={setSelected} />
+          ) : (
           <div className="canvas" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(108px, 1fr))` }}>
             {layout.parent.event_ids.map((id, index) => (
               <EventNode
@@ -216,6 +263,7 @@ export default function RunPage() {
               />
             ))}
           </div>
+          )}
         </div>
         <aside className="inspector">
           {event ? (
@@ -240,7 +288,21 @@ export default function RunPage() {
             </>
           ) : (
             <>
-              <h2 className="word" style={{ marginTop: 0 }}>Whole run</h2>
+              <h2 className="word" style={{ marginTop: 0 }}>This journey</h2>
+              <p className="lede">
+                {layout.parent.trajectory_type.replaceAll("_", " ")} · {layout.parent.event_ids.length} events. A drop note on the journey keeps this kind out of the next run; keep asks for more like it.
+              </p>
+              <ul className="feedback-list">
+                {notesFor(layout.parent.trajectory_id).map((note) => <li key={note.id}><strong>{note.stance}</strong> {note.comment}</li>)}
+              </ul>
+              <FeedbackBox
+                stance={journeyStance}
+                setStance={setJourneyStance}
+                comment={journeyComment}
+                setComment={setJourneyComment}
+                onSave={() => saveFeedback("trajectory", layout.parent.trajectory_id, { stance: journeyStance, comment: journeyComment, reset: () => setJourneyComment("") })}
+              />
+              <h2 className="word">Whole run</h2>
               <p className="lede">Select an event to see its objects and state change. Notes can also sit on the run itself.</p>
               <ul className="feedback-list">
                 {(run.feedback || []).filter((note) => note.target_type === "run").map((note) => (

@@ -61,6 +61,7 @@ function Composer() {
   const [projectId, setProjectId] = useState("");
   const [searches, setSearches] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [projects, setProjects] = useState([]);
 
   useEffect(() => {
     api("/sectors").then((data) => setSectors(data.data)).catch((err) => setError(err.message));
@@ -69,7 +70,8 @@ function Composer() {
       setKeys(ready);
       setForm((current) => ({ ...current, credential_id: current.credential_id || ready[0]?.id || "" }));
     }).catch((err) => setError(err.message));
-  }, []);
+    if (!from) api("/projects").then((data) => setProjects(data.data)).catch(() => setProjects([]));
+  }, [from]);
 
   useEffect(() => {
     if (!from) return;
@@ -95,6 +97,18 @@ function Composer() {
   const reward = REWARDS.find((item) => item[0] === form.reward_mechanism);
   const signal = SIGNALS.find((item) => item[0] === form.signal_mechanism);
   const docCount = existingDocs.length + files.length + links.length;
+  const readableCount = existingDocs.filter((doc) => doc.readable !== false).length;
+  const unreadable = existingDocs.filter((doc) => doc.readable === false);
+  const languages = sector?.languages || ["en", "tr"];
+  const cap = sector?.studio_cap || 64;
+  const blockers = [
+    !form.credential_id ? "Choose a provider key on the Signals step." : null,
+    form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
+    form.start_mode === "cold" && !form.cold_start_acknowledged ? "Acknowledge the cold start on the Corpus step." : null,
+    form.start_mode === "warm" && docCount === 0 ? "Add at least one warm-start document, or switch to a cold start." : null,
+    form.min_events > form.max_events ? "Minimum events cannot exceed maximum events." : null,
+    !languages.includes((form.language || "").split("-")[0]) ? `Choose a language: ${languages.join(" or ")}.` : null,
+  ].filter(Boolean);
   const slots = useMemo(() => Array.from({ length: Math.min(form.max_events, 32) }, (_, i) => i < form.min_events), [form.max_events, form.min_events]);
 
   async function deepSearch() {
@@ -129,6 +143,35 @@ function Composer() {
     setForm((current) => ({ ...current, ...partial }));
   }
 
+  function chooseStudy(project) {
+    if (from) return;
+    if (!project) {
+      setProjectId("");
+      setExistingDocs([]);
+      return;
+    }
+    const defaults = project.sector === "insurance"
+      ? ["quoting", "underwriting", "policy_administration"]
+      : ["onboarding_and_kyc", "deposits"];
+    setProjectId(project.id);
+    setExistingDocs(project.corpus || []);
+    patch({ name: project.name, sector: project.sector, sub_domains: project.sector === form.sector ? form.sub_domains : defaults });
+  }
+
+  async function uploadPending(id) {
+    for (const file of files) {
+      const body = new FormData();
+      body.append("kind", file.kind);
+      body.append("upload", file.file);
+      await api(`/projects/${id}/corpus`, { method: "POST", body });
+    }
+    for (const link of links) {
+      await api(`/projects/${id}/corpus/link`, { method: "POST", body: JSON.stringify(link) });
+    }
+    setFiles([]);
+    setLinks([]);
+  }
+
   function chooseSector(id) {
     if (from || projectId) return;
     const defaults = id === "insurance"
@@ -148,6 +191,8 @@ function Composer() {
     setError("");
     try {
       if (from) {
+        // Files and links added while re-running belong to the same study.
+        await uploadPending(projectId);
         const child = await api(`/runs/${from}/rerun`, {
           method: "POST",
           body: JSON.stringify({
@@ -166,17 +211,7 @@ function Composer() {
         id = project.id;
         setProjectId(id);
       }
-      for (const file of files) {
-        const body = new FormData();
-        body.append("kind", file.kind);
-        body.append("upload", file.file);
-        await api(`/projects/${id}/corpus`, { method: "POST", body });
-      }
-      for (const link of links) {
-        await api(`/projects/${id}/corpus/link`, { method: "POST", body: JSON.stringify(link) });
-      }
-      setFiles([]);
-      setLinks([]);
+      await uploadPending(id);
       const run = await api("/runs", {
         method: "POST",
         body: JSON.stringify({ ...form, project_id: id }),
@@ -214,6 +249,23 @@ function Composer() {
           {step === 0 ? (
             <>
               <h1 className="word">What should the study know?</h1>
+              {!from && projects.length ? (
+                <>
+                  <label>Study</label>
+                  <div className="study-list">
+                    <button type="button" data-on={!projectId} onClick={() => chooseStudy(null)}>
+                      <strong>New study</strong>
+                      <small>Start with no documents</small>
+                    </button>
+                    {projects.map((project) => (
+                      <button key={project.id} type="button" data-on={projectId === project.id} onClick={() => chooseStudy(project)}>
+                        <strong>{project.name}</strong>
+                        <small>{project.sector} · {project.corpus.length} document{project.corpus.length === 1 ? "" : "s"}</small>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
               <p className="lede">A warm start gives the judge a reference. A cold start is allowed, and it will be marked as a weak reference.</p>
               <div className="choice">
                 <button type="button" data-on={form.start_mode === "warm"} onClick={() => patch({ start_mode: "warm" })}>
@@ -245,7 +297,7 @@ function Composer() {
                     type="file"
                     multiple
                     onChange={(e) => {
-                      const next = Array.from(e.target.files || []).map((file) => ({ file, kind: "paper" }));
+                      const next = Array.from(e.target.files || []).map((file) => ({ file, kind: /\.(csv|parquet|xes|jsonocel)$/i.test(file.name) ? "data_source" : "paper" }));
                       setFiles((current) => [...current, ...next]);
                     }}
                   />
@@ -272,15 +324,42 @@ function Composer() {
                   </button>
                   <div className="docs">
                     {existingDocs.map((doc) => (
-                      <div className="doc" key={doc.id}><span>{doc.name}</span><small>{doc.kind} · {doc.content_hash.slice(0, 8)}</small></div>
+                      <div className="doc" key={doc.id} data-readable={doc.readable === false ? "false" : "true"}>
+                        <span>{doc.name}</span>
+                        <small>
+                          {doc.kind.replaceAll("_", " ")} · {doc.readable === false ? doc.unreadable_reason || "not readable" : `${(doc.characters || 0).toLocaleString()} characters read`}
+                        </small>
+                      </div>
                     ))}
                     {files.map((item, index) => (
-                      <div className="doc" key={item.file.name + index}><span>{item.file.name}</span><small>file</small></div>
+                      <div className="doc" key={item.file.name + index}>
+                        <span>{item.file.name}</span>
+                        <select
+                          value={item.kind}
+                          style={{ width: "auto", padding: "4px 8px" }}
+                          onChange={(e) => setFiles((current) => current.map((entry, i) => (i === index ? { ...entry, kind: e.target.value } : entry)))}
+                        >
+                          <option value="paper">Paper</option>
+                          <option value="deep_search">Deep search</option>
+                          <option value="repo">Repository</option>
+                          <option value="data_source">Data source</option>
+                          <option value="ontology">Ontology</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
                     ))}
                     {links.map((item) => (
                       <div className="doc" key={item.uri}><span>{item.name}</span><small>{item.kind}</small></div>
                     ))}
                   </div>
+                  {unreadable.length ? (
+                    <p className="warn">
+                      {unreadable.length === existingDocs.length && !files.length && !links.length
+                        ? "None of these documents can be read yet, so the run will steer like a cold start. "
+                        : `${unreadable.length} document${unreadable.length === 1 ? " is" : "s are"} not readable yet and will not steer the run. `}
+                      PDF, Office files, and links are read from Slice 5; plain text and Markdown work now.
+                    </p>
+                  ) : null}
                 </div>
               )}
             </>
@@ -309,13 +388,20 @@ function Composer() {
               <div className="row">
                 <div>
                   <label>Language</label>
-                  <input value={form.language} onChange={(e) => patch({ language: e.target.value })} />
+                  <select value={(form.language || "en").split("-")[0]} onChange={(e) => patch({ language: e.target.value })}>
+                    {languages.map((code) => (
+                      <option key={code} value={code}>{{ en: "English", tr: "Turkish" }[code] || code}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label>Trajectories</label>
                   <input type="number" min="1" value={form.target_trajectory_count} onChange={(e) => patch({ target_trajectory_count: Number(e.target.value) })} />
                 </div>
               </div>
+              {form.target_trajectory_count > cap ? (
+                <p className="warn">This run stores {cap} journeys; {form.target_trajectory_count.toLocaleString()} were asked for. Larger runs arrive with background jobs in Slice 3.</p>
+              ) : null}
               <div className="row">
                 <div>
                   <label>Minimum events</label>
@@ -393,8 +479,17 @@ function Composer() {
             <>
               <h1 className="word">Review the study</h1>
               <p className="lede">Confirming generates synthetic {sectorLabel.toLowerCase()} journeys for this configuration. The investigation view opens on the first one.</p>
+              {blockers.length ? (
+                <div className="warn">
+                  <strong>Before generating</strong>
+                  <ul className="blockers">{blockers.map((item) => <li key={item}>{item}</li>)}</ul>
+                </div>
+              ) : null}
+              {form.start_mode === "warm" && docCount > 0 && readableCount === 0 && !files.length && !links.length ? (
+                <p className="warn">No document can be read yet, so warm-start text will not steer this run.</p>
+              ) : null}
               <div className="actions">
-                <button className="primary" type="button" disabled={busy || !form.credential_id || form.sub_domains.length === 0} onClick={confirm}>
+                <button className="primary" type="button" disabled={busy || blockers.length > 0} onClick={confirm}>
                   {busy ? "Generating" : from ? "Run again" : "Generate journeys"}
                 </button>
               </div>
@@ -409,13 +504,17 @@ function Composer() {
           <h3>{sectorLabel}</h3>
           <dl>
             <dt>Start</dt>
-            <dd>{form.start_mode === "warm" ? `Warm · ${docCount} document${docCount === 1 ? "" : "s"}` : form.cold_start_acknowledged ? "Cold · acknowledged" : "Cold · needs acknowledgment"}</dd>
+            <dd>
+              {form.start_mode === "warm"
+                ? `Warm · ${docCount} document${docCount === 1 ? "" : "s"}${existingDocs.length ? ` (${readableCount} readable)` : ""}`
+                : form.cold_start_acknowledged ? "Cold · acknowledged" : "Cold · needs acknowledgment"}
+            </dd>
             <dt>Scope</dt>
             <dd>{form.sub_domains.map((item) => item.replaceAll("_", " ")).join(", ") || "None selected"}</dd>
             <dt>Language</dt>
             <dd>{form.language}</dd>
             <dt>Size</dt>
-            <dd>{form.target_trajectory_count} trajectories</dd>
+            <dd>{Math.min(form.target_trajectory_count, cap)} stored{form.target_trajectory_count > cap ? ` of ${form.target_trajectory_count.toLocaleString()} asked` : ""}</dd>
             <dt>Length</dt>
             <dd>{form.min_events}–{form.max_events} events</dd>
           </dl>
