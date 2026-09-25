@@ -8,6 +8,7 @@ os.environ["ADMIN_PASSWORD"] = "admin-pass-123"
 os.environ["INFERENCE_ENGINE_API_KEY"] = ""
 os.environ["INFERENCE_ENGINE_BASE_URL"] = ""
 os.environ["UPLOAD_DIR"] = "/tmp/traj-test-uploads"
+os.environ["JOBS_MODE"] = "inline"
 
 import pytest
 from fastapi.testclient import TestClient

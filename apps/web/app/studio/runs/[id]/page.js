@@ -71,8 +71,15 @@ export default function RunPage() {
     api("/sectors").then((data) => setSectors(data.data)).catch(() => setSectors([]));
   }, []);
 
+  const pending = run && ["queued", "generating"].includes(run.status);
+  useEffect(() => {
+    if (!pending) return undefined;
+    const timer = setTimeout(() => load(params.id).catch((err) => setError(err.message)), 1000);
+    return () => clearTimeout(timer);
+  }, [pending, run, params.id]);
+
   const layout = useMemo(() => {
-    if (!run) return null;
+    if (!run || !run.bundle) return null;
     const events = Object.fromEntries(run.bundle.events.map((event) => [event.event_id, event]));
     const links = {};
     for (const link of run.bundle.event_objects) {
@@ -95,6 +102,25 @@ export default function RunPage() {
     const columns = Math.max(parent.event_ids.length, branchAt + 1 + altOnly.length, 1);
     return { events, links, parent, alt, altOnly, branchAt, columns, primaries, journeys, variants, chosen, sample };
   }, [run, focus, variant, rollout]);
+
+  if (run && !run.bundle) {
+    return (
+      <Shell>
+        <JobPanel
+          run={run}
+          error={error}
+          onCancel={async () => {
+            setError("");
+            try {
+              setRun(await api(`/runs/${run.id}/cancel`, { method: "POST" }));
+            } catch (err) {
+              setError(err.message);
+            }
+          }}
+        />
+      </Shell>
+    );
+  }
 
   if (!run || !layout) {
     return <Shell>{error ? <div className="error">{error}</div> : <p>Opening the journey.</p>}</Shell>;
@@ -358,6 +384,44 @@ export default function RunPage() {
         </aside>
       </div>
     </Shell>
+  );
+}
+
+function JobPanel({ run, error, onCancel }) {
+  const job = run.job || {};
+  const active = ["queued", "generating"].includes(run.status);
+  const label = {
+    queued: "Waiting for a worker",
+    generating: "Generating journeys",
+    failed: "Generation failed",
+    cancelled: "Generation cancelled",
+  }[run.status] || run.status;
+  return (
+    <div className="job-panel" data-state={run.status}>
+      <h1 className="word">{label}</h1>
+      <p className="lede">
+        {run.config.target_trajectory_count} {run.config.group_size > 1 ? `prompts × ${run.config.group_size} sequences` : "journeys"} · {(run.config.sub_domains || []).map((item) => item.replaceAll("_", " ")).join(", ")}
+      </p>
+      {active ? (
+        <>
+          <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((job.progress || 0) * 100)}>
+            <i style={{ width: `${Math.max(2, Math.round((job.progress || 0) * 100))}%` }} />
+          </div>
+          <p className="lede">{job.message || "Starting."} This page updates by itself.</p>
+          <div className="actions">
+            <button className="ghost" type="button" onClick={onCancel}>Cancel</button>
+          </div>
+        </>
+      ) : (
+        <>
+          {job.error ? <div className="error">{job.error}</div> : <p className="lede">{job.message}</p>}
+          <div className="actions">
+            <Link className="primary" href="/studio/compose" style={{ display: "inline-block" }}>Compose again</Link>
+          </div>
+        </>
+      )}
+      {error ? <div className="error">{error}</div> : null}
+    </div>
   );
 }
 

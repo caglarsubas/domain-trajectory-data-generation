@@ -156,6 +156,7 @@ def generate_bundle(
     seed: str = "trajectory",
     materialization_cap: int = STUDIO_TRAJECTORY_CAP,
     group_size: int = 1,
+    progress: Callable[..., None] | None = None,
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -190,7 +191,10 @@ def generate_bundle(
     context = _Context(pack, domains, lang, language, steering, cold, revised, notes, revisions, reward_mechanism,
                        signal_mechanism, consumer, target_family, max(int(max_assistant_turns), 1), clock, words, ids)
 
+    report = progress or (lambda *args, **kwargs: None)
+    report(0, limit, "Drawing journeys.")
     while len(built) < limit:
+        report(len(built), limit, f"Drew {len(built)} of {limit} {'groups' if size > 1 else 'journeys'}.")
         room = cap if remaining is None else min(cap, remaining)
         if built and room < floor:
             limited_by = "event_budget"

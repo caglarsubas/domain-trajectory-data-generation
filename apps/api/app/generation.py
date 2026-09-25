@@ -20,6 +20,7 @@ def candidate_for_run(
     project_id: str,
     feedback_rows: list,
     parent: Run | None,
+    progress=None,
 ):
     items = []
     corpus_text = ""
@@ -67,6 +68,7 @@ def candidate_for_run(
         parent_bundle=parent.candidate if parent is not None else None,
         seed=json.dumps(seed_payload, sort_keys=True, default=str),
         group_size=int(config.get("group_size") or 1),
+        progress=progress,
     )
     errors = sector.hard_checks(bundle)
     if errors:

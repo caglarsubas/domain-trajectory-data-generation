@@ -30,7 +30,10 @@ export default function Studio() {
         {(runs || []).map((run, index) => (
           <li key={run.id}>
             <Link href={`/studio/runs/${run.id}`}>
-              <p style={{ margin: 0 }}>{new Date(run.created_at).toLocaleString()} · {run.status}</p>
+              <p style={{ margin: 0 }}>
+                {new Date(run.created_at).toLocaleString()} · <span className="status-chip" data-state={run.status}>{run.status}</span>
+                {run.job && ["queued", "running"].includes(run.job.status) ? ` · ${Math.round((run.job.progress || 0) * 100)}%` : ""}
+              </p>
               <h2 className="word" style={{ fontSize: index === runs.length - 1 ? 42 : 28 }}>
                 {(run.config.sub_domains || []).join(" · ")}
               </h2>

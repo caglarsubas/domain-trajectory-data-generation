@@ -79,6 +79,8 @@ class Run(Base):
     config: Mapped[dict] = mapped_column(JSON)
     inherited_feedback_ids: Mapped[list] = mapped_column(JSON, default=list)
     candidate: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # A copy of the candidate's generation metadata, so listing runs never loads a whole bundle.
+    generation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cycle_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
@@ -124,3 +126,25 @@ class EvalVerdict(Base):
     raw: Mapped[str] = mapped_column(Text, default="")
     judge_model: Mapped[str] = mapped_column(String(200), default="")
     duration_ms: Mapped[float] = mapped_column(default=0)
+
+
+class Job(Base):
+    """Work that outlives a request: generating a run today; judging and deep search next."""
+
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    kind: Mapped[str] = mapped_column(String(32))
+    owner_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    progress: Mapped[float] = mapped_column(default=0.0)
+    message: Mapped[str] = mapped_column(Text, default="")
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancel_requested: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

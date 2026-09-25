@@ -19,8 +19,9 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    environment:
+    environment: &api-environment
       DATABASE_URL: postgresql+psycopg://traj:traj@postgres:5432/traj
+      JOBS_MODE: worker
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:-local-compose-master-key-32b}
       JWT_SECRET: ${JWT_SECRET:-local-compose-jwt-secret-32-characters}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
@@ -39,6 +40,19 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    environment: *api-environment
+    volumes:
+      - traj_uploads:/app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
   web:
     build:
