@@ -128,6 +128,8 @@ Computed on every run and stored with it:
 
 Progress, 25 September 2026: Slice 2 ships in two pull requests. The first adds groups and the shared rewards module: `group_size` up to 16, rollouts that share the prefix to the first decision and keep one intent, the contract fields below, all five mechanisms checked against hand-computed values, record-only penalty rules, and the cascade. On all banking sub-domains, groups of 4 hold 4 distinct sequences on average and 13 of 16 groups carry a group signal; insurance passes more often, so fewer of its groups (8 of 16) do. The second pull request adds export, the group viewer, the download panel, and the group size in the composer.
 
+The second pull request completes Slice 2: the four export parts with the deterministic split, an optional held-out sub-domain, the data card, and checksums; a group viewer on the run page showing each rollout's outcome, reward, advantage, quality factor, and recorded flags, with the time axis following the chosen rollout; a download panel with a data-card preview; and sequences per prompt in the composer, with the cap counted in sequences.
+
 The design approved on 24 September stands, with the revisions after it.
 
 ### Retained design

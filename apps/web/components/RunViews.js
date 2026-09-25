@@ -289,3 +289,45 @@ export function TimeAxis({ parent, alt, events, eventKinds, lanes, selected, onS
     </svg>
   );
 }
+
+const signed = (value) => (value == null ? "—" : `${value > 0 ? "+" : ""}${value.toFixed(2)}`);
+
+export function GroupViewer({ sample, trajectories, events, active, onPick }) {
+  if (!sample || sample.sequences.length < 2) return null;
+  const byId = Object.fromEntries(trajectories.map((item) => [item.trajectory_id, item]));
+  const widest = Math.max(...sample.sequences.map((sequence) => Math.abs(sequence.advantage || 0)), 0.01);
+  const status = sample.group_accepted == null ? "no group signal" : sample.group_accepted ? "accepted" : "filtered: all pass or all fail";
+  return (
+    <div className="group-viewer">
+      <div className="panel-head">
+        <h3>Group of {sample.sequences.length}</h3>
+        <small>One prompt, {sample.sequences.length} rollouts · {Math.round((sample.group_pass_rate || 0) * 100)}% pass · {status}</small>
+      </div>
+      <div className="rollouts">
+        {sample.sequences.map((sequence, index) => {
+          const trajectory = byId[sequence.trajectory_id];
+          const types = trajectory ? trajectory.event_ids.map((id) => events[id]?.event_type).filter(Boolean) : [];
+          const flagged = sequence.contexts.flatMap((context) => context.segments).filter((segment) => segment.flagged_reason);
+          return (
+            <button key={sequence.sequence_id} type="button" className="rollout" data-on={active === sequence.trajectory_id} data-outcome={sequence.outcome}
+              onClick={() => onPick(sequence.trajectory_id)}>
+              <span className="rollout-head">
+                <b>{index === 0 ? "Primary" : `Rollout ${index + 1}`}</b>
+                <em>{sequence.outcome || "—"}</em>
+              </span>
+              <span className="kv"><i>Reward</i><strong>{sequence.reward == null ? "—" : sequence.reward.toFixed(2)}</strong></span>
+              <span className="kv"><i>Advantage</i><strong>{signed(sequence.advantage)}</strong></span>
+              <span className="advantage-bar" data-sign={(sequence.advantage || 0) >= 0 ? "pos" : "neg"}>
+                <i style={{ width: `${(50 * Math.abs(sequence.advantage || 0)) / widest}%` }} />
+              </span>
+              <span className="kv"><i>Quality</i><strong>{sequence.quality_factor == null ? "—" : sequence.quality_factor.toFixed(2)}</strong></span>
+              <span className="kv"><i>Tokens</i><strong>{sequence.token_estimate ?? "—"}</strong></span>
+              <small>{trajectory ? trajectory.trajectory_type.replaceAll("_", " ") : ""} · {types.length} events{flagged.length ? ` · ${flagged.length} flagged (recorded)` : ""}</small>
+              <small className="rollout-tail">…{types.slice(-3).map(shortLabel).join(" → ")}</small>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

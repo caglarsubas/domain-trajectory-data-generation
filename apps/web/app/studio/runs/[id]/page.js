@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Shell from "../../../../components/Shell";
 import { api } from "../../../../lib/api";
-import { ProcessMap, QualityCard, TimeAxis, VariantList, journeysOf, variantsOf } from "../../../../components/RunViews";
+import DownloadPanel from "../../../../components/DownloadPanel";
+import { GroupViewer, ProcessMap, QualityCard, TimeAxis, VariantList, journeysOf, variantsOf } from "../../../../components/RunViews";
 
 function markClass(type) {
   if (type === "party") return "party";
@@ -36,6 +37,7 @@ export default function RunPage() {
   const [sectors, setSectors] = useState([]);
   const [variant, setVariant] = useState("");
   const [view, setView] = useState("time");
+  const [rollout, setRollout] = useState("");
 
   async function load(id) {
     const [current, all] = await Promise.all([api(`/runs/${id}`), api("/runs")]);
@@ -61,6 +63,7 @@ export default function RunPage() {
     setFocus("");
     setSelected(null);
     setVariant("");
+    setRollout("");
     load(params.id).catch((err) => setError(err.message));
   }, [params.id]);
 
@@ -84,12 +87,14 @@ export default function RunPage() {
     const primaries = run.bundle.trajectories.filter((item) => !item.parent_trajectory_id && (!members || members.has(item.trajectory_id)));
     const parent = primaries.find((item) => item.trajectory_id === focus) || primaries[0];
     if (!parent) return null;
-    const alt = run.bundle.trajectories.find((item) => item.parent_trajectory_id === parent.trajectory_id);
+    const sample = run.bundle.samples.find((item) => item.sequences.some((sequence) => sequence.trajectory_id === parent.trajectory_id));
+    const children = run.bundle.trajectories.filter((item) => item.parent_trajectory_id === parent.trajectory_id);
+    const alt = children.find((item) => item.trajectory_id === rollout) || children[0];
     const altOnly = alt ? alt.event_ids.filter((id) => !parent.event_ids.includes(id)) : [];
     const branchAt = alt ? parent.event_ids.indexOf(alt.branch_event_id) : -1;
     const columns = Math.max(parent.event_ids.length, branchAt + 1 + altOnly.length, 1);
-    return { events, links, parent, alt, altOnly, branchAt, columns, primaries, journeys, variants, chosen };
-  }, [run, focus, variant]);
+    return { events, links, parent, alt, altOnly, branchAt, columns, primaries, journeys, variants, chosen, sample };
+  }, [run, focus, variant, rollout]);
 
   if (!run || !layout) {
     return <Shell>{error ? <div className="error">{error}</div> : <p>Opening the journey.</p>}</Shell>;
@@ -155,7 +160,9 @@ export default function RunPage() {
       ) : null}
       {run.generation ? (
         <p className="note">
-          Generated {run.generation.primary_trajectories} synthetic {run.generation.primary_trajectories === 1 ? "journey" : "journeys"} ({run.generation.event_count} events).
+          {run.generation.group_size > 1
+            ? `Generated ${run.generation.primary_trajectories} groups of ${run.generation.group_size} sequences (${run.generation.primary_trajectories + run.generation.alternative_trajectories} journeys, ${run.generation.event_count} events).`
+            : `Generated ${run.generation.primary_trajectories} synthetic ${run.generation.primary_trajectories === 1 ? "journey" : "journeys"} (${run.generation.event_count} events).`}
           {run.generation.limited_by === "event_budget"
             ? ` ${run.generation.requested_trajectories} were requested; the event budget stored fewer.`
             : null}
@@ -202,6 +209,7 @@ export default function RunPage() {
           />
         </div>
       ) : null}
+      <DownloadPanel run={run} />
       <div className="stage">
         <div className="canvas-wrap">
           {layout.primaries.length > 1 ? (
@@ -213,6 +221,7 @@ export default function RunPage() {
                 onChange={(e) => {
                   setFocus(e.target.value);
                   setSelected(null);
+                  setRollout("");
                 }}
               >
                 {layout.primaries.map((item, index) => (
@@ -234,6 +243,16 @@ export default function RunPage() {
               {layout.alt.probability != null ? `, chosen with probability ${layout.alt.probability} at the branch point` : ""}, not a causal counterfactual.
             </p>
           ) : null}
+          <GroupViewer
+            sample={layout.sample}
+            trajectories={run.bundle.trajectories}
+            events={layout.events}
+            active={layout.alt?.trajectory_id}
+            onPick={(id) => {
+              if (id !== layout.parent.trajectory_id) setRollout(id);
+              setSelected(null);
+            }}
+          />
           {view === "time" ? (
             <TimeAxis parent={layout.parent} alt={layout.alt} events={layout.events} eventKinds={eventKinds} lanes={lanes} selected={selected} onSelect={setSelected} />
           ) : (

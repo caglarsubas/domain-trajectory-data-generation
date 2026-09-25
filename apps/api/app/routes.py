@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,6 +33,7 @@ from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_passw
 from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.steering import scrub_text
 from sectors.registry import get_sector
+from app import export as run_export
 from app.serialize import project_out, run_out
 from app.service import config_from_body, require_project, require_run, rerun_config
 from app.settings import Settings, load_settings
@@ -416,6 +417,27 @@ def list_runs(account: AccountDep, db: Db) -> dict:
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, account: AccountDep, db: Db) -> dict:
     return run_out(require_run(db, run_id, account), db)
+
+
+@router.get("/runs/{run_id}/export/{part}")
+def export_run(run_id: str, part: str, account: AccountDep, db: Db, held_out: str | None = None) -> Response:
+    run = require_run(db, run_id, account)
+    if part not in run_export.PARTS:
+        raise HTTPException(status_code=404, detail=f"unknown export part; choose one of {', '.join(run_export.PARTS)}")
+    if not run.candidate:
+        raise HTTPException(status_code=409, detail="this run has no generated candidate to export")
+    sector = get_sector(run.config.get("sector", "banking"))
+    if held_out is not None and held_out not in (run.config.get("sub_domains") or []):
+        raise HTTPException(status_code=422, detail="the held-out sub-domain must be one of this run's sub-domains")
+    bundle = TrajectoryBundle.model_validate(run.candidate)
+    parts = run_export.build(run, bundle, sector, run_out(run, db)["cycles"], held_out)
+    media = "application/x-ndjson" if part.endswith(".jsonl") else "application/json"
+    suffix = f"-heldout-{held_out}" if held_out else ""
+    return Response(
+        content=parts[part],
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="run-{run.id[:8]}{suffix}-{part}"'},
+    )
 
 
 @router.post("/runs/{run_id}/feedback")

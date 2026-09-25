@@ -332,7 +332,32 @@ textarea { min-height: 90px; resize: vertical; }
 .doc[data-readable="false"] small { color: var(--warn); }
 .blockers { margin: 8px 0 0; padding-left: 18px; color: #5c3b0c; }
 
+.group-viewer { margin-bottom: 12px; }
+.rollouts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.rollout { display: grid; gap: 4px; text-align: left; background: white; border: 1px solid var(--line); border-radius: 14px; padding: 10px; }
+.rollout[data-on="true"] { border-color: var(--copper); box-shadow: inset 0 0 0 1px var(--copper); }
+.rollout-head { display: flex; justify-content: space-between; align-items: baseline; }
+.rollout-head em { font-style: normal; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--line); }
+.rollout[data-outcome="pass"] .rollout-head em { background: var(--good-soft); color: var(--good); }
+.rollout[data-outcome="fail"] .rollout-head em { background: var(--bad-soft); color: var(--bad); }
+.rollout .kv { display: flex; justify-content: space-between; font-size: 13px; }
+.rollout .kv i { font-style: normal; color: var(--muted); }
+.rollout small { color: var(--muted); font-size: 12px; line-height: 1.3; }
+.advantage-bar { position: relative; height: 6px; background: var(--line); border-radius: 99px; display: block; }
+.advantage-bar i { position: absolute; top: 0; bottom: 0; left: 50%; border-radius: 99px; background: var(--good); }
+.advantage-bar[data-sign="neg"] i { left: auto; right: 50%; background: var(--bad); }
+
+.download-panel { background: var(--paper-2); border: 1px solid var(--line); border-radius: 24px; padding: 16px; margin-top: 18px; }
+.parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.part { display: grid; gap: 4px; text-align: left; background: white; border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.part:disabled { opacity: 0.6; cursor: progress; }
+.part code { font-size: 12px; color: var(--copper); }
+.part small { color: var(--muted); line-height: 1.35; }
+.data-card { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 12px; }
+.limitations { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.5; }
+
 @media (max-width: 1100px) {
+  .parts { grid-template-columns: 1fr 1fr; }
   .gate, .composer, .stage, .scores, .quality, .overview { grid-template-columns: 1fr; }
   .gate-copy { padding: 36px 24px 0; }
   .gate-copy h1 { font-size: 48px; }

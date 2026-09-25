@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All eleven are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All thirteen are merged and their branches are deleted.
 
-`main` history: `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -87,3 +87,15 @@ Slice 1, first part. Both packs declare their events as transitions on orthogona
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/11
 
 Slice 1, second part. Whole-word, negation-aware steering with a report per document; money direction and role, event-object qualifiers, realistic effective and recorded times, and weekday and hour start profiles; samples linked to their trajectories with sentence-aligned turns; languages refused outside English and Turkish; and quality report v1 on every run.
+
+## 12. Show quality, variants, a process map, and a time axis for every run
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/12
+
+Slice 1, third part, completing the slice. The run page gains the quality scorecard, a process map, a variant explorer, and a time axis with the alternative drawn dashed; journeys take their own notes. The composer reuses studies, shows readability per document, offers the pack's languages, shows the cap, lists blockers, and keeps re-run uploads. `/sectors` carries languages, the cap, lanes, and event kinds.
+
+## 13. Draw groups of sequences per prompt and score them with shared MiMo rewards
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/13
+
+Slice 2, first part. `group_size` up to 16, rollouts sharing the prefix to the first decision and one intent, and `rewards.py` with the multiplicative reward, group-relative advantage, advantage redistribution, the gated length penalty, segment penalties, and the cascade, each checked against hand-computed values. Penalty rules run in record-only mode.

@@ -67,3 +67,14 @@ Warm-start text weights the sampler instead of forcing events in: a named event 
 - `quality`: version 1 of the quality report. `complete` counts hard-check violations and filler runs and checks referential integrity; `comprehensive` counts distinct sequences, event-type coverage per selected sub-domain, the share of rare paths, and distinct transitions. `representative` and `qualitative` say they are not measured yet, and a cold start is marked unreferenced.
 
 Runs are written in the languages the pack declares, English and Turkish today. The API refuses any other language instead of producing English.
+
+## Export
+
+`GET /runs/{run_id}/export/{part}` returns one part of an owned run, or 409 when the run has no generated candidate:
+
+- `samples.jsonl`: one line per sample, with its group of sequences, turns, rewards, advantages, and `split`.
+- `domain.jsonl`: one line per domain record, tagged with `record_type`; trajectory lines carry their sample's `split`.
+- `ocel.json`: the domain layer in OCEL 2.0 JSON. Objects carry their state changes as time-stamped attributes and their relationships by predicate; events carry channel, money, and effective time, and link objects by qualifier or role.
+- `manifest.json`: the configuration without the credential, counts, the split, judge cycles, the reward summary, the quality report, the steering report, a data card with scope, intended use, reference, jurisdiction, and known limitations, and a SHA-256 checksum for each other part. No secret, ciphertext, or fingerprint reaches it.
+
+The split is assigned from `sha256(run_id|sample_id)`: train below 0.8, validation below 0.9, test above, so a re-export reproduces it. `?held_out=<sub_domain>` moves every sample whose sequences reach a milestone of that sub-domain, such as `loan.disbursed` for consumer credit, into a `heldout` split, to measure generalization rather than fit.
