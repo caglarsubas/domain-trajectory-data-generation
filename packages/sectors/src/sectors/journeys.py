@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import random
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
@@ -26,6 +26,7 @@ from trajectory_contract.models import (
 )
 
 from sectors.lifecycle import LifecycleSpec, Path, Walker, allowed_events, dwell
+from sectors.quality import quality_report
 
 STUDIO_TRAJECTORY_CAP = 64
 REVISED_MIN_HOURS = 24.0 * 7
@@ -44,25 +45,47 @@ LANG_CURRENCY = {
 
 
 @dataclass(frozen=True)
+class Amount:
+    low: float
+    high: float
+    # Seen from the customer's account: credit adds money, debit removes it.
+    direction: str
+    role: str
+
+
+class UnsupportedLanguage(ValueError):
+    pass
+
+
+@dataclass(frozen=True)
 class PackSpec:
     sector: str
     generator_id: str
+    pack_version: str
     lifecycle: LifecycleSpec
     default_domain: str
+    languages: tuple[str, ...]
     objects: dict[str, tuple[str, str, str]]
     roles: dict[str, tuple[tuple[str, str], ...]]
     phrases: dict[str, dict[str, str]]
-    prompts: dict[str, str]
+    prompts: dict[str, tuple[str, ...]]
+    # Opening user lines keyed by the first event ("@complaint.received"), then by the journey's type, with
+    # "*" as the fallback, and the user lines between assistant turns.
+    openings: dict[str, dict[str, tuple[str, ...]]]
+    follow_ups: dict[str, tuple[str, ...]]
     relationships: tuple[tuple[str, str, str], ...]
     system_events: frozenset[str]
     fixed_channels: dict[str, str]
     default_channels: dict[str, str]
-    amounts: dict[str, tuple[float, float]]
+    amounts: dict[str, Amount]
     trajectory_types: tuple[str, ...]
     classify: Callable[[list[str]], str]
     success: Callable[[list[str]], bool]
-    user_line: Callable[[str, str], str]
     subtype: Callable[[str, str, Any], str]
+    # What an object did in an event beyond its role, such as the account a purchase debits.
+    qualifiers: dict[tuple[str, str], str] = field(default_factory=dict)
+    # Hours from event_time to effective_time where they differ, such as a card purchase posting later.
+    effective_lag_hours: dict[str, tuple[float, float]] = field(default_factory=dict)
     # A "correctness" revision note removes these events, which the judge found unsupported.
     correctness_drops: tuple[str, ...] = ()
 
@@ -84,6 +107,15 @@ class _Ids:
         return f"{prefix}{self.counts[prefix]:05d}"
 
 
+class _Scored:
+    def __init__(self, sample: Sample, types: list[str], success: bool, coverage: float) -> None:
+        self.sample = sample
+        self.types = types
+        self.success = success
+        self.length = len(types)
+        self.coverage = coverage
+
+
 class _Journey:
     def __init__(self) -> None:
         self.objects: list[ObjectRecord] = []
@@ -92,10 +124,7 @@ class _Journey:
         self.links: list[EventObject] = []
         self.transitions: list[StateTransition] = []
         self.trajectories: list[Trajectory] = []
-        self.sample: Sample
-        self.success = False
-        self.length = 0
-        self.coverage = 0.0
+        self.scored: list[_Scored] = []
 
 
 def generate_bundle(
@@ -122,6 +151,9 @@ def generate_bundle(
     seed: str = "trajectory",
     materialization_cap: int = STUDIO_TRAJECTORY_CAP,
 ) -> TrajectoryBundle:
+    lang = language_code(language)
+    if lang not in pack.languages:
+        raise UnsupportedLanguage(f"{pack.sector} supports {', '.join(pack.languages)}, not {language}")
     lifecycle = pack.lifecycle
     domains = [name for name in sub_domains if name in lifecycle.sub_domains] or [pack.default_domain]
     cold = start_mode == "cold"
@@ -134,14 +166,10 @@ def generate_bundle(
         dropped.update(pack.correctness_drops)
     enrich = any("helpfulness" in item.lower() for item in revisions)
     allowed = allowed_events(lifecycle, domains, dropped, extra=tuple(kept))
-    walker = Walker(
-        lifecycle,
-        allowed=allowed,
-        sub_domains=domains,
-        named=tuple(name for name in steering.events if name in allowed),
-        kept=tuple(kept),
-    )
-    rng = _rng(seed)
+    named = tuple(name for name in steering.events if name in allowed)
+    walker = Walker(lifecycle, allowed=allowed, sub_domains=domains, named=named, kept=tuple(kept))
+    # Separate streams: timing or wording changes never change which journeys are drawn.
+    paths, clock, words = _rng(seed), _rng(seed + "|time"), _rng(seed + "|text")
     requested = max(int(target_trajectory_count), 1)
     limit = min(requested, max(int(materialization_cap), 1))
     floor, cap = _bounds(min_events, max_events)
@@ -151,43 +179,25 @@ def generate_bundle(
     ids = _Ids()
     built: list[_Journey] = []
     limited_by: str | None = None
+    context = _Context(pack, domains, lang, language, steering, cold, revised, notes, revisions, reward_mechanism,
+                       signal_mechanism, consumer, target_family, max(int(max_assistant_turns), 1), clock, words, ids)
 
     while len(built) < limit:
         room = cap if remaining is None else min(cap, remaining)
         if built and room < floor:
             limited_by = "event_budget"
             break
-        path = _choose(walker, pack, rng, floor=min(floor, room), cap=room, dropped=dropped_kinds, kept=kept_kinds)
+        path = _choose(walker, pack, paths, floor=min(floor, room), cap=room, dropped=dropped_kinds, kept=kept_kinds)
         if not path.steps:
             # Nothing is legal from the start, for example when notes dropped every opening event.
             break
-        branch = walker.branch(path, rng, cap=cap)
+        branch = walker.branch(path, paths, cap=cap)
         extra = 0
         if branch is not None:
             extra = len(branch[0].steps) - branch[1]
             if remaining is not None and len(path.steps) + extra > remaining:
                 branch, extra = None, 0
-        journey = _materialize(
-            pack,
-            path=path,
-            branch=branch,
-            index=len(built),
-            domains=domains,
-            language=language,
-            steering=steering,
-            cold=cold,
-            revised=revised,
-            notes=notes,
-            revisions=revisions,
-            reward_mechanism=reward_mechanism,
-            signal_mechanism=signal_mechanism,
-            consumer=consumer,
-            target_family=target_family,
-            max_assistant_turns=max_assistant_turns,
-            rng=rng,
-            ids=ids,
-        )
-        built.append(journey)
+        built.append(_materialize(context, path=path, branch=branch))
         if remaining is not None:
             remaining -= len(path.steps) + extra
             if remaining <= 0:
@@ -196,25 +206,60 @@ def generate_bundle(
 
     if limited_by is None and len(built) < requested:
         limited_by = "studio_cap"
-    _apply_rewards(built, reward_mechanism)
+    scored = [item for journey in built for item in journey.scored]
+    _apply_rewards(scored, reward_mechanism)
     events = [event for journey in built for event in journey.events]
-    return TrajectoryBundle(
+    bundle = TrajectoryBundle(
         objects=[item for journey in built for item in journey.objects],
         relationships=[item for journey in built for item in journey.relationships],
         events=events,
         event_objects=[item for journey in built for item in journey.links],
         state_transitions=[item for journey in built for item in journey.transitions],
         trajectories=[item for journey in built for item in journey.trajectories],
-        samples=[journey.sample for journey in built],
+        samples=[item.sample for item in scored],
         generation=GenerationMeta(
             generator_id=pack.generator_id,
+            pack_version=pack.pack_version,
             requested_trajectories=requested,
             primary_trajectories=len(built),
             alternative_trajectories=sum(1 for journey in built if len(journey.trajectories) > 1),
             event_count=len(events),
             limited_by=limited_by,
+            steering=None if cold else {
+                **steering.report(),
+                "weighted_events": list(named),
+                "outside_scope_events": [name for name in steering.events if name not in allowed],
+            },
         ),
     )
+    assert bundle.generation is not None
+    bundle.generation.quality = quality_report(lifecycle, bundle, sub_domains=domains, allowed=allowed, cold=cold)
+    return bundle
+
+
+def language_code(language: str) -> str:
+    return language.split("-")[0].strip().lower()
+
+
+@dataclass
+class _Context:
+    pack: PackSpec
+    domains: list[str]
+    lang: str
+    language: str
+    steering: Any
+    cold: bool
+    revised: dict[str, str]
+    notes: list[Note]
+    revisions: list[str]
+    reward_mechanism: str
+    signal_mechanism: str
+    consumer: str
+    target_family: str
+    turns: int
+    clock: random.Random
+    words: random.Random
+    ids: _Ids
 
 
 def _choose(
@@ -244,48 +289,25 @@ def _choose(
     return best
 
 
-def _materialize(
-    pack: PackSpec,
-    *,
-    path: Path,
-    branch: tuple[Path, int, float] | None,
-    index: int,
-    domains: list[str],
-    language: str,
-    steering: Any,
-    cold: bool,
-    revised: dict[str, str],
-    notes: list[Note],
-    revisions: list[str],
-    reward_mechanism: str,
-    signal_mechanism: str,
-    consumer: str,
-    target_family: str,
-    max_assistant_turns: int,
-    rng: random.Random,
-    ids: _Ids,
-) -> _Journey:
+def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, float] | None) -> _Journey:
+    pack = context.pack
     journey = _Journey()
     catalog: dict[str, ObjectRecord] = {}
     state: dict[tuple[str, str], str] = {}
     snapshots: dict[str, dict[tuple[str, str], str]] = {}
-    lang = language.split("-")[0].lower()
-    currency = steering.currency or LANG_CURRENCY.get(lang, "GBP")
-    start = datetime(2024, 3, 4, 9, 0, tzinfo=timezone.utc) + timedelta(days=index * 3, minutes=rng.randint(0, 90))
-    _ensure(pack, "party", start, catalog, steering, ids, journey)
+    start = _start_time(context.clock)
+    _ensure(pack, "party", start, catalog, context.steering, context.ids, journey)
     types = path.types
-    primary = _emit(pack, types, start=start, advance_first=False, catalog=catalog, state=state, snapshots=snapshots,
-                    steering=steering, currency=currency, revised=revised, rng=rng, ids=ids, journey=journey)
+    primary = _emit(context, types, start=start, advance_first=False, catalog=catalog, state=state,
+                    snapshots=snapshots, journey=journey)
     root = catalog["party"].object_id
-    opened = primary[0].event_time
-    trajectory_id = ids.take("T")
-    kind = pack.classify(types)
+    trajectory_id = context.ids.take("T")
     journey.trajectories.append(
         Trajectory(
             trajectory_id=trajectory_id,
             root_party_id=root,
-            trajectory_type=kind,
-            start=opened,
+            trajectory_type=pack.classify(types),
+            start=primary[0].event_time,
             end=primary[-1].event_time,
             observed_or_synthetic="synthetic",
             generator_id=pack.generator_id,
@@ -293,19 +315,19 @@ def _materialize(
             event_ids=[item.event_id for item in primary],
         )
     )
+    journey.scored.append(_score(context, types, trajectory_id))
     if branch is not None:
         alt_path, split, probability = branch
         anchor = primary[split - 1]
-        suffix = alt_path.types[split:]
-        alt_events = _emit(pack, suffix, start=anchor.event_time, advance_first=True, catalog=catalog,
-                           state=dict(snapshots[anchor.event_id]), snapshots=snapshots, steering=steering,
-                           currency=currency, revised=revised, rng=rng, ids=ids, journey=journey)
+        alt_events = _emit(context, alt_path.types[split:], start=anchor.event_time, advance_first=True,
+                           catalog=catalog, state=dict(snapshots[anchor.event_id]), snapshots=snapshots, journey=journey)
+        alt_id = f"{trajectory_id}A"
         journey.trajectories.append(
             Trajectory(
-                trajectory_id=f"{trajectory_id}A",
+                trajectory_id=alt_id,
                 root_party_id=root,
                 trajectory_type=pack.classify(alt_path.types),
-                start=opened,
+                start=primary[0].event_time,
                 end=alt_events[-1].event_time if alt_events else anchor.event_time,
                 observed_or_synthetic="alternative",
                 parent_trajectory_id=trajectory_id,
@@ -316,35 +338,43 @@ def _materialize(
                 event_ids=[item.event_id for item in primary[:split]] + [item.event_id for item in alt_events],
             )
         )
-    _relate(pack, catalog, opened, ids, journey)
-    journey.sample = _sample(
-        pack,
-        types=types,
-        kind=kind,
-        domains=domains,
-        language=language,
-        steering=steering,
-        cold=cold,
-        notes=notes,
-        revisions=revisions,
-        reward_mechanism=reward_mechanism,
-        signal_mechanism=signal_mechanism,
-        consumer=consumer,
-        target_family=target_family,
-        max_assistant_turns=max_assistant_turns,
-        ids=ids,
-    )
-    touched = set(types)
-    lifecycle = pack.lifecycle
-    covered = sum(1 for domain in domains if any(domain in lifecycle[name].sub_domains for name in touched))
-    journey.success = pack.success(types)
-    journey.length = len(types)
-    journey.coverage = covered / len(domains)
+        journey.scored.append(_score(context, alt_path.types, alt_id))
+    _relate(pack, catalog, primary[0].event_time, context.ids, journey)
     return journey
 
 
+def _score(context: _Context, types: list[str], trajectory_id: str) -> _Scored:
+    lifecycle = context.pack.lifecycle
+    touched = set(types)
+    covered = sum(1 for domain in context.domains if any(domain in lifecycle[name].sub_domains for name in touched))
+    return _Scored(
+        _sample(context, types=types, trajectory_id=trajectory_id),
+        types,
+        context.pack.success(types),
+        covered / len(context.domains),
+    )
+
+
+# Relative likelihood of a journey starting on each weekday (Monday first) and in each hour.
+WEEKDAY_WEIGHTS = (1.0, 1.0, 1.0, 1.0, 0.95, 0.55, 0.4)
+HOUR_WEIGHTS = (
+    0.03, 0.02, 0.02, 0.02, 0.03, 0.08, 0.2, 0.45, 0.7, 0.9, 1.0, 1.0,
+    0.95, 1.0, 0.95, 0.9, 0.85, 0.8, 0.8, 0.85, 0.8, 0.6, 0.35, 0.12,
+)
+START_WINDOW = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+
+def _start_time(rng: random.Random) -> datetime:
+    while True:
+        day = START_WINDOW + timedelta(days=rng.randrange(366))
+        if rng.random() < WEEKDAY_WEIGHTS[day.weekday()]:
+            break
+    hour = rng.choices(range(24), weights=HOUR_WEIGHTS)[0]
+    return day + timedelta(hours=hour, minutes=rng.randrange(60), seconds=rng.randrange(60))
+
+
 def _emit(
-    pack: PackSpec,
+    context: _Context,
     types: list[str],
     *,
     start: datetime,
@@ -352,13 +382,10 @@ def _emit(
     catalog: dict[str, ObjectRecord],
     state: dict[tuple[str, str], str],
     snapshots: dict[str, dict[tuple[str, str], str]],
-    steering: Any,
-    currency: str,
-    revised: dict[str, str],
-    rng: random.Random,
-    ids: _Ids,
     journey: _Journey,
 ) -> list[Event]:
+    pack, rng, ids, steering = context.pack, context.clock, context.ids, context.steering
+    currency = steering.currency or LANG_CURRENCY.get(context.lang, "GBP")
     cursor = start
     emitted: list[Event] = []
     party = catalog["party"].object_id
@@ -366,24 +393,27 @@ def _emit(
         spec = pack.lifecycle[event_type]
         if position > 0 or advance_first:
             low, high = spec.dwell_hours
-            if event_type in revised:
+            if event_type in context.revised:
                 low = max(low, REVISED_MIN_HOURS)
                 high = max(high, low)
             cursor = cursor + max(timedelta(hours=dwell(rng, low, high)), timedelta(seconds=1))
         when = cursor
         for kind, _role in pack.roles[event_type]:
             _ensure(pack, kind, when, catalog, steering, ids, journey)
-        amount, unit = _money(pack, rng, event_type, currency)
+        lag = pack.effective_lag_hours.get(event_type)
+        amount = pack.amounts.get(event_type)
         event = Event(
             event_id=ids.take("E"),
             event_type=event_type,
             event_time=when,
-            effective_time=when,
-            recorded_at=when + timedelta(seconds=2),
+            effective_time=when + timedelta(hours=dwell(rng, *lag)) if lag else when,
+            recorded_at=when + timedelta(seconds=dwell(rng, 0.5, 90.0)),
             timestamp_precision="second",
             status="simulated",
-            amount=amount,
-            currency=unit,
+            amount=round(rng.uniform(amount.low, amount.high), 2) if amount else None,
+            currency=currency if amount else None,
+            direction=amount.direction if amount else None,
+            amount_role=amount.role if amount else None,
             channel_id=_channel(pack, event_type, steering.channel),
             case_id=party.replace("P", "C", 1),
             session_id=party.replace("P", "S", 1),
@@ -392,7 +422,14 @@ def _emit(
         )
         journey.events.append(event)
         for kind, role in pack.roles[event_type]:
-            journey.links.append(EventObject(event_id=event.event_id, object_id=catalog[kind].object_id, object_role=role))
+            journey.links.append(
+                EventObject(
+                    event_id=event.event_id,
+                    object_id=catalog[kind].object_id,
+                    object_role=role,
+                    qualifier=pack.qualifiers.get((event_type, kind)),
+                )
+            )
         for effect in spec.sets:
             obj = catalog.get(effect.kind) or _ensure(pack, effect.kind, when, catalog, steering, ids, journey)
             key = (obj.object_id, effect.dimension)
@@ -462,30 +499,10 @@ def _relate(pack: PackSpec, catalog: dict[str, ObjectRecord], when: datetime, id
             )
 
 
-def _sample(
-    pack: PackSpec,
-    *,
-    types: list[str],
-    kind: str,
-    domains: list[str],
-    language: str,
-    steering: Any,
-    cold: bool,
-    notes: list[Note],
-    revisions: list[str],
-    reward_mechanism: str,
-    signal_mechanism: str,
-    consumer: str,
-    target_family: str,
-    max_assistant_turns: int,
-    ids: _Ids,
-) -> Sample:
-    lang = language.split("-")[0].lower()
-    phrases = pack.phrases.get(lang, pack.phrases["en"])
-    # Reviewer notes and the branch disclaimer stay in the system segment, never in trainable text.
-    narrative = " ".join(phrases[item] for item in types)
-    prompt = pack.prompts.get(lang, pack.prompts["en"])
-    if cold:
+def _sample(context: _Context, *, types: list[str], trajectory_id: str) -> Sample:
+    pack, words, ids, steering = context.pack, context.words, context.ids, context.steering
+    phrases = pack.phrases[context.lang]
+    if context.cold:
         reference = "Cold start. No warm-start corpus was used."
     else:
         parts = []
@@ -496,43 +513,67 @@ def _sample(
         reference = " ".join(parts) or f"Warm corpus attached. No {pack.sector} terms matched."
     system = " ".join(
         (
-            f"Synthetic {pack.sector} study. Language {language}.",
-            f"Sub-domains: {', '.join(domains)}.",
-            f"Consumer {consumer}. Target family {target_family}.",
-            f"Reward {reward_mechanism}. Signal {signal_mechanism}.",
+            f"Synthetic {pack.sector} study. Language {context.language}.",
+            f"Sub-domains: {', '.join(context.domains)}.",
+            f"Consumer {context.consumer}. Target family {context.target_family}.",
+            f"Reward {context.reward_mechanism}. Signal {context.signal_mechanism}.",
             reference,
-            f"Generator {pack.generator_id}.",
+            f"Generator {pack.generator_id}, pack {pack.pack_version}.",
             "Alternative branches are simulated, not causal counterfactuals.",
         )
     )
-    if notes:
-        system += " Notes: " + " | ".join(f"{note.stance} {note.target_type} {note.comment}" for note in notes)
-    if revisions:
-        system += " Revision notes: " + " | ".join(revisions)
+    # Reviewer notes stay in the system segment. They are never trainable text.
+    if context.notes:
+        system += " Notes: " + " | ".join(f"{note.stance} {note.target_type} {note.comment}" for note in context.notes)
+    if context.revisions:
+        system += " Revision notes: " + " | ".join(context.revisions)
     system = system[:2000]
+    kind = pack.classify(types)
+    openings = pack.openings[context.lang]
     segments = [
         Segment(segment_id=ids.take("G"), role="system", text=system, trainable=False),
-        Segment(segment_id=ids.take("G"), role="user", text=pack.user_line(kind, lang), trainable=False),
+        Segment(
+            segment_id=ids.take("G"),
+            role="user",
+            text=words.choice(openings.get(f"@{types[0]}") or openings.get(kind) or openings["*"]),
+            trainable=False,
+        ),
     ]
-    segments.extend(
-        Segment(segment_id=ids.take("G"), role="assistant", text=chunk, trainable=True)
-        for chunk in _chunks(narrative, max(int(max_assistant_turns), 1))
-    )
+    for index, turn in enumerate(_turns([phrases[item] for item in types], context.turns)):
+        if index:
+            segments.append(
+                Segment(segment_id=ids.take("G"), role="user", text=words.choice(pack.follow_ups[context.lang]), trainable=False)
+            )
+        segments.append(Segment(segment_id=ids.take("G"), role="assistant", text=turn, trainable=True))
     return Sample(
         sample_id=ids.take("S"),
-        prompt=prompt,
+        trajectory_id=trajectory_id,
+        prompt=words.choice(pack.prompts[context.lang]),
         sequences=[Sequence(sequence_id=ids.take("Q"), contexts=[Context(context_id=ids.take("X"), segments=segments)])],
     )
 
 
-def _apply_rewards(built: list[_Journey], mechanism: str) -> None:
-    if not built:
+def _turns(sentences: list[str], turns: int) -> list[str]:
+    """Group whole sentences into at most `turns` assistant turns of near-equal size."""
+    count = max(1, min(turns, len(sentences)))
+    size, extra = divmod(len(sentences), count)
+    grouped: list[str] = []
+    start = 0
+    for index in range(count):
+        end = start + size + (1 if index < extra else 0)
+        grouped.append(" ".join(sentences[start:end]))
+        start = end
+    return grouped
+
+
+def _apply_rewards(scored: list[_Scored], mechanism: str) -> None:
+    if not scored:
         return
-    successes = [1.0 if item.success else 0.0 for item in built]
-    lengths = [max(item.length, 1) for item in built]
+    successes = [1.0 if item.success else 0.0 for item in scored]
+    lengths = [max(item.length, 1) for item in scored]
     mean_success = sum(successes) / len(successes)
     median = statistics.median(lengths)
-    for item, success, length in zip(built, successes, lengths):
+    for item, success, length in zip(scored, successes, lengths):
         sequence = item.sample.sequences[0]
         if mechanism == "groupwise_reward_synthesis":
             sequence.reward = round(success * (0.5 + 0.5 * item.coverage), 4)
@@ -546,22 +587,6 @@ def _apply_rewards(built: list[_Journey], mechanism: str) -> None:
             sequence.mask = [1 if segment.trainable else 0 for context in sequence.contexts for segment in context.segments]
         else:
             sequence.reward = success
-
-
-def _chunks(text: str, turns: int) -> list[str]:
-    words = text.split()
-    if turns <= 1 or len(words) <= 12:
-        return [text]
-    size = max(1, (len(words) + turns - 1) // turns)
-    chunks: list[str] = []
-    for index in range(0, len(words), size):
-        chunks.append(" ".join(words[index : index + size]))
-        if len(chunks) == turns:
-            rest = words[index + size :]
-            if rest:
-                chunks[-1] = f"{chunks[-1]} {' '.join(rest)}"
-            break
-    return chunks
 
 
 def _interpret(
@@ -636,14 +661,6 @@ def _channel(pack: PackSpec, event_type: str, preferred: str | None) -> str:
     if preferred:
         return preferred
     return pack.default_channels.get(event_type, "web")
-
-
-def _money(pack: PackSpec, rng: random.Random, event_type: str, currency: str) -> tuple[float | None, str | None]:
-    span = pack.amounts.get(event_type)
-    if span is None:
-        return None, None
-    low, high = span
-    return round(rng.uniform(low, high), 2), currency
 
 
 def _rng(seed: str) -> random.Random:

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from sectors.journeys import PackSpec
+from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "banking-semi-markov-v2"
+PACK_VERSION = "banking-pack-2"
 
 OD = "onboarding_and_kyc"
 RC = "risk_and_compliance"
@@ -334,23 +335,42 @@ def success(types: list[str]) -> bool:
     return not credit or credit[-1] == "loan.cured"
 
 
-def user_line(kind: str, lang: str) -> str:
-    loan = kind in {"loan_origination", "loan_delinquency"}
-    if lang == "tr":
-        if kind == "acquisition_to_first_purchase":
-            return "Vadesiz hesap ve banka kartı istiyorum."
-        if loan:
-            return "Kredi başvurusu yapmak istiyorum."
-        if kind == "complaint_case":
-            return "Bir şikayet iletmek istiyorum."
-        return "Vadesiz bir hesap istiyorum."
-    if kind == "acquisition_to_first_purchase":
-        return "I want a current account and a debit card."
-    if loan:
-        return "I want to apply for a loan."
-    if kind == "complaint_case":
-        return "I want to raise a complaint."
-    return "I want a current account."
+PROMPTS = {
+    "en": (
+        "Simulate a synthetic retail-banking journey. Do not invent real people or account numbers.",
+        "Narrate a synthetic retail-banking customer journey step by step. Use no real names or account numbers.",
+        "Walk through a simulated retail-banking case from first contact onward. Keep every identifier synthetic.",
+    ),
+    "tr": (
+        "Sentetik bir perakende bankacılık yolculuğu üret. Gerçek kişi veya hesap numarası uydurma.",
+        "Sentetik bir perakende bankacılık müşteri yolculuğunu adım adım anlat. Gerçek isim ya da hesap numarası kullanma.",
+        "İlk temastan başlayarak simüle edilmiş bir bankacılık vakasını anlat. Tüm tanımlayıcılar sentetik olsun.",
+    ),
+}
+
+OPENINGS = {
+    "en": {
+        "*": ("I want a current account.", "I would like to open an account with you.", "Can I open a current account online?"),
+        "acquisition_to_first_purchase": ("I want a current account and a debit card.", "I need an account with a card I can use straight away."),
+        "loan_origination": ("I want to apply for a loan.", "I would like to borrow for a car.", "Can I apply for a personal loan?"),
+        "loan_delinquency": ("I want to apply for a loan.", "I would like a personal loan."),
+        "kyc_review": ("I want to open an account, but my documents are from abroad.", "I would like an account; my ID was issued recently."),
+        "@complaint.received": ("I want to raise a complaint.", "Something went wrong and I want to complain."),
+    },
+    "tr": {
+        "*": ("Vadesiz bir hesap istiyorum.", "Sizde hesap açmak istiyorum.", "İnternetten vadesiz hesap açabilir miyim?"),
+        "acquisition_to_first_purchase": ("Vadesiz hesap ve banka kartı istiyorum.", "Hemen kullanabileceğim kartlı bir hesap istiyorum."),
+        "loan_origination": ("Kredi başvurusu yapmak istiyorum.", "Araç için kredi kullanmak istiyorum.", "İhtiyaç kredisine başvurabilir miyim?"),
+        "loan_delinquency": ("Kredi başvurusu yapmak istiyorum.", "İhtiyaç kredisi istiyorum."),
+        "kyc_review": ("Hesap açmak istiyorum ama belgelerim yurt dışından.", "Hesap istiyorum; kimliğim yeni çıktı."),
+        "@complaint.received": ("Bir şikayet iletmek istiyorum.", "Bir sorun yaşadım, şikayetçi olmak istiyorum."),
+    },
+}
+
+FOLLOW_UPS = {
+    "en": ("What happened next?", "Go on.", "And then?", "What did the bank do after that?", "Continue, please."),
+    "tr": ("Sonra ne oldu?", "Devam edin.", "Ardından?", "Banka bundan sonra ne yaptı?", "Lütfen devam edin."),
+}
 
 
 def subtype(kind: str, default: str, steering: Any) -> str:
@@ -366,15 +386,16 @@ def subtype(kind: str, default: str, steering: Any) -> str:
 PACK = PackSpec(
     sector="banking",
     generator_id=GENERATOR_ID,
+    pack_version=PACK_VERSION,
     lifecycle=LIFECYCLE,
     default_domain=OD,
+    languages=("en", "tr"),
     objects=OBJECTS,
     roles=ROLES,
     phrases={"en": EN, "tr": TR},
-    prompts={
-        "en": "Simulate a synthetic retail-banking journey. Do not invent real people or account numbers.",
-        "tr": "Sentetik bir perakende bankacılık yolculuğu üret. Gerçek kişi veya hesap numarası uydurma.",
-    },
+    prompts=PROMPTS,
+    openings=OPENINGS,
+    follow_ups=FOLLOW_UPS,
     relationships=(
         ("party", "APPLIED_FOR", "application"),
         ("application", "RESULTED_IN", "account"),
@@ -412,15 +433,32 @@ PACK = PackSpec(
         "account.closed": "branch",
     },
     amounts={
-        "account.funded": (80.0, 4000.0),
-        "card.purchase_authorised": (4.0, 180.0),
-        "loan.disbursed": (1500.0, 20000.0),
-        "loan.repayment_received": (60.0, 900.0),
+        "account.funded": Amount(80.0, 4000.0, "credit", "deposit"),
+        "card.purchase_authorised": Amount(4.0, 180.0, "debit", "purchase"),
+        "loan.disbursed": Amount(1500.0, 20000.0, "credit", "principal"),
+        "loan.repayment_received": Amount(60.0, 900.0, "debit", "repayment"),
+    },
+    qualifiers={
+        ("account.funded", "account"): "credited_account",
+        ("card.issued", "account"): "linked_account",
+        ("card.purchase_authorised", "card"): "payment_instrument",
+        ("card.purchase_authorised", "account"): "debited_account",
+        ("loan.disbursed", "application"): "originating_application",
+        ("loan.disbursed", "loan"): "disbursed_loan",
+        ("loan.repayment_received", "loan"): "repaid_loan",
+        ("account.closed", "account"): "closed_account",
+    },
+    effective_lag_hours={
+        # A card purchase posts to the account after authorisation; transfers settle the same or next day.
+        "card.purchase_authorised": (12.0, 72.0),
+        "account.funded": (0.1, 24.0),
+        "loan.disbursed": (2.0, 30.0),
+        "loan.repayment_received": (0.1, 24.0),
+        "account.closed": (DAY, 7 * DAY),
     },
     trajectory_types=TRAJECTORY_TYPES,
     classify=classify,
     success=success,
-    user_line=user_line,
     subtype=subtype,
     correctness_drops=("loan.delinquent",),
 )

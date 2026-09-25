@@ -39,7 +39,7 @@ Result, 25 September 2026: done. The key was rotated, and the old key now gets 4
 
 Slice 1 ships in three pull requests: the lifecycle engine and its hard checks; warm-start steering, the domain and training layers, and quality report v1; then the studio views.
 
-Progress, 25 September 2026: the first pull request replaces both generators with the shared engine (tasks 1 to 5) and also moves reviewer notes out of trainable text (task 9). On all seven banking sub-domains, 64 journeys now hold 57 to 62 distinct event sequences across ten seeds, against 8 before (insurance: 41 to 58), and a property-based sweep of 500 random configurations across both packs finds no rule violations. Steering still matches terms by substring; that and the rest are in the second pull request.
+Progress, 25 September 2026: the first pull request replaces both generators with the shared engine (tasks 1 to 5) and also moves reviewer notes out of trainable text (task 9). On all seven banking sub-domains, 64 journeys now hold 57 to 62 distinct event sequences across ten seeds, against 8 before (insurance: 41 to 58), and a property-based sweep of 500 random configurations across both packs finds no rule violations. The second pull request covers the steering, domain-layer, training-layer, and quality-report sections below (tasks 6 to 8, 10, 11, and the documentation part of 14). Journey starts move to a weekday and hour profile. Each run's metadata carries the steering report, per document, and quality report v1. The event inspector shows money direction; the remaining studio work (tasks 12 and 13) is the third pull request.
 
 ### A shared lifecycle engine
 

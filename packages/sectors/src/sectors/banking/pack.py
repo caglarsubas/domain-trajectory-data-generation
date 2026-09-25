@@ -26,6 +26,7 @@ class BankingPack:
     sub_domains = SUB_DOMAINS
     event_namespace = EVENT_NAMESPACE
     state_dimensions = STATE_DIMENSIONS
+    languages = ("en", "tr")
 
     def judge_brief(
         self,
@@ -52,6 +53,11 @@ class BankingPack:
             "and nothing on an account after it closes.\n"
             f"{reference}"
         )
+
+    def steering(self, text: str):
+        from sectors.banking.corpus import steering_from_text
+
+        return steering_from_text(text)
 
     def hard_checks(self, bundle: TrajectoryBundle) -> list[str]:
         return banking_hard_checks(bundle)

@@ -29,6 +29,10 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         sector = get_sector(body.sector)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    code = body.language.split("-")[0].strip().lower()
+    if code not in sector.languages:
+        supported = " or ".join(sector.languages)
+        raise HTTPException(status_code=422, detail=f"{sector.label} runs are written in {supported}; {body.language} is not supported yet")
     unknown = [name for name in body.sub_domains if name not in sector.sub_domains]
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown sub-domains: {', '.join(unknown)}")

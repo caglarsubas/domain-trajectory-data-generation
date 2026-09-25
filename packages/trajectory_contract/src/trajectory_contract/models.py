@@ -46,6 +46,9 @@ class Event(BaseModel):
     status: str | None = None
     amount: float | None = None
     currency: str | None = None
+    # Seen from the customer's account: credit adds money, debit removes it.
+    direction: Literal["debit", "credit"] | None = None
+    amount_role: str | None = None
     channel_id: str | None = None
     case_id: str | None = None
     session_id: str | None = None
@@ -108,6 +111,8 @@ class Sequence(BaseModel):
 
 class Sample(BaseModel):
     sample_id: str
+    # The domain-layer trajectory this sample narrates.
+    trajectory_id: str | None = None
     prompt: str
     sequences: list[Sequence]
 
@@ -119,6 +124,9 @@ class GenerationMeta(BaseModel):
     alternative_trajectories: int
     event_count: int
     limited_by: Literal["event_budget", "studio_cap"] | None = None
+    pack_version: str | None = None
+    steering: dict[str, Any] | None = None
+    quality: dict[str, Any] | None = None
 
 
 class TrajectoryBundle(BaseModel):

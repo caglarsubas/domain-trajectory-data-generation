@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from app.providers import get_provider
-from sectors.banking.corpus import scrub_text
+from sectors.steering import scrub_text
 
 
 class DeepSearchError(Exception):
