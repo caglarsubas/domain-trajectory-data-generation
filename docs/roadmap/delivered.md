@@ -1,8 +1,10 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All six are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All seven are merged and their branches are deleted.
 
-`main` history: `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+
+Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
 ## 1. Scaffold the banking trajectory studio
 
@@ -16,7 +18,7 @@ Also landed: accounts with admin, user, and demo kinds; credentials encrypted wi
 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/2
 
-Added `banking-semi-markov-v1`, a constrained semi-Markov generator. Domain order is fixed, dwell times vary, and hard checks enforce the invariants locally before the judge is called: card issuance precedes activation, no loan is disbursed without approval, and so on. Feedback with stance keep, revise, or drop steers the next pass, and a re-run copies the configuration, records `parent_run_id`, and inherits the selected notes. The studio materializes at most sixty-four primary trajectories per run.
+Added `banking-semi-markov-v1`, a constrained semi-Markov generator. Domain order is fixed, dwell times vary, and hard checks run locally before the judge is called. Besides structural integrity, they enforce two lifecycle rules: card issuance precedes activation, and no loan is disbursed without approval. Journeys come from eight variants assigned in rotation. Feedback with stance keep, revise, or drop steers the next pass, and a re-run copies the configuration, records `parent_run_id`, and inherits the selected notes. The studio materializes at most sixty-four primary trajectories per run.
 
 ## 3. Run provider web search and steer banking journeys from the report
 
@@ -30,7 +32,7 @@ The important boundary: the generator does not call the provider. The scrubbed r
 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/4
 
-Added `insurance-semi-markov-v1` across quoting, underwriting, policy administration, billing, claims, servicing, and complaints, with its own hard checks: a policy exists before acceptance, premium and claim events follow issue, and a claim is assessed before it is settled or denied.
+Added `insurance-semi-markov-v1` across quoting, underwriting, policy administration, billing, claims, servicing, and complaints, with its own hard checks: underwriting acceptance precedes policy issue, premium and claim events follow issue, and a claim is assessed before it is settled or denied.
 
 This is the slice that proved the sector boundary works. The run schema did not change. `SectorPack` gained a `generate` method, `candidate_for_run` dispatches through `get_sector(config["sector"]).generate`, and the `sector` literal widened. Every future pack follows this shape.
 
@@ -53,3 +55,9 @@ The browser was calling `http://localhost:8000` directly, so opening the studio 
 Host port 8000 was already bound on the laptop, so the API container never joined the network at all. Compose now publishes the API on host port 18000, overridable with `API_HOST_PORT`.
 
 Verified end to end in a browser against a non-localhost host: `admin@example.com` signs in and reaches the admin-only Platform page.
+
+## 7. Write the roadmap into docs
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/7
+
+Moved the roadmap out of a chat session and into the repository as three files: this record, the overview with the purpose and standing constraints, and the next slice. The README links `docs/roadmap`.
