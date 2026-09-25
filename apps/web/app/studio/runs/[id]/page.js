@@ -228,7 +228,7 @@ export default function RunPage() {
                 <span>Recorded</span><b>{event.recorded_at ? new Date(event.recorded_at).toLocaleString() : "—"}</b>
                 <span>Status</span><b>{event.observation_status}</b>
                 <span>Channel</span><b>{event.channel_id || "—"}</b>
-                <span>Amount</span><b>{event.amount != null ? `${event.amount} ${event.currency || ""}`.trim() : "—"}</b>
+                <span>Amount</span><b>{event.amount != null ? `${event.direction === "debit" ? "−" : event.direction === "credit" ? "+" : ""}${event.amount} ${event.currency || ""}${event.amount_role ? ` · ${event.amount_role.replaceAll("_", " ")}` : ""}`.trim() : "—"}</b>
               </div>
               {transitions.map((item) => (
                 <p key={item.state_dimension}>{item.state_dimension}: {item.state_before || "none"} → {item.state_after}</p>

@@ -11,6 +11,7 @@ class SectorPack(Protocol):
     sub_domains: tuple[str, ...]
     event_namespace: tuple[str, ...]
     state_dimensions: tuple[str, ...]
+    languages: tuple[str, ...]
 
     def judge_brief(
         self,
@@ -20,6 +21,8 @@ class SectorPack(Protocol):
         corpus_excerpt: str,
         cold_start: bool,
     ) -> str: ...
+
+    def steering(self, text: str): ...
 
     def hard_checks(self, bundle: TrajectoryBundle) -> list[str]: ...
 

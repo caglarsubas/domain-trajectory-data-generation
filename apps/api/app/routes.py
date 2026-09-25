@@ -30,7 +30,7 @@ from app.schemas import (
 from app.search import DeepSearchError, default_query, run_deep_search
 from app import runtime
 from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_password, issue_token, read_token, verify_password
-from sectors.banking.corpus import scrub_text
+from sectors.steering import scrub_text
 from sectors.registry import get_sector
 from app.serialize import project_out, run_out
 from app.service import config_from_body, require_project, require_run, rerun_config

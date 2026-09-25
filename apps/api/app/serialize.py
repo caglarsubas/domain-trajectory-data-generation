@@ -3,13 +3,18 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.corpus_text import ordered, read_document
 from app.evaluation import UNREADABLE
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Feedback, Project, Run
 from trajectory_contract import banking_fixture
 
 
 def corpus_out(item: CorpusItem) -> dict:
+    doc = read_document(item)
     return {
+        "readable": doc.readable,
+        "unreadable_reason": doc.reason,
+        "characters": len(doc.text),
         "id": item.id,
         "kind": item.kind,
         "name": item.name,
@@ -27,7 +32,7 @@ def project_out(project: Project, db: Session) -> dict:
         "name": project.name,
         "sector": project.sector,
         "created_at": project.created_at.isoformat(),
-        "corpus": [corpus_out(item) for item in items],
+        "corpus": [corpus_out(item) for item in ordered(items)],
     }
 
 

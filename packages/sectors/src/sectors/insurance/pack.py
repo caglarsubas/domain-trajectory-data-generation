@@ -26,6 +26,7 @@ class InsurancePack:
     sub_domains = SUB_DOMAINS
     event_namespace = EVENT_NAMESPACE
     state_dimensions = STATE_DIMENSIONS
+    languages = ("en", "tr")
 
     def judge_brief(
         self,
@@ -51,6 +52,11 @@ class InsurancePack:
             "the policy in force before a claim is notified, and assessment before settlement or denial.\n"
             f"{reference}"
         )
+
+    def steering(self, text: str):
+        from sectors.insurance.corpus import steering_from_text
+
+        return steering_from_text(text)
 
     def hard_checks(self, bundle: TrajectoryBundle) -> list[str]:
         return insurance_hard_checks(bundle)

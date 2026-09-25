@@ -13,6 +13,8 @@ Records:
 - `state_transitions` — `state_before` and `state_after` on one dimension
 - `trajectories` — a projection over events, including `parent_trajectory_id`, `branch_event_id`, `generator_id`, and `probability`
 
+Money carries `amount`, `currency`, `direction` (`debit` or `credit`, seen from the customer's account), and `amount_role`, such as `purchase` or `repayment`. An event-object link can carry a `qualifier` beyond the role, such as the account a purchase debits. `effective_time` differs from `event_time` where the domain says so: a card purchase posts to the account 12 to 72 hours after authorisation, and cover starts on the policy's start date. `recorded_at` trails the event by seconds.
+
 `observation_status` is one of `observed`, `derived`, `imputed`, or `simulated`. An alternative branch is a simulated alternative. It is not labeled a causal counterfactual.
 
 ## Training layer
@@ -23,6 +25,8 @@ MiMo-V2.6 (LLM-Core Xiaomi, 2026) organizes an agent rollout as Sample, Sequence
 - A **sequence** is one rollout. Reward, advantage, and mask are nullable.
 - A **context** is one dialogue branch.
 - A **segment** is one turn. Only segments with role `assistant` are trainable.
+
+Every sample names the trajectory it narrates in `trajectory_id`, and an alternative trajectory gets its own sample. Assistant turns hold whole sentences, and user turns sit between them. Prompts and user lines come from a bank per sector and language. Reviewer notes appear only in the system segment.
 
 Each sector pack names the event types and state dimensions that its hard checks enforce. The run records stay the same when a sector is added.
 
@@ -38,3 +42,12 @@ The selected sub-domains decide which events are in scope. Events needed to reac
 A branch point is a step where the machines offered more than one legal choice. An alternative takes a different choice there, preferring the other outcome of the same decision, and continues with a fresh walk. Its `probability` is the sampler's probability of that choice at the branch point, and `causal_claim` is `false`: a simulated alternative, not a causal counterfactual.
 
 Warm-start text weights the sampler instead of forcing events in: a named event in scope becomes more likely where it is legal, so a corpus naming both outcomes of a decision yields journeys of both kinds and none holding both. Currency, channel, and product terms still come from that sector's vocabulary. Cold start ignores the corpus. A drop note removes an event, and anything that could only follow it becomes unreachable. A keep note brings an event into scope and a journey does not end before it happens when it can. A revise note delays the event by at least a week. Reviewer notes appear only in the system segment, never in trainable text. The studio stores at most 64 primary trajectories for a run, and fewer when the event budget is exhausted.
+
+## Run metadata
+
+`generation` records the generator id, the pack version, the limit that stopped the run if any, and two reports:
+
+- `steering`: the currency, channel, products, and events the warm-start text named, the events a negation cancelled, the events weighted because they are in scope, and one entry per document saying whether it was readable, why not, and what it contributed. Terms match on whole words; currency codes match only in capitals.
+- `quality`: version 1 of the quality report. `complete` counts hard-check violations and filler runs and checks referential integrity; `comprehensive` counts distinct sequences, event-type coverage per selected sub-domain, the share of rare paths, and distinct transitions. `representative` and `qualitative` say they are not measured yet, and a cold start is marked unreferenced.
+
+Runs are written in the languages the pack declares, English and Turkish today. The API refuses any other language instead of producing English.

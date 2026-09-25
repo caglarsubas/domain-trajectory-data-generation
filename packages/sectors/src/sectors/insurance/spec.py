@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from sectors.journeys import PackSpec
+from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "insurance-semi-markov-v2"
+PACK_VERSION = "insurance-pack-2"
 
 QU = "quoting"
 UW = "underwriting"
@@ -280,19 +281,36 @@ def success(types: list[str]) -> bool:
     return not ({"underwriting.declined", "claim.denied", "policy.cancelled"} & set(types))
 
 
-def user_line(kind: str, lang: str) -> str:
-    claim = kind in {"claim_settled", "claim_denied"}
-    if lang == "tr":
-        if claim:
-            return "Hasar bildirimi yapmak istiyorum."
-        if kind == "complaint_case":
-            return "Bir şikayet iletmek istiyorum."
-        return "Sigorta teklifi istiyorum."
-    if claim:
-        return "I need to claim on my policy."
-    if kind == "complaint_case":
-        return "I want to raise a complaint."
-    return "I want a quote for cover."
+PROMPTS = {
+    "en": (
+        "Simulate a synthetic retail-insurance journey. Do not invent real people, policy numbers, or claim references.",
+        "Narrate a synthetic retail-insurance customer journey step by step. Keep every policy and claim reference synthetic.",
+        "Walk through a simulated retail-insurance case from the first quote onward. Use no real names or numbers.",
+    ),
+    "tr": (
+        "Sentetik bir perakende sigorta yolculuğu üret. Gerçek kişi, poliçe veya hasar numarası uydurma.",
+        "Sentetik bir perakende sigorta müşteri yolculuğunu adım adım anlat. Poliçe ve hasar numaraları sentetik olsun.",
+        "İlk tekliften başlayarak simüle edilmiş bir sigorta vakasını anlat. Gerçek isim ya da numara kullanma.",
+    ),
+}
+
+OPENINGS = {
+    "en": {
+        "*": ("I want a quote for cover.", "Can you quote me for motor insurance?", "I would like to insure my car."),
+        "underwriting_referral": ("I want a quote; I have had a claim before.", "Can I get cover with a past conviction?"),
+        "@complaint.received": ("I want to raise a complaint.", "I am unhappy with how my policy was handled."),
+    },
+    "tr": {
+        "*": ("Sigorta teklifi istiyorum.", "Kasko için teklif alabilir miyim?", "Aracımı sigortalatmak istiyorum."),
+        "underwriting_referral": ("Teklif istiyorum; daha önce hasarım oldu.", "Geçmiş bir cezam varken teminat alabilir miyim?"),
+        "@complaint.received": ("Bir şikayet iletmek istiyorum.", "Poliçemle ilgili süreçten memnun değilim."),
+    },
+}
+
+FOLLOW_UPS = {
+    "en": ("What happened next?", "Go on.", "And then?", "What did the insurer do after that?", "Continue, please."),
+    "tr": ("Sonra ne oldu?", "Devam edin.", "Ardından?", "Sigorta şirketi bundan sonra ne yaptı?", "Lütfen devam edin."),
+}
 
 
 def subtype(kind: str, default: str, steering: Any) -> str:
@@ -304,15 +322,16 @@ def subtype(kind: str, default: str, steering: Any) -> str:
 PACK = PackSpec(
     sector="insurance",
     generator_id=GENERATOR_ID,
+    pack_version=PACK_VERSION,
     lifecycle=LIFECYCLE,
     default_domain=QU,
+    languages=("en", "tr"),
     objects=OBJECTS,
     roles=ROLES,
     phrases={"en": EN, "tr": TR},
-    prompts={
-        "en": "Simulate a synthetic retail-insurance journey. Do not invent real people, policy numbers, or claim references.",
-        "tr": "Sentetik bir perakende sigorta yolculuğu üret. Gerçek kişi, poliçe veya hasar numarası uydurma.",
-    },
+    prompts=PROMPTS,
+    openings=OPENINGS,
+    follow_ups=FOLLOW_UPS,
     relationships=(
         ("party", "REQUESTED", "quote"),
         ("quote", "RESULTED_IN", "policy"),
@@ -346,11 +365,28 @@ PACK = PackSpec(
         "claim.notified": "mobile",
         "complaint.received": "call_centre",
     },
-    amounts={"premium.paid": (40.0, 900.0), "claim.settled": (80.0, 8000.0)},
+    amounts={
+        "premium.paid": Amount(40.0, 900.0, "debit", "premium"),
+        "claim.settled": Amount(80.0, 8000.0, "credit", "claim_payment"),
+    },
+    qualifiers={
+        ("policy.bound", "quote"): "originating_quote",
+        ("premium.paid", "policy"): "billed_policy",
+        ("claim.notified", "policy"): "covering_policy",
+        ("claim.settled", "claim"): "paid_claim",
+        ("claim.denied", "claim"): "denied_claim",
+    },
+    effective_lag_hours={
+        # Cover starts on the policy's start date; a settlement reaches the customer after approval.
+        "policy.issued": (DAY, 14 * DAY),
+        "policy.renewed": (DAY, 30 * DAY),
+        "premium.paid": (0.1, 48.0),
+        "claim.settled": (DAY, 5 * DAY),
+        "policy.cancelled": (DAY, 30 * DAY),
+    },
     trajectory_types=TRAJECTORY_TYPES,
     classify=classify,
     success=success,
-    user_line=user_line,
     subtype=subtype,
     correctness_drops=("claim.denied",),
 )
