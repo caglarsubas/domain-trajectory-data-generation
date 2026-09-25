@@ -9,6 +9,7 @@ A studio for configuring trajectory runs, inspecting generated journeys, leaving
 - `packages/trajectory_contract` — object-centric records and the Sample / Sequence / Context / Segment hierarchy
 - `packages/sectors` — sector packs; `banking` and `insurance` are registered
 - `docs/banking` — the warm-start research reports
+- `docs/roadmap` — the purpose, the standing constraints, what shipped, and the next slice
 
 ## Run locally
 
