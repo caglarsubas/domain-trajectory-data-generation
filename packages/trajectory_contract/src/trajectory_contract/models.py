@@ -81,6 +81,8 @@ class Trajectory(BaseModel):
     branch_event_id: str | None = None
     generator_id: str | None = None
     probability: float | None = None
+    # False on a simulated alternative: it makes no causal claim about what would have happened.
+    causal_claim: bool | None = None
     event_ids: list[str]
 
 

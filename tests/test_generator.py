@@ -1,10 +1,18 @@
+import random
 from datetime import timedelta
 from itertools import combinations
+
+import pytest
 
 from sectors.banking.checks import banking_hard_checks
 from sectors.banking.generate import GENERATOR_ID, generate_banking_bundle
 from sectors.banking.pack import SUB_DOMAINS
-from sectors.registry import known_sectors
+from sectors.banking.spec import LIFECYCLE as BANKING_LIFECYCLE
+from sectors.insurance.spec import LIFECYCLE as INSURANCE_LIFECYCLE
+from sectors.registry import get_sector, known_sectors
+from trajectory_contract import banking_fixture
+
+LIFECYCLES = {"banking": BANKING_LIFECYCLE, "insurance": INSURANCE_LIFECYCLE}
 
 
 def _bundle(**overrides):
@@ -145,64 +153,160 @@ def test_same_seed_is_stable_and_later_sectors_stay_unregistered():
     assert "telecommunication" not in known_sectors()
 
 
-def test_warm_corpus_names_events_unless_a_note_drops_them():
-    scope = ["onboarding_and_kyc", "risk_and_compliance", "deposits"]
-    notes = [
-        {"target_type": "trajectory", "target_id": "kyc_review", "stance": "drop", "comment": "Skip review."},
-        {"target_type": "trajectory", "target_id": "application_declined", "stance": "drop", "comment": "Skip decline."},
+def _primaries(bundle):
+    events = {event.event_id: event for event in bundle.events}
+    return [
+        [events[item].event_type for item in trajectory.event_ids]
+        for trajectory in bundle.trajectories
+        if trajectory.parent_trajectory_id is None
     ]
-    kept = _bundle(
-        start_mode="warm",
-        sub_domains=scope,
-        corpus_text="Public notes: kyc.document_submitted before the check passes. Customers use USD on mobile.",
-        seed="events",
-        target_trajectory_count=2,
-        min_events=6,
-        max_events=16,
-        event_budget=200,
-        feedback=notes,
-    )
-    by_id = {event.event_id: event for event in kept.events}
-    primaries = [item for item in kept.trajectories if item.parent_trajectory_id is None]
-    assert primaries
-    assert all(
-        any(by_id[event_id].event_type == "kyc.document_submitted" for event_id in item.event_ids)
-        for item in primaries
-    )
-    assert any(event.currency == "USD" for event in kept.events)
-    assert any(event.event_type == "product.viewed" and event.channel_id == "mobile" for event in kept.events)
-    assert banking_hard_checks(kept) == []
-    plain = _bundle(
-        start_mode="warm",
-        sub_domains=scope,
+
+
+def _share(bundle, event_type):
+    journeys = _primaries(bundle)
+    return sum(event_type in journey for journey in journeys) / len(journeys)
+
+
+def test_warm_corpus_weights_named_events_and_notes_still_win():
+    scope = ["onboarding_and_kyc", "risk_and_compliance", "deposits"]
+    common = {
+        "start_mode": "warm",
+        "sub_domains": scope,
+        "seed": "events",
+        "target_trajectory_count": 48,
+        "min_events": 6,
+        "max_events": 16,
+        "event_budget": None,
+    }
+    named = _bundle(corpus_text="Public notes: kyc.document_submitted before the check passes. Customers use USD on mobile.", **common)
+    plain = _bundle(corpus_text="Customers use USD on mobile.", **common)
+    assert _share(named, "kyc.document_submitted") > _share(plain, "kyc.document_submitted") + 0.15
+    assert any(event.currency == "USD" for event in named.events)
+    assert any(event.event_type == "product.viewed" and event.channel_id == "mobile" for event in named.events)
+    assert banking_hard_checks(named) == []
+
+    without_types = _bundle(
+        feedback=[
+            {"target_type": "trajectory", "target_id": "kyc_review", "stance": "drop", "comment": "Skip review."},
+            {"target_type": "trajectory", "target_id": "application_declined", "stance": "drop", "comment": "Skip decline."},
+        ],
         corpus_text="Customers use USD on mobile.",
-        seed="events",
-        target_trajectory_count=2,
-        min_events=6,
-        max_events=16,
-        event_budget=200,
-        feedback=notes,
+        **common,
     )
-    plain_events = {event.event_id: event for event in plain.events}
-    plain_primaries = [item for item in plain.trajectories if item.parent_trajectory_id is None]
-    assert all(
-        all(plain_events[event_id].event_type != "kyc.document_submitted" for event_id in item.event_ids)
-        for item in plain_primaries
-    )
+    kinds = {item.trajectory_type for item in without_types.trajectories if item.parent_trajectory_id is None}
+    assert not kinds & {"kyc_review", "application_declined"}
+
     dropped = _bundle(
         start_mode="warm",
         sub_domains=["cards_and_payments", "onboarding_and_kyc"],
         corpus_text="card.issued then card.activated",
         seed="drop-issued",
-        target_trajectory_count=2,
+        target_trajectory_count=8,
         min_events=4,
         max_events=16,
-        event_budget=200,
+        event_budget=None,
         feedback=[{"target_type": "event", "target_id": "card.issued", "stance": "drop", "comment": "No issuance."}],
     )
     assert all(event.event_type != "card.issued" for event in dropped.events)
     assert all(event.event_type != "card.activated" for event in dropped.events)
     assert banking_hard_checks(dropped) == []
+
+
+def test_a_corpus_naming_both_outcomes_never_yields_a_contradictory_journey():
+    bundle = _bundle(
+        start_mode="warm",
+        sub_domains=["onboarding_and_kyc", "risk_and_compliance", "deposits"],
+        corpus_text="The kyc failed and the application declined. Elsewhere kyc.passed and application.approved.",
+        target_trajectory_count=64,
+        event_budget=None,
+        min_events=4,
+        max_events=16,
+        seed="both-outcomes",
+    )
+    assert banking_hard_checks(bundle) == []
+    journeys = _primaries(bundle)
+    for journey in journeys:
+        assert not {"kyc.passed", "kyc.failed"} <= set(journey), journey
+        assert not {"application.approved", "application.declined"} <= set(journey), journey
+    assert any("kyc.failed" in journey for journey in journeys)
+    assert any("application.approved" in journey for journey in journeys)
+
+
+def test_sixty_four_journeys_hold_at_least_thirty_two_distinct_sequences():
+    bundle = _bundle(sub_domains=list(SUB_DOMAINS), target_trajectory_count=64, event_budget=None, min_events=6, max_events=24, seed="diversity")
+    assert len({tuple(journey) for journey in _primaries(bundle)}) >= 32
+
+
+def test_replay_rejects_an_outcome_after_the_decision():
+    bundle = banking_fixture()
+    bundle.events[5].event_type = "kyc.failed"
+    errors = banking_hard_checks(bundle)
+    assert any("KYC failed outside an open KYC case" in item for item in errors)
+    assert any("account funded while not active" in item for item in errors)
+
+
+def test_alternatives_are_marked_simulated_and_share_the_parent_prefix():
+    bundle = _bundle(target_trajectory_count=12, event_budget=None, seed="branches")
+    by_id = {item.trajectory_id: item for item in bundle.trajectories}
+    alternatives = [item for item in bundle.trajectories if item.parent_trajectory_id]
+    assert alternatives
+    for alt in alternatives:
+        parent = by_id[alt.parent_trajectory_id]
+        split = parent.event_ids.index(alt.branch_event_id) + 1
+        assert alt.event_ids[:split] == parent.event_ids[:split]
+        assert alt.causal_claim is False
+        assert 0 < alt.probability < 1
+
+
+def test_reviewer_text_never_becomes_trainable():
+    parent = _bundle(seed="review-parent")
+    event = next(item for item in parent.events if item.event_type == "kyc.started")
+    child = _bundle(
+        seed="review-child",
+        parent_bundle=parent,
+        feedback=[{"target_type": "event", "target_id": event.event_id, "stance": "revise", "comment": "Slow the checks down please."}],
+        revision_notes=["correctness 0 below 0.5. Journeys look invented."],
+    )
+    segments = [segment for sample in child.samples for sequence in sample.sequences for context in sequence.contexts for segment in context.segments]
+    trainable = " ".join(segment.text for segment in segments if segment.trainable)
+    system = " ".join(segment.text for segment in segments if segment.role == "system")
+    assert "Slow the checks down please." not in trainable and "Journeys look invented." not in trainable
+    assert "causal counterfactual" not in trainable
+    assert "Slow the checks down please." in system
+
+
+@pytest.mark.parametrize("sector", ["banking", "insurance"])
+def test_random_configurations_never_break_a_rule(sector):
+    pack = get_sector(sector)
+    rng = random.Random(f"sweep-{sector}")
+    lifecycle = LIFECYCLES[sector]
+    for trial in range(250):
+        names = list(pack.sub_domains)
+        low = rng.randint(1, 12)
+        high = rng.randint(low, 30)
+        bundle = pack.generate(
+            sub_domains=rng.sample(names, rng.randint(1, len(names))),
+            language=rng.choice(["en", "tr"]),
+            target_trajectory_count=rng.randint(1, 10),
+            event_budget=rng.choice([None, rng.randint(5, 300)]),
+            min_events=low,
+            max_events=high,
+            max_assistant_turns=rng.randint(1, 6),
+            start_mode=rng.choice(["cold", "warm"]),
+            corpus_text=rng.choice(["", "The kyc failed. claim.denied after claim.assessed. USD on mobile."]),
+            reward_mechanism="binary_outcome",
+            signal_mechanism="outcome",
+            consumer="post_training",
+            target_family="llm",
+            seed=f"{sector}-{trial}",
+        )
+        assert pack.hard_checks(bundle) == [], (sector, trial)
+        events = {event.event_id: event for event in bundle.events}
+        for trajectory in bundle.trajectories:
+            types = [events[item].event_type for item in trajectory.event_ids]
+            assert len(types) <= high
+            for name in set(types):
+                assert types.count(name) <= lifecycle[name].repeat, (name, types)
 
 
 def test_helpfulness_revision_adds_a_longer_journey():

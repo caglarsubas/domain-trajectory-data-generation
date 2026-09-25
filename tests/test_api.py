@@ -125,7 +125,7 @@ def test_user_cannot_store_platform_key_and_demo_needs_byok(client):
     assert created.json()["bundle_source"] == "candidate"
     assert created.json()["status"] == "generated"
     assert created.json()["generation_active"] is True
-    assert created.json()["generation"]["generator_id"] == "banking-semi-markov-v1"
+    assert created.json()["generation"]["generator_id"] == "banking-semi-markov-v2"
 
 
 def test_warm_start_and_cold_start_rules(client):
@@ -183,7 +183,7 @@ def test_later_sectors_are_rejected_and_insurance_uses_the_same_run_shape(client
     )
     assert created.status_code == 200, created.text
     body = created.json()
-    assert body["generation"]["generator_id"] == "insurance-semi-markov-v1"
+    assert body["generation"]["generator_id"] == "insurance-semi-markov-v2"
     assert body["config"]["sector"] == "insurance"
     types = {event["event_type"] for event in body["bundle"]["events"]}
     assert "policy.issued" in types
@@ -446,10 +446,10 @@ def test_deep_search_stores_a_scrubbed_report_and_hides_the_key(client):
         project_id,
         credential_id,
         sub_domains=["deposits", "cards_and_payments", "onboarding_and_kyc"],
-        target_trajectory_count=2,
+        target_trajectory_count=8,
         min_events=6,
         max_events=20,
-        event_budget=200,
+        event_budget=400,
     )
     assert created.status_code == 200, created.text
     run = created.json()

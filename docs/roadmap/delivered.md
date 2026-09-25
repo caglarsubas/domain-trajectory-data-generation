@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All eight are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All nine are merged and their branches are deleted.
 
-`main` history: `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -67,3 +67,11 @@ Moved the roadmap out of a chat session and into the repository as three files: 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/8
 
 Re-planned after running the generators on `main`: 64 journeys held 8 distinct sequences, short journeys were padded by repetition, and contradictory journeys passed the hard checks. The overview maps the purpose to capabilities and slices, defines the four quality words as measurements, and records the approved slice order and six decisions. jev-xai was left out at your request; decision records will use the platform's own schema.
+
+## 9. Reach the judge reliably and let owners replace or remove keys
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/9
+
+Slice 0. The engine address is reduced to its origin, each judge call names its model (`qwen3.8:27b` by default), waits longer than the engine's own timeout, retries once on a short `Retry-After`, and reports engine failures as 502, 503, or 504 with the engine's request id. An unreadable verdict is left unscored instead of counting as 0. Key owners can replace a secret or delete a key. The development JWT secret is refused outside `TRAJ_DEV_MODE`.
+
+Verified live against the engine: evaluations returned verdicts through an address still ending in `/v1.`. The same runs showed the engine returning empty verdicts for longer prompts, recorded as an engine dependency in the overview.

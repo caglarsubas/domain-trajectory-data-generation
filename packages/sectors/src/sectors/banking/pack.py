@@ -3,6 +3,7 @@ from __future__ import annotations
 from trajectory_contract.models import TrajectoryBundle
 
 from sectors.banking.checks import banking_hard_checks
+from sectors.banking.spec import LIFECYCLE
 
 SUB_DOMAINS = (
     "deposits",
@@ -14,28 +15,9 @@ SUB_DOMAINS = (
     "risk_and_compliance",
 )
 
-EVENT_NAMESPACE = (
-    "product.viewed",
-    "application.started",
-    "application.submitted",
-    "application.approved",
-    "application.declined",
-    "kyc.started",
-    "kyc.document_submitted",
-    "kyc.review_required",
-    "kyc.passed",
-    "kyc.failed",
-    "account.opened",
-    "account.funded",
-    "card.issued",
-    "card.activated",
-    "card.purchase_authorised",
-    "loan.disbursed",
-    "loan.delinquent",
-    "complaint.received",
-)
+EVENT_NAMESPACE = LIFECYCLE.namespace
 
-STATE_DIMENSIONS = ("relationship", "kyc", "application", "account", "credit", "card")
+STATE_DIMENSIONS = LIFECYCLE.dimensions
 
 
 class BankingPack:
@@ -65,8 +47,9 @@ class BankingPack:
         return (
             f"Sector: banking. Language: {language}. Sub-domains: {scope}.\n"
             "A representative trajectory respects object-centric banking order: "
-            "application before account opening, KYC before activation, card issuance before card activation, "
-            "and no loan disbursement before approval.\n"
+            "an application with verified KYC before account opening, one decision per application, "
+            "card issuance before activation, no loan disbursement before approval, "
+            "and nothing on an account after it closes.\n"
             f"{reference}"
         )
 

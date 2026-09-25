@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.evaluation import UNREADABLE
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Feedback, Project, Run
-from sectors.banking.generate import GENERATOR_ID
 from trajectory_contract import banking_fixture
 
 
@@ -120,7 +119,8 @@ def _generation(run: Run) -> dict | None:
         return meta
     primaries = [item for item in trajectories if not item.get("parent_trajectory_id")]
     return {
-        "generator_id": GENERATOR_ID,
+        # Candidates stored before generation metadata existed came from the first banking generator.
+        "generator_id": "banking-semi-markov-v1",
         "requested_trajectories": run.config.get("target_trajectory_count"),
         "primary_trajectories": len(primaries),
         "alternative_trajectories": len(trajectories) - len(primaries),
