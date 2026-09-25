@@ -161,6 +161,12 @@ export default function RunPage() {
           </div>
         ))}
       </div>
+      {cycle?.verdicts?.some((verdict) => verdict.readable === false) ? (
+        <p className="warn">
+          The judge returned no readable verdict for {cycle.verdicts.filter((verdict) => verdict.readable === false).map((verdict) => verdict.rubric.replaceAll("_", " ")).join(", ")}.
+          Those rubrics are left unscored and add no revision notes. Evaluate again, or change the judge model.
+        </p>
+      ) : null}
       {cycle?.revision_notes?.length ? <p className="warn">{cycle.revision_notes.join(" ")}</p> : null}
       <div className="stage">
         <div className="canvas-wrap">

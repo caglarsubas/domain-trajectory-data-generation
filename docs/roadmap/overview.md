@@ -181,6 +181,7 @@ In `llm_inference_engine`, needed by Slices 0 and 4:
 - The judge runs at temperature 0 with one call per request. Agreement needs repeats at a temperature above 0, and pairwise needs an A/B swap.
 - A timeout or an over-long prompt on the eval route comes back as a generic 500. Both should map to typed errors.
 - `/v1/models` reports each model's trained window, but Ollama serves 32,768 tokens. The judge's prompt budget must assume 32k.
+- Verdicts come back empty for longer prompts. On 25 September a live run through the studio got an empty verdict for helpfulness, correctness, and pairwise quality from `qwen3.8:27b`, and a short check got one from `gemma4:26b`. The engine pins judge output at 512 tokens, which a reasoning model can spend before it writes the verdict. The judge needs a larger output budget, or reasoning turned off, for eval calls. Until then the studio leaves such rubrics unscored instead of scoring them 0.
 - The default judge model is `llama3.2:3b`. The trajectory app will name its judges explicitly: `qwen3.8:27b` as the primary and `gemma4:26b` as the second opinion, both already loaded.
 ## Decisions
 

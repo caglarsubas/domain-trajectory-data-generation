@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 REWARD_MECHANISMS = (
     "binary_outcome",
@@ -48,6 +48,17 @@ class CredentialBody(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     secret: str = Field(min_length=8, max_length=400)
     scope: Literal["platform", "byok"] = "byok"
+
+
+class CredentialUpdateBody(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=120)
+    secret: str | None = Field(default=None, min_length=8, max_length=400)
+
+    @model_validator(mode="after")
+    def _one_change(self) -> "CredentialUpdateBody":
+        if self.label is None and self.secret is None:
+            raise ValueError("send a new label, a new secret, or both")
+        return self
 
 
 class ProjectBody(BaseModel):

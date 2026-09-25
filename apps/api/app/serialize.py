@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.evaluation import UNREADABLE
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Feedback, Project, Run
 from sectors.banking.generate import GENERATOR_ID
 from trajectory_contract import banking_fixture
@@ -65,7 +66,8 @@ def run_out(run: Run, db: Session) -> dict:
                 "verdicts": [
                     {
                         "rubric": row.rubric,
-                        "score": row.score,
+                        "score": None if (row.parsed or {}).get(UNREADABLE) else row.score,
+                        "readable": not (row.parsed or {}).get(UNREADABLE),
                         "parsed": row.parsed,
                         "raw": row.raw,
                         "judge_model": row.judge_model,
@@ -84,8 +86,8 @@ def run_out(run: Run, db: Session) -> dict:
         source = "fixture"
     headline = None
     if cycle_payload and cycle_payload[-1]["verdicts"]:
-        scores = [item["score"] for item in cycle_payload[-1]["verdicts"]]
-        headline = round(sum(scores) / len(scores), 2)
+        scores = [item["score"] for item in cycle_payload[-1]["verdicts"] if item["score"] is not None]
+        headline = round(sum(scores) / len(scores), 2) if scores else None
     return {
         "id": run.id,
         "project_id": run.project_id,
