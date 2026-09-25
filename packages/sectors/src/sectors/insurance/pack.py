@@ -3,6 +3,7 @@ from __future__ import annotations
 from trajectory_contract.models import TrajectoryBundle
 
 from sectors.insurance.checks import insurance_hard_checks
+from sectors.insurance.spec import LIFECYCLE
 
 SUB_DOMAINS = (
     "quoting",
@@ -14,27 +15,9 @@ SUB_DOMAINS = (
     "complaints",
 )
 
-EVENT_NAMESPACE = (
-    "product.viewed",
-    "quote.started",
-    "quote.submitted",
-    "underwriting.started",
-    "underwriting.referred",
-    "underwriting.accepted",
-    "underwriting.declined",
-    "policy.bound",
-    "policy.issued",
-    "premium.paid",
-    "claim.notified",
-    "claim.assessed",
-    "claim.settled",
-    "claim.denied",
-    "policy.renewed",
-    "policy.cancelled",
-    "complaint.received",
-)
+EVENT_NAMESPACE = LIFECYCLE.namespace
 
-STATE_DIMENSIONS = ("relationship", "quote", "underwriting", "policy", "billing", "claim")
+STATE_DIMENSIONS = LIFECYCLE.dimensions
 
 
 class InsurancePack:
