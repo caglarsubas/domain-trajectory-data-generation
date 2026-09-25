@@ -356,6 +356,15 @@ textarea { min-height: 90px; resize: vertical; }
 .data-card { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 12px; }
 .limitations { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.5; }
 
+.job-panel { max-width: 720px; margin: 40px auto; background: var(--paper-2); border: 1px solid var(--line); border-radius: 28px; padding: 28px; box-shadow: var(--shadow); }
+.job-panel h1 { font-size: 44px; margin: 0 0 6px; }
+.progress { height: 10px; background: var(--line); border-radius: 99px; overflow: hidden; margin: 18px 0 8px; }
+.progress i { display: block; height: 100%; background: var(--copper); border-radius: 99px; transition: width 400ms ease; }
+.status-chip { padding: 2px 8px; border-radius: 99px; background: var(--line); font-size: 12px; }
+.status-chip[data-state="generated"] { background: var(--good-soft); color: var(--good); }
+.status-chip[data-state="failed"] { background: var(--bad-soft); color: var(--bad); }
+.status-chip[data-state="queued"], .status-chip[data-state="generating"] { background: var(--warn-soft); color: var(--warn); }
+
 @media (max-width: 1100px) {
   .parts { grid-template-columns: 1fr 1fr; }
   .gate, .composer, .stage, .scores, .quality, .overview { grid-template-columns: 1fr; }

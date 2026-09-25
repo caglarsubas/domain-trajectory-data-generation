@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
+from app import jobs
 from app.db import SessionLocal, init_db
 from app.models import Account
 from app.routes import router
@@ -33,7 +34,13 @@ async def lifespan(app: FastAPI):
                 db.commit()
         finally:
             db.close()
+    worker = None
+    if jobs.mode() == "thread":
+        worker = jobs.Worker()
+        worker.start_thread()
     yield
+    if worker is not None:
+        worker.stop()
 
 
 app = FastAPI(title="Trajectory studio", lifespan=lifespan)

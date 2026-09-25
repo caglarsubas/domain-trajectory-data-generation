@@ -6,11 +6,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.db import get_db
 from app.evaluation import evaluate_bundle
-from app.generation import candidate_for_run
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
 from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Project, Run
 from app.providers import PROVIDERS, get_provider
@@ -34,7 +33,8 @@ from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.steering import scrub_text
 from sectors.registry import get_sector
 from app import export as run_export
-from app.serialize import project_out, run_out
+from app import jobs
+from app.serialize import project_out, run_out, run_summary
 from app.service import config_from_body, require_project, require_run, rerun_config
 from app.settings import Settings, load_settings
 from trajectory_contract import TrajectoryBundle, banking_fixture
@@ -392,26 +392,28 @@ def deep_search_corpus(project_id: str, body: DeepSearchBody, account: AccountDe
 @router.post("/runs")
 def create_run(body: RunBody, account: AccountDep, db: Db) -> dict:
     config = config_from_body(body, account, db)
-    bundle = candidate_for_run(db, config, project_id=body.project_id, feedback_rows=[], parent=None)
     run = Run(
         project_id=body.project_id,
         owner_id=account.id,
-        status="generated",
+        status="queued",
         config=config,
         inherited_feedback_ids=[],
-        candidate=bundle.model_dump(mode="json"),
+        candidate=None,
         cycle_count=0,
     )
     db.add(run)
     db.commit()
+    jobs.enqueue(db, kind="generate", owner_id=account.id, run_id=run.id, payload={"feedback_ids": []})
     db.refresh(run)
     return run_out(run, db)
 
 
 @router.get("/runs")
 def list_runs(account: AccountDep, db: Db) -> dict:
-    rows = list(db.scalars(select(Run).where(Run.owner_id == account.id).order_by(Run.created_at)))
-    return {"data": [run_out(row, db) for row in rows]}
+    rows = list(
+        db.scalars(select(Run).options(defer(Run.candidate)).where(Run.owner_id == account.id).order_by(Run.created_at))
+    )
+    return {"data": [run_summary(row, db) for row in rows]}
 
 
 @router.get("/runs/{run_id}")
@@ -443,6 +445,7 @@ def export_run(run_id: str, part: str, account: AccountDep, db: Db, held_out: st
 @router.post("/runs/{run_id}/feedback")
 def add_feedback(run_id: str, body: FeedbackBody, account: AccountDep, db: Db) -> dict:
     run = require_run(db, run_id, account)
+    _require_generated(run)
     bundle = TrajectoryBundle.model_validate(run.candidate) if run.candidate else banking_fixture()
     if body.target_type == "run" and body.target_id != run.id:
         raise HTTPException(status_code=422, detail="run feedback must target this run")
@@ -473,27 +476,42 @@ def add_feedback(run_id: str, body: FeedbackBody, account: AccountDep, db: Db) -
 @router.post("/runs/{run_id}/rerun")
 def rerun(run_id: str, body: RerunBody, account: AccountDep, db: Db) -> dict:
     parent = require_run(db, run_id, account)
+    if not parent.candidate:
+        raise HTTPException(status_code=409, detail="the parent run has not finished generating")
     config, feedback_ids = rerun_config(parent, body, account, db)
-    rows = []
-    if feedback_ids:
-        rows = list(db.scalars(select(Feedback).where(Feedback.id.in_(feedback_ids))))
-        order = {item: index for index, item in enumerate(feedback_ids)}
-        rows.sort(key=lambda row: order.get(row.id, 0))
-    bundle = candidate_for_run(db, config, project_id=parent.project_id, feedback_rows=rows, parent=parent)
     child = Run(
         project_id=parent.project_id,
         owner_id=account.id,
         parent_run_id=parent.id,
-        status="generated",
+        status="queued",
         config=config,
         inherited_feedback_ids=feedback_ids,
-        candidate=bundle.model_dump(mode="json"),
+        candidate=None,
         cycle_count=0,
     )
     db.add(child)
     db.commit()
+    jobs.enqueue(db, kind="generate", owner_id=account.id, run_id=child.id, payload={"feedback_ids": feedback_ids})
     db.refresh(child)
     return run_out(child, db)
+
+
+def _require_generated(run: Run) -> None:
+    if run.status in {"queued", "generating"}:
+        raise HTTPException(status_code=409, detail="this run is still generating")
+    if run.status in {"failed", "cancelled"}:
+        raise HTTPException(status_code=409, detail=f"this run {run.status}; run it again to get journeys")
+
+
+@router.post("/runs/{run_id}/cancel")
+def cancel_run(run_id: str, account: AccountDep, db: Db) -> dict:
+    run = require_run(db, run_id, account)
+    job = jobs.latest_for(db, run.id)
+    if job is None or job.status not in jobs.ACTIVE:
+        raise HTTPException(status_code=409, detail="nothing is running for this run")
+    jobs.cancel(db, job)
+    db.refresh(run)
+    return run_out(run, db)
 
 
 def _judge_for(cfg: Settings) -> InferenceEngineClient:
@@ -513,6 +531,7 @@ def _judge_for(cfg: Settings) -> InferenceEngineClient:
 @router.post("/runs/{run_id}/evaluate")
 def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
     run = require_run(db, run_id, account)
+    _require_generated(run)
     if run.cycle_count >= int(run.config["max_cycles"]):
         raise HTTPException(status_code=409, detail="max evaluation cycles reached")
     if body.candidate is not None:

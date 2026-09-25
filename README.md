@@ -42,7 +42,17 @@ Compose fills local defaults when these are unset or empty in `.env`: `CREDENTIA
 docker compose up --build
 ```
 
-Schema updates also live in `apps/api/alembic`. The API creates tables on startup.
+Schema updates also live in `apps/api/alembic`. The API creates tables on startup and adds columns introduced since a table first shipped.
+
+## Jobs
+
+Generating a run is a job. `JOBS_MODE` decides who runs it:
+
+- `inline`, the default on SQLite: the request that creates the run generates it before answering.
+- `thread`, the default on Postgres: a background thread in the API process picks jobs up.
+- `worker`: a separate process runs them. Docker Compose starts one as the `worker` service; outside Compose, run `python -m app.worker` with the same environment as the API.
+
+A run is `queued`, then `generating`, then `generated`, `failed`, or `cancelled`. The run page shows progress while it waits and can cancel it. A job whose worker stops sending heartbeats is requeued when a worker next starts.
 
 ## Accounts
 

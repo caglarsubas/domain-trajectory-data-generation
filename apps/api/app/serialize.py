@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.corpus_text import ordered, read_document
 from app.evaluation import UNREADABLE
+from app.jobs import latest_for
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Feedback, Project, Run
 from trajectory_contract import banking_fixture
 
@@ -48,6 +49,46 @@ def feedback_out(row: Feedback) -> dict:
     }
 
 
+def job_out(job) -> dict | None:
+    if job is None:
+        return None
+    return {
+        "id": job.id,
+        "kind": job.kind,
+        "status": job.status,
+        "progress": job.progress,
+        "message": job.message,
+        "error": job.error,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+    }
+
+
+def run_summary(run: Run, db: Session) -> dict:
+    """A run without its bundle, for listing. Reads only the stored generation metadata."""
+    from app.jobs import latest_for
+
+    cycle = db.scalars(select(EvalCycle).where(EvalCycle.run_id == run.id).order_by(EvalCycle.cycle_index.desc())).first()
+    headline = None
+    if cycle is not None:
+        verdicts = list(db.scalars(select(EvalVerdict).where(EvalVerdict.cycle_id == cycle.id)))
+        scores = [row.score for row in verdicts if not (row.parsed or {}).get(UNREADABLE)]
+        headline = round(sum(scores) / len(scores), 2) if scores else None
+    return {
+        "id": run.id,
+        "project_id": run.project_id,
+        "parent_run_id": run.parent_run_id,
+        "status": run.status,
+        "config": run.config,
+        "cycle_count": run.cycle_count,
+        "created_at": run.created_at.isoformat(),
+        "headline_score": headline,
+        "generation": run.generation,
+        "job": job_out(latest_for(db, run.id)),
+    }
+
+
 def run_out(run: Run, db: Session) -> dict:
     cycles = list(
         db.scalars(select(EvalCycle).where(EvalCycle.run_id == run.id).order_by(EvalCycle.cycle_index))
@@ -85,6 +126,12 @@ def run_out(run: Run, db: Session) -> dict:
     if run.candidate:
         bundle = run.candidate
         source = "candidate"
+        if run.generation is None and isinstance(run.candidate.get("generation"), dict):
+            run.generation = run.candidate["generation"]
+            db.commit()
+    elif run.status in {"queued", "generating", "failed", "cancelled"}:
+        bundle = None
+        source = "pending"
     else:
         bundle = banking_fixture().model_dump(mode="json")
         source = "fixture"
@@ -108,6 +155,7 @@ def run_out(run: Run, db: Session) -> dict:
         "bundle_source": source,
         "generation_active": _generation(run) is not None,
         "generation": _generation(run),
+        "job": job_out(latest_for(db, run.id)),
     }
 
 
