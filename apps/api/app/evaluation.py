@@ -71,14 +71,14 @@ def evaluate_bundle(
         (
             "helpfulness",
             {
-                "prompt": brief + "\nScore how representative this banking journey is.",
+                "prompt": brief + f"\nScore how representative this {sector.label.lower()} journey is.",
                 "response": parent_text,
             },
         ),
         (
             "correctness",
             {
-                "prompt": "Do these events follow the banking transitions in the reference?",
+                "prompt": f"Do these events follow the {sector.label.lower()} transitions in the reference?",
                 "response": parent_text,
                 "expected": brief,
             },

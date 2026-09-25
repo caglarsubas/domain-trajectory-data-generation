@@ -35,8 +35,8 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
     if body.min_events > body.max_events:
         raise HTTPException(status_code=422, detail="min_events cannot exceed max_events")
     project = require_project(db, body.project_id, account)
-    if project.sector != "banking" or body.sector != "banking":
-        raise HTTPException(status_code=422, detail="only the banking sector is available")
+    if project.sector != body.sector:
+        raise HTTPException(status_code=422, detail="run sector must match the study")
     items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == project.id)))
     if body.start_mode == "warm" and not items:
         raise HTTPException(status_code=422, detail="warm start requires at least one corpus document")
@@ -53,7 +53,7 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         raise HTTPException(status_code=422, detail="credential is not ready for deep search")
     thresholds = {**DEFAULT_THRESHOLDS, **(body.thresholds or {})}
     return {
-        "sector": "banking",
+        "sector": sector.id,
         "target_trajectory_count": body.target_trajectory_count,
         "event_budget": body.event_budget,
         "min_events": body.min_events,

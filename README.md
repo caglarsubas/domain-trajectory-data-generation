@@ -1,13 +1,13 @@
 # Domain trajectory studio
 
-A banking-only studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Journeys come from a constrained banking generator. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
+A studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Banking and insurance each have a constrained generator on the same run schema. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
 
 ## Layout
 
 - `apps/api` — FastAPI accounts, encrypted keys, runs, and the judge client
 - `apps/web` — the studio interface
 - `packages/trajectory_contract` — object-centric records and the Sample / Sequence / Context / Segment hierarchy
-- `packages/sectors` — sector packs; only `banking` is registered
+- `packages/sectors` — sector packs; `banking` and `insurance` are registered
 - `docs/banking` — the warm-start research reports
 
 ## Run locally
@@ -29,11 +29,16 @@ python3 -m uvicorn app.main:app --app-dir apps/api --reload --port 8000
 cd apps/web && npm install && npm run dev
 ```
 
-Postgres is defined in `docker-compose.yml`. Point `DATABASE_URL` at it when Docker is available:
+## Docker Compose
+
+`docker compose up --build` starts Postgres, the API, and the studio. Open the studio at http://localhost:3000. The API process listens on port 8000 inside the Compose network, and Compose publishes that on host port 18000 so it does not collide with another program already bound to 8000. Set `API_HOST_PORT` to choose a different host port. Tables are created when the API starts.
+
+The studio calls the API through its own server, so sign-in works when the page is opened on a host other than localhost. Set `NEXT_PUBLIC_API_URL` only when the browser should call the API directly.
+
+Compose fills local defaults when these are unset or empty in `.env`: `CREDENTIAL_MASTER_KEY`, `JWT_SECRET`, `ADMIN_EMAIL` (`admin@example.com`), and `ADMIN_PASSWORD` (`choose-a-password-123`). Put a real inference-engine key in `.env` when you want the judge to run. Do not commit `.env`.
 
 ```bash
-docker compose up -d
-export DATABASE_URL=postgresql+psycopg://traj:traj@localhost:5432/traj
+docker compose up --build
 ```
 
 Schema updates also live in `apps/api/alembic`. The API creates tables on startup.

@@ -14,14 +14,15 @@ const REWARDS = [
 ];
 const SIGNALS = [
   ["outcome", "Outcome", "One score for the finished journey."],
-  ["solution_rubric", "Solution rubric", "Judges the resulting banking state, not only the final label."],
+  ["solution_rubric", "Solution rubric", "Judges the resulting state, not only the final label."],
   ["behavior_rubric", "Behavior rubric", "Judges how the path was built: evidence, checks, and order."],
-  ["process_conformance", "Process conformance", "Compares the path with allowed banking transitions."],
+  ["process_conformance", "Process conformance", "Compares the path with the allowed transitions for this sector."],
   ["decision_score", "Decision score", "Scores the choice at a branch, for later decision evaluation."],
 ];
 
 const EMPTY = {
   name: "Retail onboarding",
+  sector: "banking",
   start_mode: "warm",
   cold_start_acknowledged: false,
   sub_domains: ["onboarding_and_kyc", "deposits"],
@@ -88,7 +89,9 @@ function Composer() {
     }).catch((err) => setError(err.message));
   }, [from, noteParam]);
 
-  const subDomains = sectors[0]?.sub_domains || [];
+  const sector = sectors.find((item) => item.id === form.sector) || sectors[0];
+  const subDomains = sector?.sub_domains || [];
+  const sectorLabel = sector?.label || (form.sector === "insurance" ? "Insurance" : "Banking");
   const reward = REWARDS.find((item) => item[0] === form.reward_mechanism);
   const signal = SIGNALS.find((item) => item[0] === form.signal_mechanism);
   const docCount = existingDocs.length + files.length + links.length;
@@ -101,7 +104,7 @@ function Composer() {
       let id = projectId;
       if (!id) {
         if (from) throw new Error("The previous study is still loading.");
-        const project = await api("/projects", { method: "POST", body: JSON.stringify({ name: form.name, sector: "banking" }) });
+        const project = await api("/projects", { method: "POST", body: JSON.stringify({ name: form.name, sector: form.sector }) });
         id = project.id;
         setProjectId(id);
       }
@@ -124,6 +127,14 @@ function Composer() {
 
   function patch(partial) {
     setForm((current) => ({ ...current, ...partial }));
+  }
+
+  function chooseSector(id) {
+    if (from || projectId) return;
+    const defaults = id === "insurance"
+      ? ["quoting", "underwriting", "policy_administration"]
+      : ["onboarding_and_kyc", "deposits"];
+    patch({ sector: id, sub_domains: defaults });
   }
 
   function toggleDomain(name) {
@@ -151,7 +162,7 @@ function Composer() {
       }
       let id = projectId;
       if (!id) {
-        const project = await api("/projects", { method: "POST", body: JSON.stringify({ name: form.name, sector: "banking" }) });
+        const project = await api("/projects", { method: "POST", body: JSON.stringify({ name: form.name, sector: form.sector }) });
         id = project.id;
         setProjectId(id);
       }
@@ -168,7 +179,7 @@ function Composer() {
       setLinks([]);
       const run = await api("/runs", {
         method: "POST",
-        body: JSON.stringify({ ...form, project_id: id, sector: "banking" }),
+        body: JSON.stringify({ ...form, project_id: id }),
       });
       router.push(`/studio/runs/${run.id}`);
     } catch (err) {
@@ -216,7 +227,7 @@ function Composer() {
               </div>
               {form.start_mode === "cold" ? (
                 <div className="warn">
-                  Warm-start documents produce more representative banking trajectories. Continue only if you accept a weaker reference.
+                  Warm-start documents produce more representative trajectories. Continue only if you accept a weaker reference.
                   <label>
                     <input
                       type="checkbox"
@@ -229,7 +240,7 @@ function Composer() {
               ) : (
                 <div className="drop">
                   <strong>Drop documents</strong>
-                  <p className="lede">Text from these documents is read for currency, channel, product, and named banking events. A provider search can be run on the Signals step and is stored with this study.</p>
+                  <p className="lede">Text from these documents is read for currency, channel, product, and named events. A provider search can be run on the Signals step and is stored with this study.</p>
                   <input
                     type="file"
                     multiple
@@ -279,6 +290,14 @@ function Composer() {
               <h1 className="word">How long is the journey?</h1>
               <label>Study name</label>
               <input value={form.name} onChange={(e) => patch({ name: e.target.value })} disabled={Boolean(from)} />
+              <label>Sector</label>
+              <div className="chips">
+                {(sectors.length ? sectors : [{ id: "banking", label: "Banking" }, { id: "insurance", label: "Insurance" }]).map((item) => (
+                  <button key={item.id} type="button" className="chip" data-on={form.sector === item.id} disabled={Boolean(from || projectId)} onClick={() => chooseSector(item.id)}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
               <label>Sub-domain</label>
               <div className="chips">
                 {subDomains.map((name) => (
@@ -373,7 +392,7 @@ function Composer() {
           {step === 3 ? (
             <>
               <h1 className="word">Review the study</h1>
-              <p className="lede">Confirming generates synthetic banking journeys for this configuration. The investigation view opens on the first one.</p>
+              <p className="lede">Confirming generates synthetic {sectorLabel.toLowerCase()} journeys for this configuration. The investigation view opens on the first one.</p>
               <div className="actions">
                 <button className="primary" type="button" disabled={busy || !form.credential_id || form.sub_domains.length === 0} onClick={confirm}>
                   {busy ? "Generating" : from ? "Run again" : "Generate journeys"}
@@ -387,7 +406,7 @@ function Composer() {
           </div>
         </section>
         <aside className="rail">
-          <h3>Banking</h3>
+          <h3>{sectorLabel}</h3>
           <dl>
             <dt>Start</dt>
             <dd>{form.start_mode === "warm" ? `Warm · ${docCount} document${docCount === 1 ? "" : "s"}` : form.cold_start_acknowledged ? "Cold · acknowledged" : "Cold · needs acknowledgment"}</dd>

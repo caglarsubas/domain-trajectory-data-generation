@@ -13,6 +13,9 @@ function markClass(type) {
   if (type === "card") return "card";
   if (type === "loan") return "loan";
   if (type === "complaint") return "complaint";
+  if (type === "quote") return "quote";
+  if (type === "policy") return "policy";
+  if (type === "claim") return "claim";
   return "kyc_case";
 }
 

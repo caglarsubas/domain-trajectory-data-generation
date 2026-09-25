@@ -1,4 +1,4 @@
-const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const base = process.env.NEXT_PUBLIC_API_URL || "/backend";
 
 export function token() {
   if (typeof window === "undefined") return "";

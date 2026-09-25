@@ -1,4 +1,4 @@
-"""Build a banking candidate when a run is created or repeated."""
+"""Build a sector candidate when a run is created or repeated."""
 
 from __future__ import annotations
 
@@ -10,8 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.corpus_text import read_corpus_excerpt
 from app.models import CorpusItem, EvalCycle, Run
-from sectors.banking.checks import banking_hard_checks
-from sectors.banking.generate import generate_banking_bundle
+from sectors.registry import get_sector
 
 
 def candidate_for_run(
@@ -48,7 +47,8 @@ def candidate_for_run(
         "revisions": revisions,
         "corpus": sorted(item.content_hash for item in items),
     }
-    bundle = generate_banking_bundle(
+    sector = get_sector(config["sector"])
+    bundle = sector.generate(
         sub_domains=list(config["sub_domains"]),
         language=config["language"],
         target_trajectory_count=int(config["target_trajectory_count"]),
@@ -67,7 +67,7 @@ def candidate_for_run(
         parent_bundle=parent.candidate if parent is not None else None,
         seed=json.dumps(seed_payload, sort_keys=True, default=str),
     )
-    errors = banking_hard_checks(bundle)
+    errors = sector.hard_checks(bundle)
     if errors:
-        raise HTTPException(status_code=500, detail="generated trajectory failed banking checks")
+        raise HTTPException(status_code=500, detail=f"generated trajectory failed {sector.id} checks")
     return bundle

@@ -1,6 +1,6 @@
 # Evaluation feedback cycle
 
-The platform judges candidate trajectories. Generation does not run in this slice. The judge is the platform tenant on `llm_inference_engine`, not a user-uploaded key.
+The platform judges candidate trajectories. The judge is the platform tenant on `llm_inference_engine`, not a user-uploaded key.
 
 Identity:
 
@@ -16,7 +16,7 @@ Environment variables, set in `.env` and never committed:
 - `INFERENCE_ENGINE_ORG_ID`
 - `INFERENCE_ENGINE_KEY_ID`
 
-Each cycle runs local banking hard checks first. A failed check does not call the model. When checks pass, the client posts to `/v1/evals/run` with a bearer token and one of:
+Each cycle runs that sector's local hard checks first. A failed check does not call the model. When checks pass, the client posts to `/v1/evals/run` with a bearer token and one of:
 
 - `helpfulness` — representativeness for the chosen sub-domain and language
 - `correctness` — agreement with transitions supported by the warm-start corpus; a cold start sends a shorter expected brief and is marked `reference_quality=weak`
@@ -27,4 +27,4 @@ Verdicts are stored on the run. Scores under the run thresholds become revision 
 
 Human notes are separate. A note targets the run, one trajectory, or one event, with stance `keep`, `revise`, or `drop`. Re-run copies the configuration, `parent_run_id`, and the selected note ids, then regenerates events from those notes and from any revision notes on the parent. A dropped event type is left out of the next bundle. A revised event type is delayed. A kept event type is retained when it still fits the length limit.
 
-Provider deep search uses the selected account key to call that provider's web search, then stores a scrubbed report on the study. Named banking events in the report are kept on the next generation when they belong to the selected sub-domains. A drop note still removes an event the report named. The generator does not call the provider.
+Provider deep search uses the selected account key to call that provider's web search, then stores a scrubbed report on the study. Named events in the report are kept on the next generation when they belong to the selected sub-domains of that sector. A drop note still removes an event the report named. The generator does not call the provider.

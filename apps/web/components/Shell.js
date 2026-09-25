@@ -36,7 +36,7 @@ export default function Shell({ children }) {
     <>
       <header className="app-bar">
         <Link href="/studio" className="brand word">
-          Trajectory <em>Banking</em>
+          Trajectory <em>Studio</em>
         </Link>
         <nav className="nav">
           {item("/studio", "Studio")}

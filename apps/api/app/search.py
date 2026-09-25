@@ -30,15 +30,31 @@ class DeepSearchResult:
     model: str = ""
 
 
-def default_query(sub_domains: list[str], language: str) -> str:
-    scope = ", ".join(sub_domains) if sub_domains else "retail banking"
+def default_query(
+    sub_domains: list[str],
+    language: str,
+    *,
+    label: str = "banking",
+    events: list[str] | None = None,
+) -> str:
+    scope = ", ".join(sub_domains) if sub_domains else label
+    names = events or [
+        "application.submitted",
+        "kyc.passed",
+        "account.opened",
+        "account.funded",
+        "card.issued",
+        "card.activated",
+        "loan.disbursed",
+        "complaint.received",
+    ]
+    listed = ", ".join(names[:8])
     return (
-        f"Research representative retail-banking customer journeys for {scope}. "
+        f"Research representative {label} customer journeys for {scope}. "
         f"Write in language {language}. "
         "Name public sources, the usual order of business events, channels, products, and currencies. "
         "Do not include personal data, real account numbers, or secrets. "
-        "Use event names such as application.submitted, kyc.passed, account.opened, account.funded, "
-        "card.issued, card.activated, loan.disbursed, and complaint.received only when they fit the scope."
+        f"Use event names such as {listed} only when they fit the scope."
     )
 
 

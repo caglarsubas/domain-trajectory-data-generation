@@ -242,6 +242,9 @@ textarea { min-height: 90px; resize: vertical; }
 .mark.card { border-radius: 50% 50% 50% 0; background: var(--good); }
 .mark.kyc_case, .mark.product_offering { border-radius: 2px; background: #8a6a3b; }
 .mark.loan { border-radius: 2px; background: #2c4c7c; }
+.mark.quote { border-radius: 2px; background: #6d5a7a; }
+.mark.policy { border-radius: 2px; background: var(--copper); }
+.mark.claim { border-radius: 50%; background: #2c4c7c; }
 .mark.complaint { border-radius: 50%; background: var(--warn); }
 .journey-picker { max-width: 360px; margin-bottom: 8px; }
 

@@ -1,4 +1,4 @@
-"""Sector packs. Only banking is registered."""
+"""Sector packs. Banking and insurance are registered."""
 
 from sectors.base import SectorPack
 from sectors.registry import get_sector, known_sectors

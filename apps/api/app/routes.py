@@ -186,9 +186,11 @@ def _credential_out(row: Credential) -> dict:
 
 @router.post("/projects")
 def create_project(body: ProjectBody, account: AccountDep, db: Db) -> dict:
-    if body.sector != "banking":
-        raise HTTPException(status_code=422, detail="only the banking sector is available")
-    project = Project(owner_id=account.id, name=body.name, sector="banking")
+    try:
+        sector = get_sector(body.sector)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    project = Project(owner_id=account.id, name=body.name, sector=sector.id)
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -271,7 +273,7 @@ def link_corpus(project_id: str, body: CorpusLinkBody, account: AccountDep, db: 
 def deep_search_corpus(project_id: str, body: DeepSearchBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
     project = require_project(db, project_id, account)
     try:
-        sector = get_sector("banking")
+        sector = get_sector(project.sector)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     unknown = [name for name in body.sub_domains if name not in sector.sub_domains]
@@ -291,7 +293,12 @@ def deep_search_corpus(project_id: str, body: DeepSearchBody, account: AccountDe
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     secret = decrypt_secret(cfg.credential_master_key, credential.ciphertext)
-    query = (body.query or "").strip() or default_query(body.sub_domains, body.language)
+    query = (body.query or "").strip() or default_query(
+        body.sub_domains,
+        body.language,
+        label=sector.label.lower(),
+        events=list(sector.event_namespace),
+    )
     try:
         if runtime.searcher is not None:
             result = runtime.searcher.search(query, provider=spec.id, key=secret)
