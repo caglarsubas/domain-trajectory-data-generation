@@ -299,6 +299,7 @@ def test_random_configurations_never_break_a_rule(sector):
             consumer="post_training",
             target_family="llm",
             seed=f"{sector}-{trial}",
+            group_size=rng.choice([1, 1, 2, 4, 8]),
         )
         assert pack.hard_checks(bundle) == [], (sector, trial)
         events = {event.event_id: event for event in bundle.events}

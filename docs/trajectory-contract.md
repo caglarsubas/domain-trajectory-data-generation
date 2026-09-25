@@ -26,7 +26,23 @@ MiMo-V2.6 (LLM-Core Xiaomi, 2026) organizes an agent rollout as Sample, Sequence
 - A **context** is one dialogue branch.
 - A **segment** is one turn. Only segments with role `assistant` are trainable.
 
-Every sample names the trajectory it narrates in `trajectory_id`, and an alternative trajectory gets its own sample. Assistant turns hold whole sentences, and user turns sit between them. Prompts and user lines come from a bank per sector and language. Reviewer notes appear only in the system segment.
+Every sample names the trajectory it narrates in `trajectory_id`, and each sequence names its own.
+
+## Groups and rewards
+
+`group_size` (1 to 16) sets how many sequences a sample holds. A group's sequences share the journey up to its first real decision, then each continues with a fresh walk from that state, so one prompt yields different outcomes. The sequences also keep the first one's intent, such as a loan, so one opening fits them all. The first sequence is the group's primary trajectory; the others are alternatives of it that share its `group_id` and record `causal_claim: false`. The studio cap counts sequences, so 64 journeys hold 16 groups of 4. With a group size of 1, the primary and its one simulated alternative each get a sample of one.
+
+Rewards come from `packages/sectors/src/sectors/rewards.py`, shared by every pack and following MiMo-V2.6:
+
+- The verification term R_test is 1 when the journey reaches its goal legally. S_sol is 0.5 plus half the share of selected sub-domains the journey touches. S_beh is 1, because every generated journey replays legally through the pack's machines; the judge replaces both rubric terms in Slice 4.
+- `binary_outcome` uses R_test. `groupwise_reward_synthesis` uses R = R_test × S_sol × S_beh. Advantages are the reward minus the group mean.
+- `groupwise_advantage_redistribution` gives each passing sequence a quality factor, its S_sol × S_beh over the best in the group, rescales the passing advantages so their sum is conserved (the factor is capped at 2), and re-centres the group.
+- `group_relative_length_penalty` discounts passing sequences longer than the median passing length, by up to 0.5 when a sequence is twice as long, and only when more than half the group passes.
+- `segment_penalty` applies MiMo's segment-level penalty across the run, masking flagged turns in positive sequences and weighting them in negative ones while conserving each sign's total.
+- Penalty rules (`empty_turn`, `repeated_turn`, `overlong_turn`) flag turns in `flagged_reason`. They start in record-only mode: flagged and counted, but no reward, mask, or advantage changes until a rule is switched to a masking strategy.
+- The cascade drops a context with no surviving trainable turn, zeroes a sequence with no surviving context, and rejects a sample with no surviving sequence. `group_accepted` is false for all-pass and all-fail groups, as MiMo's dynamic sampler filters them, and empty for a group of one, which carries no group-relative signal.
+
+`generation.rewards` summarises the mechanism, the groups, how many carry a signal and how many are accepted, the pass rate, and the flag counts. Assistant turns hold whole sentences, and user turns sit between them. Prompts and user lines come from a bank per sector and language. Reviewer notes appear only in the system segment.
 
 Each sector pack names the event types and state dimensions that its hard checks enforce. The run records stay the same when a sector is added.
 

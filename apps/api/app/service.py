@@ -73,6 +73,7 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         "target_family": body.target_family,
         "thresholds": thresholds,
         "max_cycles": body.max_cycles,
+        "group_size": body.group_size,
         "credential_id": credential.id,
     }
 
