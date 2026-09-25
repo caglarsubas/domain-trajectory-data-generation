@@ -37,6 +37,7 @@ const EMPTY = {
   consumer: "post_training",
   target_family: "llm",
   max_cycles: 2,
+  group_size: 1,
   credential_id: "",
   thresholds: { helpfulness: 3, correctness: 0.5, safety: 1, pairwise_quality: 0.5 },
 };
@@ -101,6 +102,9 @@ function Composer() {
   const unreadable = existingDocs.filter((doc) => doc.readable === false);
   const languages = sector?.languages || ["en", "tr"];
   const cap = sector?.studio_cap || 64;
+  const groupSize = Math.min(Math.max(Number(form.group_size) || 1, 1), 16);
+  const promptCap = Math.max(1, Math.floor(cap / groupSize));
+  const storedPrompts = Math.min(form.target_trajectory_count, promptCap);
   const blockers = [
     !form.credential_id ? "Choose a provider key on the Signals step." : null,
     form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
@@ -399,8 +403,10 @@ function Composer() {
                   <input type="number" min="1" value={form.target_trajectory_count} onChange={(e) => patch({ target_trajectory_count: Number(e.target.value) })} />
                 </div>
               </div>
-              {form.target_trajectory_count > cap ? (
-                <p className="warn">This run stores {cap} journeys; {form.target_trajectory_count.toLocaleString()} were asked for. Larger runs arrive with background jobs in Slice 3.</p>
+              {form.target_trajectory_count > promptCap ? (
+                <p className="warn">
+                  This run stores {promptCap} {groupSize > 1 ? `prompts of ${groupSize} sequences (${promptCap * groupSize} journeys)` : "journeys"}; {form.target_trajectory_count.toLocaleString()} were asked for. Larger runs arrive with background jobs in Slice 3.
+                </p>
               ) : null}
               <div className="row">
                 <div>
@@ -426,6 +432,13 @@ function Composer() {
                 {REWARDS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
               <p className="lede">{reward?.[2]}</p>
+              <label>Sequences per prompt</label>
+              <input type="number" min="1" max="16" value={form.group_size} onChange={(e) => patch({ group_size: Math.min(16, Math.max(1, Number(e.target.value) || 1)) })} />
+              <p className="lede">
+                {groupSize > 1
+                  ? `Each prompt gets ${groupSize} rollouts that share the start and differ from the first decision, so rewards compare them within the group.`
+                  : "One sequence per prompt gives no group-relative signal: every advantage is zero. MiMo trains with 16."}
+              </p>
               <label>Signal</label>
               <select value={form.signal_mechanism} onChange={(e) => patch({ signal_mechanism: e.target.value })}>
                 {SIGNALS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
@@ -514,7 +527,9 @@ function Composer() {
             <dt>Language</dt>
             <dd>{form.language}</dd>
             <dt>Size</dt>
-            <dd>{Math.min(form.target_trajectory_count, cap)} stored{form.target_trajectory_count > cap ? ` of ${form.target_trajectory_count.toLocaleString()} asked` : ""}</dd>
+            <dd>
+              {storedPrompts} {groupSize > 1 ? `prompts × ${groupSize}` : "journeys"} stored{form.target_trajectory_count > promptCap ? ` of ${form.target_trajectory_count.toLocaleString()} asked` : ""}
+            </dd>
             <dt>Length</dt>
             <dd>{form.min_events}–{form.max_events} events</dd>
           </dl>

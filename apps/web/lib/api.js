@@ -38,3 +38,36 @@ export async function api(path, options = {}) {
   }
   return data;
 }
+
+async function authorised(path) {
+  const headers = {};
+  const auth = token();
+  if (auth) headers.Authorization = `Bearer ${auth}`;
+  const response = await fetch(`${base}${path}`, { headers });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = response.statusText;
+    try {
+      const detail = JSON.parse(text).detail;
+      message = typeof detail === "string" ? detail : message;
+    } catch {}
+    throw new Error(message);
+  }
+  return response;
+}
+
+export async function apiText(path) {
+  return (await authorised(path)).text();
+}
+
+export async function download(path, filename) {
+  const blob = await (await authorised(path)).blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
