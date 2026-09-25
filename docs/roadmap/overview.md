@@ -159,7 +159,7 @@ Telecommunication, airways, and hotels, each a pack of state machines and priors
 
 ## UX track
 
-Every slice ships the view that makes its change visible. Charts come from one charting library rather than hand-drawn SVG for every view, and they keep the existing design tokens.
+Every slice ships the view that makes its change visible. Views are drawn in plain SVG on the existing design tokens; the process map, time axis, and variant explorer from Slice 1 needed nothing more. A charting library comes in only when a view needs distributions, such as the calibration comparisons in Slice 5.
 
 | Slice | What the studio gains |
 |---|---|
@@ -196,4 +196,4 @@ Settled on 25 September 2026, all as recommended in the review.
 
 ## Stack
 
-FastAPI, SQLAlchemy, and Alembic over Postgres with a SQLite fallback, Pydantic for the contract, and a Next.js App Router studio. Docker Compose runs Postgres, the API, and the studio together. The studio is published on host port 3000 and the API on host port 18000, which `API_HOST_PORT` overrides. Planned additions: a job queue in Slice 3, `pypdf` for PDFs in Slice 5 (PyMuPDF is AGPL), and one charting library for the studio. Conformance is computed in-house rather than through PM4Py.
+FastAPI, SQLAlchemy, and Alembic over Postgres with a SQLite fallback, Pydantic for the contract, and a Next.js App Router studio. Docker Compose runs Postgres, the API, and the studio together. The studio is published on host port 3000 and the API on host port 18000, which `API_HOST_PORT` overrides. Planned additions: a job queue in Slice 3, `pypdf` for PDFs in Slice 5 (PyMuPDF is AGPL), and a charting library only when a view needs distributions. Conformance is computed in-house rather than through PM4Py.

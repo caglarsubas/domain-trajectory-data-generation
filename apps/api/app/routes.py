@@ -30,6 +30,7 @@ from app.schemas import (
 from app.search import DeepSearchError, default_query, run_deep_search
 from app import runtime
 from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_password, issue_token, read_token, verify_password
+from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.steering import scrub_text
 from sectors.registry import get_sector
 from app.serialize import project_out, run_out
@@ -123,9 +124,22 @@ def sectors() -> dict:
                 "sub_domains": list(pack.sub_domains),
                 "event_namespace": list(pack.event_namespace),
                 "state_dimensions": list(pack.state_dimensions),
+                "languages": list(pack.languages),
+                "studio_cap": STUDIO_TRAJECTORY_CAP,
+                "event_kinds": {name: pack.lifecycle.kind_of(name) for name in pack.event_namespace},
+                "lanes": _lanes(pack.lifecycle),
             }
         )
     return {"data": data}
+
+
+def _lanes(lifecycle) -> list[dict]:
+    kinds: list[str] = []
+    for name in lifecycle.namespace:
+        kind = lifecycle.kind_of(name)
+        if kind not in kinds:
+            kinds.append(kind)
+    return [{"kind": kind, "object_type": lifecycle.object_types.get(kind, kind)} for kind in kinds]
 
 
 @router.get("/fixture/banking")

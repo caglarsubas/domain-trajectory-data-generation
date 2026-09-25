@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All nine are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All eleven are merged and their branches are deleted.
 
-`main` history: `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -75,3 +75,15 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/9
 Slice 0. The engine address is reduced to its origin, each judge call names its model (`qwen3.8:27b` by default), waits longer than the engine's own timeout, retries once on a short `Retry-After`, and reports engine failures as 502, 503, or 504 with the engine's request id. An unreadable verdict is left unscored instead of counting as 0. Key owners can replace a secret or delete a key. The development JWT secret is refused outside `TRAJ_DEV_MODE`.
 
 Verified live against the engine: evaluations returned verdicts through an address still ending in `/v1.`. The same runs showed the engine returning empty verdicts for longer prompts, recorded as an engine dependency in the overview.
+
+## 10. Generate journeys from state machines and check them against the same rules
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/10
+
+Slice 1, first part. Both packs declare their events as transitions on orthogonal state machines, and one shared engine walks only legal transitions with log-normal dwell times. The hard checks replay every trajectory through the same machines. On all seven banking sub-domains, 64 journeys went from 8 distinct event sequences to 57 to 62. Alternatives branch at a real decision point and record `causal_claim: false`; warm-start events weight the sampler instead of being forced in.
+
+## 11. Steer from whole words, give money a direction, and report quality on every run
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/11
+
+Slice 1, second part. Whole-word, negation-aware steering with a report per document; money direction and role, event-object qualifiers, realistic effective and recorded times, and weekday and hour start profiles; samples linked to their trajectories with sentence-aligned turns; languages refused outside English and Turkish; and quality report v1 on every run.

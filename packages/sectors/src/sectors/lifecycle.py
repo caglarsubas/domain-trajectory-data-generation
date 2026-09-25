@@ -93,6 +93,15 @@ class LifecycleSpec:
                     seen.append(effect.dimension)
         return tuple(seen)
 
+    def kind_of(self, event_type: str) -> str:
+        """The object kind an event belongs to: the first machine it moves, else the first it reads."""
+        spec = self[event_type]
+        if spec.sets:
+            return spec.sets[0].kind
+        if spec.requires:
+            return spec.requires[0].kind
+        return "party"
+
     def get(self, event_type: str) -> EventSpec | None:
         return self._index.get(event_type)
 
