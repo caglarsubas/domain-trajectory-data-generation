@@ -187,6 +187,9 @@ def generate_bundle(
     # The cap counts every sequence the studio stores, so larger groups mean fewer prompts.
     limit = min(requested, max(int(materialization_cap) // size, 1))
     floor, cap = _bounds(min_events, max_events)
+    # A helpfulness note lengthens the journeys that can go on. One the domain ends, such as a declined
+    # application, keeps the requested minimum, or the note would leave out those outcomes.
+    ended_floor = floor
     if enrich:
         floor = min(floor + 1, cap)
     remaining = None if event_budget is None else max(int(event_budget), 1)
@@ -204,7 +207,8 @@ def generate_bundle(
         if built and room < floor:
             limited_by = "event_budget"
             break
-        path = _choose(walker, pack, paths, floor=min(floor, room), cap=room, dropped=dropped_kinds, kept=kept_kinds)
+        path = _choose(walker, pack, paths, floor=min(floor, room), ended_floor=min(ended_floor, room), cap=room,
+                       dropped=dropped_kinds, kept=kept_kinds)
         if not path.steps:
             # Nothing is legal from the start, for example when notes dropped every opening event.
             break
@@ -296,18 +300,24 @@ def _choose(
     rng: random.Random,
     *,
     floor: int,
+    ended_floor: int,
     cap: int,
     dropped: set[str],
     kept: set[str],
 ) -> Path:
-    """Walk until a journey meets the length floor and the trajectory-type notes."""
+    """Walk until a journey meets the length floor and the trajectory-type notes.
+
+    A journey the domain ended, such as a declined application, only has to reach `ended_floor`, which is
+    below `floor` when a revision note asked for longer journeys: those outcomes cannot run longer.
+    """
     best: Path | None = None
     best_score: tuple[bool, bool, int] | None = None
     for _ in range(PATH_ATTEMPTS):
         path = walker.walk(rng, floor=floor, cap=cap)
         kind = pack.classify(path.types)
         wanted = kind not in dropped and (not kept or kind in kept)
-        long_enough = len(path.steps) >= floor
+        ended = bool(path.steps) and pack.lifecycle[path.types[-1]].ends_journey
+        long_enough = len(path.steps) >= (ended_floor if ended else floor)
         if wanted and long_enough:
             return path
         score = (wanted, long_enough, len(path.steps))
@@ -908,7 +918,8 @@ def _notes_report(
         if "correctness" in lowered and pack.correctness_drops:
             effects.append(f"Leaves out {', '.join(pack.correctness_drops)}.")
         if "helpfulness" in lowered:
-            effects.append("Raises the minimum length by one event.")
+            effects.append("Raises the minimum length by one event for journeys that can go on; "
+                           "journeys the domain ends, such as a declined application, keep their length.")
         effects.append("Added to the sample prompts.")
         revision_effects.append({"note": text, "effect": " ".join(effects)})
     return {"feedback": applied, "revisions": revision_effects, "kept_events": list(kept)}

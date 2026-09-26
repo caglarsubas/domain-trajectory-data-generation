@@ -7,7 +7,7 @@ import pytest
 from sectors.banking.checks import banking_hard_checks
 from sectors.banking.generate import GENERATOR_ID, generate_banking_bundle
 from sectors.banking.pack import SUB_DOMAINS
-from sectors.banking.spec import LIFECYCLE as BANKING_LIFECYCLE
+from sectors.banking.spec import LIFECYCLE as BANKING_LIFECYCLE, PACK as BANKING_PACK
 from sectors.insurance.spec import LIFECYCLE as INSURANCE_LIFECYCLE
 from sectors.registry import get_sector, known_sectors
 from trajectory_contract import banking_fixture
@@ -322,3 +322,29 @@ def test_helpfulness_revision_adds_a_longer_journey():
     assert max(len(item.event_ids) for item in primaries) > 8
     rendered = " ".join(segment.text for sample in bundle.samples for sequence in sample.sequences for context in sequence.contexts for segment in context.segments)
     assert "helpfulness" in rendered
+
+
+@pytest.mark.parametrize("group_size", [1, 4])
+def test_helpfulness_revision_keeps_the_outcomes_the_domain_ends_early(group_size):
+    # A declined application or failed KYC ends a journey after about six events, so a raised minimum must not
+    # leave those outcomes out; journeys that can go on still get the extra event.
+    settings = {
+        "sub_domains": ["onboarding_and_kyc", "deposits", "consumer_credit"],
+        "min_events": 6,
+        "max_events": 24,
+        "event_budget": None,
+        "target_trajectory_count": 200,
+        "materialization_cap": 800,
+        "group_size": group_size,
+        "seed": "help-failures",
+    }
+    plain = _primaries(_bundle(**settings))
+    revised = _primaries(_bundle(**settings, revision_notes=["helpfulness 2 below 3."]))
+
+    def failed(journeys):
+        return sum(not BANKING_PACK.success(types) for types in journeys) / len(journeys)
+
+    assert failed(plain) > 0.05
+    assert failed(revised) >= failed(plain) / 2
+    assert any("application.declined" in types for types in revised)
+    assert all(len(types) >= 7 or BANKING_LIFECYCLE[types[-1]].ends_journey for types in revised)
