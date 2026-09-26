@@ -56,3 +56,4 @@ def client():
     runtime.searcher = None
     runtime.key_checker = None
     runtime.fetcher = None
+    runtime.agent_factory = None

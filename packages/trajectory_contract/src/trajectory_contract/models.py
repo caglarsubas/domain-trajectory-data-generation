@@ -178,6 +178,8 @@ class Rollout(BaseModel):
     rubric_scores: dict[str, float] = Field(default_factory=dict)
     reward: float | None = None
     advantage: float | None = None
+    # For a provider rollout: how its call fared against the episode's skeleton.
+    checks: dict[str, Any] | None = None
 
 
 class Episode(BaseModel):

@@ -799,6 +799,7 @@ def _require_run_quota(db: Session, account: Account, cfg: Settings, config: dic
         # An accepted-group target may draw up to the acceptance ceiling.
         sequences *= ACCEPTANCE_CEILING
     quotas.require_run_size(account, cfg, sequences)
+    quotas.require_provider_calls(account, cfg, int(config.get("provider_call_budget") or 0))
     quotas.require_daily(db, account, cfg, "runs")
 
 

@@ -36,12 +36,16 @@ def openai(episode: dict, rollout: dict, split: str) -> dict:
     turns = rollout["turns"]
     call = turns[2]["tool_call"]
     call_id = f"call_{rollout['rollout_id'].replace('.', '_')}"
+    if call is None:
+        # A model that answered without calling an operation leaves only its text.
+        return {**_common(episode, rollout, split), "tools": _openai_tools(episode), "messages": [
+            {"role": "system", "content": turns[0]["text"]},
+            {"role": "user", "content": turns[1]["text"]},
+            {"role": "assistant", "content": turns[4]["text"] or turns[2]["text"] or ""},
+        ]}
     return {
         **_common(episode, rollout, split),
-        "tools": [
-            {"type": "function", "function": {"name": _function_name(tool["name"]), "description": tool["description"], "parameters": tool["parameters"]}}
-            for tool in episode["tools"]
-        ],
+        "tools": _openai_tools(episode),
         "messages": [
             {"role": "system", "content": turns[0]["text"]},
             {"role": "user", "content": turns[1]["text"]},
@@ -52,10 +56,23 @@ def openai(episode: dict, rollout: dict, split: str) -> dict:
     }
 
 
+def _openai_tools(episode: dict) -> list[dict]:
+    return [
+        {"type": "function", "function": {"name": _function_name(tool["name"]), "description": tool["description"], "parameters": tool["parameters"]}}
+        for tool in episode["tools"]
+    ]
+
+
 def anthropic(episode: dict, rollout: dict, split: str) -> dict:
     turns = rollout["turns"]
     call = turns[2]["tool_call"]
     use_id = f"toolu_{rollout['rollout_id'].replace('.', '_')}"
+    tools = [{"name": _function_name(tool["name"]), "description": tool["description"], "input_schema": tool["parameters"]} for tool in episode["tools"]]
+    if call is None:
+        return {**_common(episode, rollout, split), "system": turns[0]["text"], "tools": tools, "messages": [
+            {"role": "user", "content": [{"type": "text", "text": turns[1]["text"]}]},
+            {"role": "assistant", "content": [{"type": "text", "text": turns[4]["text"] or turns[2]["text"] or ""}]},
+        ]}
     return {
         **_common(episode, rollout, split),
         "system": turns[0]["text"],
@@ -74,6 +91,8 @@ def react(episode: dict, rollout: dict, split: str) -> dict:
     call = turns[2]["tool_call"]
     tools = "\n".join(f"- {tool['name']}({', '.join(tool['parameters']['properties'])}): {tool['description']}" for tool in episode["tools"])
     prompt = f"{turns[0]['text']}\n\nOperations:\n{tools}\n\nTask: {turns[1]['text']}\n"
+    if call is None:
+        return {**_common(episode, rollout, split), "prompt": prompt, "completion": f"Final: {turns[4]['text'] or turns[2]['text'] or ''}"}
     completion = (
         f"Thought: The case's state allows the next step; I record it.\n"
         f"Action: {call['name']}{json.dumps(call['arguments'], sort_keys=True, ensure_ascii=False)}\n"

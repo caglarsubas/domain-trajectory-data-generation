@@ -74,6 +74,18 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
             raise HTTPException(status_code=403, detail="user and demo runs require your own key")
         if not credential.ready:
             raise HTTPException(status_code=422, detail="credential is not ready for deep search")
+    episodes_on = body.episodes if body.episodes is not None else body.consumer == "post_training"
+    budget = None
+    if body.provider_rollouts:
+        if credential is None:
+            raise HTTPException(status_code=422, detail="provider rollouts run on your own provider key; choose one")
+        if not episodes_on:
+            raise HTTPException(status_code=422, detail="provider rollouts need episodes; turn them on or use the post-training consumer")
+        if body.group_size < 2:
+            raise HTTPException(status_code=422, detail="provider rollouts need episodes, and an episode is a decision where a group's sequences part; set at least two sequences per prompt")
+        # Two calls per rollout, one episode per prompt at most, unless the owner caps it lower.
+        estimate = body.target_trajectory_count * body.provider_rollouts * 2
+        budget = min(body.provider_call_budget or estimate, estimate, 4000)
     thresholds = {**DEFAULT_THRESHOLDS, **(body.thresholds or {})}
     return {
         "sector": sector.id,
@@ -98,6 +110,9 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         "jurisdiction": body.jurisdiction,
         "calibrate": body.calibrate,
         "episodes": body.episodes,
+        "provider_rollouts": body.provider_rollouts,
+        "provider_call_budget": budget,
+        "provider_model": body.provider_model or None,
         "credential_id": credential.id if credential else None,
     }
 

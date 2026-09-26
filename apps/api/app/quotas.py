@@ -30,6 +30,7 @@ def limits(cfg: Settings) -> dict:
         "judge_cycles": cfg.demo_judge_cycles_per_day,
         "deep_searches": cfg.demo_deep_searches_per_day,
         "max_sequences": cfg.demo_max_sequences,
+        "max_provider_calls": cfg.demo_max_provider_calls,
     }
 
 
@@ -62,7 +63,7 @@ def usage(db: Session, account: Account, cfg: Settings) -> dict | None:
             "limit": ceilings[name],
             "frees_at": (_utc(oldest) + WINDOW).isoformat() if oldest is not None and used >= ceilings[name] else None,
         }
-    return {"window_hours": 24, "daily": daily, "max_sequences": ceilings["max_sequences"]}
+    return {"window_hours": 24, "daily": daily, "max_sequences": ceilings["max_sequences"], "max_provider_calls": ceilings["max_provider_calls"]}
 
 
 def require_daily(db: Session, account: Account, cfg: Settings, name: str) -> None:
@@ -84,3 +85,8 @@ def require_run_size(account: Account, cfg: Settings, sequences: int) -> None:
             status_code=422,
             detail=f"Demo runs hold at most {cfg.demo_max_sequences:,} sequences; this one asks for {sequences:,}.",
         )
+
+
+def require_provider_calls(account: Account, cfg: Settings, calls: int) -> None:
+    if account.kind == "demo" and calls > cfg.demo_max_provider_calls:
+        raise HTTPException(status_code=422, detail=f"Demo runs make at most {cfg.demo_max_provider_calls} provider calls; this one may make {calls}.")

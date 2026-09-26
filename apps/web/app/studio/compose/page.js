@@ -45,6 +45,9 @@ const EMPTY = {
   jurisdiction: "neutral",
   calibrate: true,
   credential_id: "",
+  provider_rollouts: 0,
+  provider_call_budget: null,
+  provider_model: null,
   thresholds: { helpfulness: 3, correctness: 0.5, safety: 1, pairwise_quality: 0.5 },
 };
 
@@ -124,6 +127,12 @@ function Composer() {
   const unit = accepted ? "accepted groups" : groupSize > 1 ? `prompts × ${groupSize}` : "journeys";
   // An accepted-group target may draw up to five times its size; demo limits count that.
   const drawn = accepted ? sequences * 5 : sequences;
+  // Provider rollouts: two calls each, one episode per prompt at most, capped by the owner and at 4,000.
+  const episodesOn = form.episodes ?? form.consumer === "post_training";
+  const rollouts = Number(form.provider_rollouts) || 0;
+  const chosenKey = keys.find((item) => item.id === form.credential_id);
+  const callEstimate = form.target_trajectory_count * rollouts * 2;
+  const providerCalls = Math.min(Number(form.provider_call_budget) || callEstimate, callEstimate, 4000);
   const blockers = [
     form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
     form.start_mode === "cold" && !form.cold_start_acknowledged ? "Acknowledge the cold start on the Corpus step." : null,
@@ -134,6 +143,12 @@ function Composer() {
     !languages.includes((form.language || "").split("-")[0]) ? `Choose a language: ${languages.join(" or ")}.` : null,
     quota && drawn > quota.max_sequences
       ? `Demo runs hold at most ${quota.max_sequences.toLocaleString()} sequences; this one may draw ${drawn.toLocaleString()}.`
+      : null,
+    rollouts && !form.credential_id ? "Provider rollouts run on your own key; choose one on the Signals step, or set rollouts to 0." : null,
+    rollouts && !episodesOn ? "Provider rollouts need episodes; use the post-training consumer, or set rollouts to 0." : null,
+    rollouts && groupSize < 2 ? "Provider rollouts need at least two sequences per prompt: an episode is the decision where a group's sequences part." : null,
+    quota && rollouts && providerCalls > quota.max_provider_calls
+      ? `Demo runs make at most ${quota.max_provider_calls} provider calls; this one may make ${providerCalls}.`
       : null,
     quota && quota.daily.runs.used >= quota.daily.runs.limit
       ? `Demo accounts can start ${quota.daily.runs.limit} runs a day${quota.daily.runs.frees_at ? `; the next one is available at ${quota.daily.runs.frees_at.slice(11, 16)} UTC` : ""}.`
@@ -245,6 +260,9 @@ function Composer() {
     patch({ group_size: size, target_kind: size < 2 ? "prompts" : form.target_kind });
   }
 
+  // Sent explicitly so a re-run uses the cap and model shown here, not the previous run's.
+  const providerFields = { provider_call_budget: rollouts ? providerCalls : null, provider_model: form.provider_model || "" };
+
   async function confirm() {
     setBusy(true);
     setError("");
@@ -257,6 +275,7 @@ function Composer() {
           body: JSON.stringify({
             feedback_ids: inherited.map((note) => note.id),
             ...form,
+            ...providerFields,
             project_id: undefined,
             name: undefined,
           }),
@@ -273,7 +292,7 @@ function Composer() {
       await uploadPending(id);
       const run = await api("/runs", {
         method: "POST",
-        body: JSON.stringify({ ...form, project_id: id }),
+        body: JSON.stringify({ ...form, ...providerFields, project_id: id }),
       });
       router.push(`/studio/runs/${run.id}`);
     } catch (err) {
@@ -615,7 +634,7 @@ function Composer() {
                   <option key={item.id} value={item.id}>{item.label} · {item.provider} · {item.fingerprint}</option>
                 ))}
               </select>
-              {keys.length === 0 ? <p className="lede">A key is only needed for the provider deep search. Add one under Keys to use it.</p> : null}
+              {keys.length === 0 ? <p className="lede">A key is only needed for the provider deep search and provider rollouts. Add one under Keys to use it.</p> : null}
               {unchecked ? (
                 <p className="lede">
                   {unchecked} saved {unchecked === 1 ? "key has" : "keys have"} not been accepted by {unchecked === 1 ? "its" : "their"} provider yet; check {unchecked === 1 ? "it" : "them"} under Keys.
@@ -628,6 +647,34 @@ function Composer() {
                 {searchNote ? <small className="muted" style={{ alignSelf: "center" }}>{searchNote}</small> : null}
               </div>
               <p className="lede">The key runs a web search at the provider. The report is scrubbed and saved here. It can take a minute. The journey itself is still generated in the studio.</p>
+              <div className="row">
+                <div>
+                  <label title="Each episode's agent turn, answered by a model at your provider">Provider rollouts per episode</label>
+                  <input type="number" min="0" max="4" value={form.provider_rollouts} disabled={!rollouts && (!episodesOn || !form.credential_id || groupSize < 2)}
+                    onChange={(e) => patch({ provider_rollouts: Math.min(4, Math.max(0, Number(e.target.value) || 0)) })} />
+                </div>
+                <div>
+                  <label title="The most calls this run may make at the provider">Call cap</label>
+                  <input type="number" min="2" max="4000" placeholder={String(Math.min(callEstimate, 4000) || "")} value={form.provider_call_budget ?? ""} disabled={!rollouts}
+                    onChange={(e) => patch({ provider_call_budget: e.target.value ? Math.min(4000, Math.max(2, Number(e.target.value) || 2)) : null })} />
+                </div>
+                <div>
+                  <label>Model</label>
+                  <input type="text" placeholder="The provider's default" value={form.provider_model ?? ""} disabled={!rollouts}
+                    onChange={(e) => patch({ provider_model: e.target.value.trim() || null })} />
+                </div>
+              </div>
+              <p className="lede">
+                {!episodesOn
+                  ? "Provider rollouts add a model's own turn to each episode; episodes come with the post-training consumer."
+                  : groupSize < 2
+                    ? "Provider rollouts add a model's own turn to each episode, the decision where a group's sequences part; set at least two sequences per prompt above."
+                  : !form.credential_id
+                    ? "Choose a key to let a model at your provider take each episode's turn."
+                    : rollouts
+                      ? `A model at ${chosenKey?.provider || "your provider"} takes each episode's turn ${rollouts} ${rollouts === 1 ? "time" : "times"}: it picks an operation, the mock bank answers, and it reports. Each rollout is two calls, so this run makes at most ${providerCalls.toLocaleString()} (${form.target_trajectory_count.toLocaleString()} prompts × ${rollouts} × 2${providerCalls < callEstimate ? `, capped from ${callEstimate.toLocaleString()}` : ""}). Every call is checked against the episode's skeleton and scored on the same rubric. Your provider bills these calls.`
+                      : "Set rollouts above 0 to let a model at your provider take each episode's turn. Each rollout is two calls on your key."}
+              </p>
               {searches.map((item) => (
                 <div className="doc" key={item.id}>
                   <span>{item.name}</span>
@@ -705,6 +752,12 @@ function Composer() {
             <dd>{reward?.[1]}</dd>
             <dt>Signal</dt>
             <dd>{signal?.[1]}</dd>
+            {rollouts ? (
+              <>
+                <dt>Provider</dt>
+                <dd>{rollouts} per episode · up to {providerCalls.toLocaleString()} calls</dd>
+              </>
+            ) : null}
           </dl>
           {parent ? <p className="lede">Continues {parent.id.slice(0, 8)}</p> : null}
         </aside>
