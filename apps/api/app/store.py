@@ -69,6 +69,7 @@ def extract(bundle: dict, trajectory_id: str) -> dict | None:
             if sample.get("trajectory_id") in trajectory_ids
             or any(sequence.get("trajectory_id") in trajectory_ids for sequence in sample["sequences"])
         ],
+        "episodes": [episode for episode in bundle.get("episodes") or [] if episode.get("trajectory_id") in trajectory_ids],
         "generation": None,
     }
 

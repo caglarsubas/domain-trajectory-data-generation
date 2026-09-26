@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import Shell from "../../../../components/Shell";
 import { api } from "../../../../lib/api";
 import DownloadPanel from "../../../../components/DownloadPanel";
+import EpisodeViewer from "../../../../components/EpisodeViewer";
 import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
 import RunDiff from "../../../../components/RunDiff";
 import { GroupViewer, ProcessMap, QualityCard, VariantList, formatHours, journeyOverview, laneLabel, shortLabel, typeSummary } from "../../../../components/RunViews";
@@ -437,6 +438,7 @@ export default function RunPage() {
               : ""}
             {" "}Select a node or a step to inspect it and leave a note.
           </p>
+          <EpisodeViewer key={detail?.episodes?.[0]?.episode_id} episode={detail?.episodes?.[0]} />
           <ProcessMap
             overview={mapOverview}
             eventKinds={eventKinds}

@@ -5,6 +5,10 @@ import { api, apiText, download } from "../lib/api";
 
 const PARTS = [
   ["samples.jsonl", "Samples", "One line per prompt: the group of sequences, turns, rewards, advantages, and split."],
+  ["episodes.jsonl", "Episodes", "Each decision as an agent task: state, operations, task, rubric, skeleton, and scored rollouts."],
+  ["episodes-openai.jsonl", "Episodes · chat tools", "Every rollout as chat messages with tool calls, for training."],
+  ["episodes-anthropic.jsonl", "Episodes · tool blocks", "Every rollout as content blocks with tool use and results, for training."],
+  ["episodes-react.jsonl", "Episodes · ReAct", "Every rollout as Thought, Action, and Observation text, held out to measure generalization."],
   ["domain.jsonl", "Domain records", "Objects, relationships, events, event-object links, state changes, and trajectories."],
   ["ocel.json", "OCEL 2.0", "The domain layer for process-mining tools such as PM4Py."],
   ["manifest.json", "Manifest", "Configuration, counts, split, judge cycles, quality, data card, and file checksums."],

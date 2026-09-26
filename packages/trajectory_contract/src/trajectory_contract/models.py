@@ -133,6 +133,71 @@ class Sample(BaseModel):
     group_pass_rate: float | None = None
 
 
+class ToolSpec(BaseModel):
+    """An operation of the mock bank, named after a BIAN service domain and action term."""
+
+    name: str
+    service_domain: str
+    action: str
+    description: str
+    # JSON Schema for the arguments.
+    parameters: dict[str, Any]
+    # The pack events this operation records; several when an argument chooses the outcome.
+    events: list[str]
+    # The study's own API operation this tool follows, when an OpenAPI definition names one.
+    http: dict[str, Any] | None = None
+
+
+class ToolCall(BaseModel):
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class EpisodeTurn(BaseModel):
+    role: Literal["system", "user", "assistant", "tool"]
+    text: str | None = None
+    tool_call: ToolCall | None = None
+    tool_result: dict[str, Any] | None = None
+    trainable: bool = False
+
+
+class RubricItem(BaseModel):
+    item_id: str
+    text: str
+    kind: Literal["format", "legality", "grounding", "decision", "report"]
+
+
+class Rollout(BaseModel):
+    rollout_id: str
+    # reference, alternative, perturbed:illegal, perturbed:wrong_object, or provider:<model>.
+    policy: str
+    turns: list[EpisodeTurn]
+    action_event: str | None = None
+    legal: bool
+    outcome: Literal["pass", "fail"]
+    rubric_scores: dict[str, float] = Field(default_factory=dict)
+    reward: float | None = None
+    advantage: float | None = None
+
+
+class Episode(BaseModel):
+    """A decision in a journey as an agent task: the mock bank's state, its tools, a task, rubric items, and rollouts."""
+
+    episode_id: str
+    trajectory_id: str
+    sample_id: str | None = None
+    # How many events of the journey happened before the decision.
+    decision_index: int
+    state: dict[str, str]
+    history: list[dict[str, Any]]
+    task: str
+    tools: list[ToolSpec]
+    rubric: list[RubricItem]
+    # What a provider turn is checked against: the legal actions, the case's objects, and the step the journey took.
+    skeleton: dict[str, Any]
+    rollouts: list[Rollout]
+
+
 class GenerationMeta(BaseModel):
     generator_id: str
     requested_trajectories: int
@@ -157,6 +222,8 @@ class GenerationMeta(BaseModel):
     jurisdiction: str | None = None
     # The data sources that calibrated next-step shares and durations, and how much they covered.
     calibration: dict[str, Any] | None = None
+    # How many episodes were built, with how many rollouts, and how many were accepted as groups.
+    episodes: dict[str, Any] | None = None
 
 
 class TrajectoryBundle(BaseModel):
@@ -167,4 +234,5 @@ class TrajectoryBundle(BaseModel):
     state_transitions: list[StateTransition]
     trajectories: list[Trajectory]
     samples: list[Sample] = Field(default_factory=list)
+    episodes: list[Episode] = Field(default_factory=list)
     generation: GenerationMeta | None = None

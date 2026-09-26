@@ -61,7 +61,8 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         if corpus_steering is not None and corpus_steering.channel is None and channels:
             corpus_steering = replace(corpus_steering, channel=max(channels, key=lambda name: (channels[name], name)))
     seed_payload = {
-        "config": {key: config[key] for key in sorted(config) if key != "credential_id"},
+        # Keys that change no journey stay out of the seed, so turning them on draws the same journeys.
+        "config": {key: config[key] for key in sorted(config) if key not in {"credential_id", "episodes"}},
         "facts": corpus_steering.report() if corpus_steering is not None else None,
         "corpus_text": corpus_text,
         "feedback": feedback,
@@ -94,6 +95,9 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         "jurisdiction": config.get("jurisdiction") or "neutral",
         "corpus_steering": corpus_steering,
         "calibration": calibration,
+        # Episodes by default for post-training, where agent rollouts are the training data.
+        "episodes": config.get("episodes") if config.get("episodes") is not None else config.get("consumer") == "post_training",
+        "operations": _operations(items),
     }
     return sector, kwargs, items
 
@@ -227,6 +231,12 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
             totals["passes"] += sum(1 for sample in bundle.samples for sequence in sample.sequences if sequence.outcome == "pass")
             for flag, flagged in (rewards.get("flags") or {}).items():
                 totals["flags"][flag] = totals["flags"].get(flag, 0) + flagged
+            if meta.episodes:
+                summed = totals.setdefault("episodes", {"episodes": 0, "rollouts": 0, "accepted_groups": 0, "with_api_operations": 0, "policies": {}})
+                for key in ("episodes", "rollouts", "accepted_groups", "with_api_operations"):
+                    summed[key] += meta.episodes.get(key, 0)
+                for policy, count in (meta.episodes.get("policies") or {}).items():
+                    summed["policies"][policy] = summed["policies"].get(policy, 0) + count
             if meta_first is None:
                 meta_first = {
                     "generator_id": meta.generator_id,
@@ -288,6 +298,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "quality": _with_representative(quality.report(), kwargs.get("calibration"), overview.report()),
         "overview": overview.report(),
         "calibration": (meta_first or {}).get("calibration"),
+        "episodes": totals.get("episodes"),
         "storage": {"kind": "files", "batches": len(state["done"]), "batch_sequences": BATCH_SEQUENCES},
         "target": target,
     }
@@ -318,6 +329,15 @@ def _resolve_notes(parent: Run, feedback: list[dict]) -> list[dict]:
             target = store.trajectory_type(target) or target
         resolved.append({**note, "target_id": target})
     return resolved
+
+
+def _operations(items: list) -> list[dict]:
+    from app.documents import operations_from_text
+
+    found = []
+    for item in ordered(items):
+        found.extend(operations_from_text(read_document(item).body))
+    return found
 
 
 def _with_representative(report: dict, calibration, summary: dict) -> dict:

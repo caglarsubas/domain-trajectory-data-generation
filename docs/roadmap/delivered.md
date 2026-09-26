@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All twenty-six are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All twenty-seven are merged and their branches are deleted.
 
-`main` history: `31846b5`, `0920121`, `32b564b`, `a578aa4`, `911840f`, `04cf306`, `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `a23cdbc`, `31846b5`, `0920121`, `32b564b`, `a578aa4`, `911840f`, `04cf306`, `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -177,3 +177,9 @@ Slice 5, first part. PDF, Word, HTML, Markdown, and OpenAPI and AsyncAPI definit
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/27
 
 Slice 5, second part. A study's documents are read into currency, channel, product, event, and negated-event facts with evidence and a confidence: explicit ones steer, strongly implied ones steer once accepted in the composer's review queue, and what no fact covers is listed as taken from defaults. Runs choose a neutral, Turkey, or United Kingdom profile, which sets currency, local product names, KYC rules for the judge and the samples, and the starting language.
+
+## 28. Calibrate the generator from event logs and measure how representative a run is
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/28
+
+Slice 5, third part, completing the slice. CSV, Parquet, XES, and OCEL 2.0 logs are read, their activities mapped to the pack's events and correctable, and turned into next-step counts and duration quantiles; runs blend them with the priors by how much data backs them and follow steps through events a run leaves out. Representativeness is measured as fitness, precision, and next-step divergence. The catalogue downloads BPI Challenge 2017 and UCI Bank Marketing on demand with licence and snapshot date and recognizes a CFPB complaint export.

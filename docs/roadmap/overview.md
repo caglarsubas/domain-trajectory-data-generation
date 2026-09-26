@@ -159,6 +159,8 @@ The three consumers stop sharing one output.
 
 The five signal mechanisms each map to a scorer, and `consumer` and `target_family` choose export parts and composer presets instead of changing prompt text.
 
+Progress, 26 September 2026: Slice 6 ships as episodes, decision records, and evaluation tasks, with episodes in two pull requests. The first builds an episode at each group's decision point: the machines' state, operations named after BIAN service domains and shaped by the study's OpenAPI definitions, a task, five code-checked rubric items, and scripted rollouts (the step taken, legal alternatives, a forbidden operation, another case's object) rewarded as verification times rubric score; export writes every rollout in chat-tool, tool-block, and ReAct formats, with ReAct held out. The second adds provider-model rollouts through the account's key, each turn checked against the episode's skeleton, with the expected calls and a budget cap shown before the run.
+
 ### Slice 7. More sectors
 
 Telecommunication, airways, and hotels, each a pack of state machines and priors on the shared lifecycle engine, rewards, quality report, calibration, and episode builder. Each pack must pass the same gates as banking before the composer offers it.

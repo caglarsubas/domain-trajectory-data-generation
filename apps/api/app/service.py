@@ -97,6 +97,7 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         "domain_shares": shares,
         "jurisdiction": body.jurisdiction,
         "calibrate": body.calibrate,
+        "episodes": body.episodes,
         "credential_id": credential.id if credential else None,
     }
 
