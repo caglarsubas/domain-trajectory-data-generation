@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.corpus_text import ordered, read_corpus_text, read_document
 from app.models import CorpusItem, EvalCycle, Run
-from app.store import BATCH_SEQUENCES, SMALL_RUN_SEQUENCES, batch_name, batch_path, journey_entries, run_dir, store_for, write_json
+from app.store import BATCH_SEQUENCES, MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, batch_name, batch_path, journey_entries, run_dir, store_for, write_json
 from sectors.overview import OverviewAccumulator, overview_of, variant_id
 from sectors.quality import QualityAccumulator
 from sectors.registry import get_sector
@@ -143,7 +143,11 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         return sum(item["accepted"] if accepted_mode else item["groups"] for item in progress_state)
 
     for number, (bucket, standing) in enumerate(zip(buckets, progress_state)):
-        ceiling = bucket["target"] * ACCEPTANCE_CEILING if accepted_mode else bucket["target"]
+        ceiling = bucket["target"]
+        if accepted_mode:
+            # Oversampling never draws more than the run limit allows, shared across parts by their targets.
+            room = max(bucket["target"], (MAX_RUN_SEQUENCES // size) * bucket["target"] // max(goal, 1))
+            ceiling = min(bucket["target"] * ACCEPTANCE_CEILING, room)
         while not standing["finished"]:
             count = standing["accepted"] if accepted_mode else standing["groups"]
             if count >= bucket["target"]:

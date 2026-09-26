@@ -10,11 +10,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session, defer
 
+from datetime import datetime, timezone
+
 from app.db import get_db
-from app.evaluation import evaluate_bundle
-from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
-from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Job, Project, Run
-from app.providers import PROVIDERS, get_provider
+from app.generation import ACCEPTANCE_CEILING
+from app.models import Account, CorpusItem, Credential, Feedback, Job, Project, Run
+from app.providers import PROVIDERS, KeyCheck, check_key, get_provider
+from app import quotas
 from app.schemas import (
     CorpusLinkBody,
     CredentialBody,
@@ -29,11 +31,9 @@ from app.schemas import (
     RerunBody,
     RunBody,
 )
-from app.search import DeepSearchError, default_query, run_deep_search
 from app import runtime
 from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_password, issue_token, read_token, verify_password
 from sectors.journeys import STUDIO_TRAJECTORY_CAP
-from sectors.steering import scrub_text
 from sectors.registry import get_sector
 from app import export as run_export
 from app import jobs
@@ -173,6 +173,9 @@ def create_credential(body: CredentialBody, account: AccountDep, db: Db, cfg: Cf
         raise HTTPException(status_code=422, detail=problem)
     if not spec.supports_deep_search:
         raise HTTPException(status_code=422, detail="provider cannot run deep search")
+    check = _check_key(spec.id, body.secret)
+    if check.status == "rejected":
+        raise HTTPException(status_code=422, detail=check.detail)
     row = Credential(
         account_id=account.id,
         provider=spec.id,
@@ -180,8 +183,8 @@ def create_credential(body: CredentialBody, account: AccountDep, db: Db, cfg: Cf
         ciphertext=encrypt_secret(cfg.credential_master_key, body.secret),
         fingerprint=fingerprint(body.secret),
         scope=scope,
-        ready=1,
     )
+    _record_check(row, check)
     db.add(row)
     db.commit()
     db.refresh(row)
@@ -210,11 +213,39 @@ def update_credential(credential_id: str, body: CredentialUpdateBody, account: A
         problem = get_provider(row.provider).validate(body.secret)
         if problem:
             raise HTTPException(status_code=422, detail=problem)
+        check = _check_key(row.provider, body.secret)
+        if check.status == "rejected":
+            # The old key stays in place.
+            raise HTTPException(status_code=422, detail=check.detail)
         row.ciphertext = encrypt_secret(cfg.credential_master_key, body.secret)
         row.fingerprint = fingerprint(body.secret)
+        _record_check(row, check)
     db.commit()
     db.refresh(row)
     return _credential_out(row)
+
+
+@router.post("/credentials/{credential_id}/check")
+def check_credential(credential_id: str, account: AccountDep, db: Db, cfg: Cfg) -> dict:
+    row = _own_credential(db, credential_id, account)
+    _record_check(row, _check_key(row.provider, decrypt_secret(cfg.credential_master_key, row.ciphertext)))
+    db.commit()
+    db.refresh(row)
+    return _credential_out(row)
+
+
+def _check_key(provider: str, secret: str) -> KeyCheck:
+    if runtime.key_checker is not None:
+        return runtime.key_checker.check(provider, secret)
+    return check_key(provider, secret)
+
+
+def _record_check(row: Credential, check: KeyCheck) -> None:
+    """Only a key the provider accepted is ready; an unreachable provider leaves it saved but not ready."""
+    row.ready = 1 if check.status == "valid" else 0
+    row.check_status = check.status
+    row.check_detail = check.detail
+    row.checked_at = datetime.now(timezone.utc)
 
 
 @router.delete("/credentials/{credential_id}", status_code=204)
@@ -233,6 +264,9 @@ def _credential_out(row: Credential) -> dict:
         "scope": row.scope,
         "ready": bool(row.ready),
         "supports_deep_search": True,
+        "check_status": row.check_status,
+        "check_detail": row.check_detail,
+        "checked_at": row.checked_at.isoformat() if row.checked_at else None,
     }
 
 
@@ -341,63 +375,57 @@ def deep_search_corpus(project_id: str, body: DeepSearchBody, account: AccountDe
     if not credential.ready:
         raise HTTPException(status_code=422, detail="credential is not ready for deep search")
     try:
-        spec = get_provider(credential.provider)
+        get_provider(credential.provider)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    secret = decrypt_secret(cfg.credential_master_key, credential.ciphertext)
-    query = (body.query or "").strip() or default_query(
-        body.sub_domains,
-        body.language,
-        label=sector.label.lower(),
-        events=list(sector.event_namespace),
-    )
-    try:
-        if runtime.searcher is not None:
-            result = runtime.searcher.search(query, provider=spec.id, key=secret)
-        else:
-            result = run_deep_search(spec.id, query, key=secret)
-    except DeepSearchError as exc:
-        raise HTTPException(status_code=502, detail=f"{spec.label} deep search failed") from exc
-    text = scrub_text(result.text).strip()
-    if secret and secret in text:
-        text = text.replace(secret, "")
-    if not text:
-        raise HTTPException(status_code=502, detail=f"{spec.label} deep search returned no text")
-    sources = [item for item in result.sources if item.startswith(("https://", "http://"))][:12]
-    stored = text[:12000]
-    if sources:
-        stored = f"{stored}\n\nSources:\n" + "\n".join(sources)
-    digest = hashlib.sha256(stored.encode()).hexdigest()
-    cfg.upload_dir.mkdir(parents=True, exist_ok=True)
-    path = cfg.upload_dir / f"{digest}-deep-search-{spec.id}.txt"
-    path.write_text(stored, encoding="utf-8")
-    item = CorpusItem(
-        project_id=project.id,
-        kind="deep_search",
-        name=f"Deep search · {spec.label}",
-        storage_path=str(path),
-        content_hash=digest,
-        provenance=f"provider:{spec.id}",
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
-    return {
-        "id": item.id,
-        "kind": item.kind,
-        "name": item.name,
-        "content_hash": item.content_hash,
-        "provenance": item.provenance,
-        "provider": spec.id,
-        "model": result.model,
-        "sources": sources,
-        "excerpt": text[:600],
-    }
+    quotas.require_daily(db, account, cfg, "deep_searches")
+    payload = {"credential_id": credential.id, "sub_domains": body.sub_domains, "language": body.language, "query": body.query}
+    job = jobs.enqueue(db, kind="deep_search", owner_id=account.id, run_id=None, project_id=project.id, payload=payload)
+    _raise_if_refused(db, job)
+    # Inline, the job has finished and its corpus item is here; otherwise poll GET /jobs/{id}.
+    return {**(job.result or {}), "job": job_out(job)}
+
+
+def _raise_if_refused(db: Session, job: Job) -> None:
+    """A job run inline that refused answers as the request did before jobs, with the same status and detail."""
+    db.refresh(job)
+    status = (job.result or {}).get("http_status")
+    if job.status == "failed" and status:
+        raise HTTPException(status_code=status, detail=job.error)
+
+
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, account: AccountDep, db: Db) -> dict:
+    return job_out(_own_job(db, job_id, account))
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel_job(job_id: str, account: AccountDep, db: Db) -> dict:
+    job = _own_job(db, job_id, account)
+    if job.status not in jobs.ACTIVE:
+        raise HTTPException(status_code=409, detail="this job is not running")
+    jobs.cancel(db, job)
+    db.refresh(job)
+    return job_out(job)
+
+
+def _own_job(db: Session, job_id: str, account: Account) -> Job:
+    job = db.get(Job, job_id)
+    if job is None or job.owner_id != account.id:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
+@router.get("/quota")
+def quota(account: AccountDep, db: Db, cfg: Cfg) -> dict:
+    """A demo account's daily limits and use. Other accounts have no limits."""
+    return {"kind": account.kind, "demo": quotas.usage(db, account, cfg)}
 
 
 @router.post("/runs")
-def create_run(body: RunBody, account: AccountDep, db: Db) -> dict:
+def create_run(body: RunBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
     config = config_from_body(body, account, db)
+    _require_run_quota(db, account, cfg, config)
     run = Run(
         project_id=body.project_id,
         owner_id=account.id,
@@ -547,10 +575,11 @@ def add_feedback(run_id: str, body: FeedbackBody, account: AccountDep, db: Db) -
 
 
 @router.post("/runs/{run_id}/rerun")
-def rerun(run_id: str, body: RerunBody, account: AccountDep, db: Db) -> dict:
+def rerun(run_id: str, body: RerunBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
     parent = require_run(db, run_id, account)
     _require_generated(parent)
     config, feedback_ids = rerun_config(parent, body, account, db)
+    _require_run_quota(db, account, cfg, config)
     child = Run(
         project_id=parent.project_id,
         owner_id=account.id,
@@ -566,6 +595,15 @@ def rerun(run_id: str, body: RerunBody, account: AccountDep, db: Db) -> dict:
     jobs.enqueue(db, kind="generate", owner_id=account.id, run_id=child.id, payload={"feedback_ids": feedback_ids})
     db.refresh(child)
     return run_out(child, db)
+
+
+def _require_run_quota(db: Session, account: Account, cfg: Settings, config: dict) -> None:
+    sequences = int(config["target_trajectory_count"]) * int(config.get("group_size") or 1)
+    if config.get("target_kind") == "accepted_groups":
+        # An accepted-group target may draw up to the acceptance ceiling.
+        sequences *= ACCEPTANCE_CEILING
+    quotas.require_run_size(account, cfg, sequences)
+    quotas.require_daily(db, account, cfg, "runs")
 
 
 def _require_generated(run: Run) -> None:
@@ -586,97 +624,21 @@ def cancel_run(run_id: str, account: AccountDep, db: Db) -> dict:
     return run_out(run, db)
 
 
-def _judge_for(cfg: Settings) -> InferenceEngineClient:
-    try:
-        return InferenceEngineClient(
-            base_url=cfg.inference_base_url,
-            api_key=cfg.inference_api_key,
-            tenant=cfg.inference_tenant,
-            org_id=cfg.inference_org_id,
-            key_id=cfg.inference_key_id,
-            judge_model=cfg.inference_judge_model,
-        )
-    except EvalNotConfigured as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-
 @router.post("/runs/{run_id}/evaluate")
 def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
     run = require_run(db, run_id, account)
     _require_generated(run)
     if run.cycle_count >= int(run.config["max_cycles"]):
         raise HTTPException(status_code=409, detail="max evaluation cycles reached")
+    current = jobs.latest_for(db, run.id, "evaluate")
+    if current is not None and current.status in jobs.ACTIVE:
+        raise HTTPException(status_code=409, detail="the judge is already working on this run")
     if body.candidate is not None:
-        bundle = TrajectoryBundle.model_validate(body.candidate)
+        TrajectoryBundle.model_validate(body.candidate)
         run.candidate = body.candidate
-    elif run.candidate:
-        bundle = TrajectoryBundle.model_validate(run.candidate)
-    elif (found := store_for(run)) is not None:
-        # A large run is judged on its first journey and that journey's alternative, as a small run is.
-        entries = found.entries()
-        bundle = TrajectoryBundle.model_validate(found.journey(entries[0]["trajectory_id"])) if entries else banking_fixture()
-    else:
-        bundle = banking_fixture()
-    items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id)))
-    created: list[InferenceEngineClient] = []
-    cached: dict[str, InferenceEngineClient] = {}
-
-    def resolve_judge():
-        if runtime.judge is not None:
-            return runtime.judge
-        if "client" not in cached:
-            client = _judge_for(cfg)
-            cached["client"] = client
-            created.append(client)
-        return cached["client"]
-
-    class _Lazy:
-        def run_eval(self, **kwargs):
-            return resolve_judge().run_eval(**kwargs)
-
-    try:
-        result = evaluate_bundle(
-            bundle=bundle,
-            sector_id=run.config["sector"],
-            sub_domains=run.config["sub_domains"],
-            language=run.config["language"],
-            cold_start=run.config["start_mode"] == "cold",
-            corpus_items=items,
-            thresholds=run.config["thresholds"],
-            judge=_Lazy(),
-        )
-    except JudgeUnavailable as exc:
-        raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
-    finally:
-        for client in created:
-            client.close()
-    cycle = EvalCycle(
-        run_id=run.id,
-        cycle_index=run.cycle_count + 1,
-        hard_check_passed=1 if result["hard_check_passed"] else 0,
-        hard_check_errors=result["hard_check_errors"],
-        reference_quality=result["reference_quality"],
-        accepted=1 if result["accepted"] else 0,
-        revision_notes=result["revision_notes"],
-        judge_tenant=cfg.inference_tenant if result["called_judge"] else "",
-        judge_org_id=cfg.inference_org_id if result["called_judge"] else "",
-        judge_key_id=cfg.inference_key_id if result["called_judge"] else "",
-    )
-    db.add(cycle)
-    db.flush()
-    for verdict in result["verdicts"]:
-        db.add(
-            EvalVerdict(
-                cycle_id=cycle.id,
-                rubric=verdict["rubric"],
-                score=verdict["score"],
-                parsed=verdict["parsed"],
-                raw=verdict["raw"],
-                judge_model=verdict["judge_model"],
-                duration_ms=verdict["duration_ms"],
-            )
-        )
-    run.cycle_count += 1
-    run.status = "evaluated"
-    db.commit()
+        db.commit()
+    quotas.require_daily(db, account, cfg, "judge_cycles")
+    job = jobs.enqueue(db, kind="evaluate", owner_id=account.id, run_id=run.id, payload={})
+    _raise_if_refused(db, job)
+    db.refresh(run)
     return run_out(run, db)

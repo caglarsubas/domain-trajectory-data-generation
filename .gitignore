@@ -9,6 +9,7 @@ __pycache__/
 .coverage
 htmlcov/
 data/uploads/
+data/runs/
 data/*.db
 apps/web/node_modules/
 apps/web/.next/

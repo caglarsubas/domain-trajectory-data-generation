@@ -53,6 +53,7 @@ function Composer() {
   const [form, setForm] = useState(EMPTY);
   const [sectors, setSectors] = useState([]);
   const [keys, setKeys] = useState([]);
+  const [unchecked, setUnchecked] = useState(0);
   const [files, setFiles] = useState([]);
   const [links, setLinks] = useState([]);
   const [linkDraft, setLinkDraft] = useState({ kind: "paper", name: "", uri: "" });
@@ -64,6 +65,8 @@ function Composer() {
   const [projectId, setProjectId] = useState("");
   const [searches, setSearches] = useState([]);
   const [searching, setSearching] = useState(false);
+  const [searchNote, setSearchNote] = useState("");
+  const [quota, setQuota] = useState(null);
   const [projects, setProjects] = useState([]);
 
   useEffect(() => {
@@ -71,9 +74,11 @@ function Composer() {
     api("/credentials").then((data) => {
       const ready = data.data.filter((item) => item.ready);
       setKeys(ready);
+      setUnchecked(data.data.length - ready.length);
       setForm((current) => ({ ...current, credential_id: current.credential_id || ready[0]?.id || "" }));
     }).catch((err) => setError(err.message));
     if (!from) api("/projects").then((data) => setProjects(data.data)).catch(() => setProjects([]));
+    api("/quota").then((data) => setQuota(data.demo)).catch(() => setQuota(null));
   }, [from]);
 
   useEffect(() => {
@@ -111,6 +116,8 @@ function Composer() {
   const shares = form.domain_shares ? form.sub_domains.map((name) => [name, Number(form.domain_shares[name]) || 0]) : [];
   const shareTotal = shares.reduce((sum, [, value]) => sum + value, 0);
   const unit = accepted ? "accepted groups" : groupSize > 1 ? `prompts × ${groupSize}` : "journeys";
+  // An accepted-group target may draw up to five times its size; demo limits count that.
+  const drawn = accepted ? sequences * 5 : sequences;
   const blockers = [
     !form.credential_id ? "Choose a provider key on the Signals step." : null,
     form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
@@ -120,6 +127,12 @@ function Composer() {
     sequences > maxRun ? `This run asks for ${sequences.toLocaleString()} sequences; the limit is ${maxRun.toLocaleString()}.` : null,
     shares.some(([, value]) => value <= 0) ? "Every sub-domain share must be above zero." : null,
     !languages.includes((form.language || "").split("-")[0]) ? `Choose a language: ${languages.join(" or ")}.` : null,
+    quota && drawn > quota.max_sequences
+      ? `Demo runs hold at most ${quota.max_sequences.toLocaleString()} sequences; this one may draw ${drawn.toLocaleString()}.`
+      : null,
+    quota && quota.daily.runs.used >= quota.daily.runs.limit
+      ? `Demo accounts can start ${quota.daily.runs.limit} runs a day${quota.daily.runs.frees_at ? `; the next one is available at ${quota.daily.runs.frees_at.slice(11, 16)} UTC` : ""}.`
+      : null,
   ].filter(Boolean);
   const slots = useMemo(() => Array.from({ length: Math.min(form.max_events, 32) }, (_, i) => i < form.min_events), [form.max_events, form.min_events]);
 
@@ -134,7 +147,7 @@ function Composer() {
         id = project.id;
         setProjectId(id);
       }
-      const result = await api(`/projects/${id}/deep-search`, {
+      const started = await api(`/projects/${id}/deep-search`, {
         method: "POST",
         body: JSON.stringify({
           credential_id: form.credential_id,
@@ -142,12 +155,24 @@ function Composer() {
           language: form.language,
         }),
       });
+      // The search runs as a job. When it ran inline its corpus item is already here; otherwise wait for it.
+      let result = started.id ? started : null;
+      let job = started.job;
+      while (!result) {
+        setSearchNote(job.message || "Waiting for a worker.");
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        job = await api(`/jobs/${job.id}`);
+        if (job.status === "succeeded") result = job.result;
+        else if (job.status === "failed" || job.status === "cancelled") throw new Error(job.error || job.message);
+      }
       setSearches((current) => [...current, result]);
       setExistingDocs((current) => [...current, result]);
     } catch (err) {
       setError(err.message);
     } finally {
       setSearching(false);
+      setSearchNote("");
+      api("/quota").then((data) => setQuota(data.demo)).catch(() => {});
     }
   }
 
@@ -546,10 +571,16 @@ function Composer() {
                 ))}
               </select>
               {keys.length === 0 ? <p className="lede">Add a bring-your-own key under Keys before confirming.</p> : null}
+              {unchecked ? (
+                <p className="lede">
+                  {unchecked} saved {unchecked === 1 ? "key has" : "keys have"} not been accepted by {unchecked === 1 ? "its" : "their"} provider yet; check {unchecked === 1 ? "it" : "them"} under Keys.
+                </p>
+              ) : null}
               <div className="actions">
                 <button className="ghost" type="button" disabled={searching || !form.credential_id || form.sub_domains.length === 0} onClick={deepSearch}>
                   {searching ? "Searching" : "Run provider deep search"}
                 </button>
+                {searchNote ? <small className="muted" style={{ alignSelf: "center" }}>{searchNote}</small> : null}
               </div>
               <p className="lede">The key runs a web search at the provider. The report is scrubbed and saved here. It can take a minute. The journey itself is still generated in the studio.</p>
               {searches.map((item) => (
@@ -570,6 +601,12 @@ function Composer() {
                   <strong>Before generating</strong>
                   <ul className="blockers">{blockers.map((item) => <li key={item}>{item}</li>)}</ul>
                 </div>
+              ) : null}
+              {quota ? (
+                <p className="note">
+                  Demo account today: {quota.daily.runs.used} of {quota.daily.runs.limit} runs, {quota.daily.judge_cycles.used} of {quota.daily.judge_cycles.limit} judge cycles,
+                  {" "}{quota.daily.deep_searches.used} of {quota.daily.deep_searches.limit} deep searches. Runs hold up to {quota.max_sequences.toLocaleString()} sequences.
+                </p>
               ) : null}
               {form.start_mode === "warm" && docCount > 0 && readableCount === 0 && !files.length && !links.length ? (
                 <p className="warn">No document can be read yet, so warm-start text will not steer this run.</p>

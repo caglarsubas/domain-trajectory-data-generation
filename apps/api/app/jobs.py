@@ -43,8 +43,8 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def enqueue(db, *, kind: str, owner_id: str, run_id: str | None, payload: dict) -> Job:
-    job = Job(kind=kind, owner_id=owner_id, run_id=run_id, payload=payload, status="queued", message="Waiting for a worker.")
+def enqueue(db, *, kind: str, owner_id: str, run_id: str | None, payload: dict, project_id: str | None = None) -> Job:
+    job = Job(kind=kind, owner_id=owner_id, run_id=run_id, project_id=project_id, payload=payload, status="queued", message="Waiting for a worker.")
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -152,7 +152,8 @@ def run_job(job_id: str) -> None:
             return
         except HTTPException as exc:
             db.rollback()
-            _finish(db, job_id, "failed", str(exc.detail), error=str(exc.detail))
+            # Keep the status so an inline caller can answer as the request would have before jobs.
+            _finish(db, job_id, "failed", str(exc.detail), error=str(exc.detail), result={"http_status": exc.status_code})
             return
         except Exception as exc:  # noqa: BLE001 - a job must end in a state the studio can show
             db.rollback()
@@ -163,11 +164,13 @@ def run_job(job_id: str) -> None:
         db.close()
 
 
-def _finish(db, job_id: str, status: str, message: str, *, error: str | None = None) -> None:
+def _finish(db, job_id: str, status: str, message: str, *, error: str | None = None, result: dict | None = None) -> None:
     job = db.get(Job, job_id)
     job.status = status
     job.message = message
     job.error = error
+    if result is not None:
+        job.result = result
     job.finished_at = _now()
     if status == "succeeded":
         job.progress = 1.0
@@ -230,7 +233,31 @@ def _export(db, job: Job, report: Callable) -> str:
     return f"Exported {summary['counts']['samples']:,} samples ({megabytes:.0f} MB before compression)."
 
 
-HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export}
+def _evaluate(db, job: Job, report: Callable) -> str:
+    from app.judging import judge_run
+    from app.settings import load_settings
+
+    run = db.get(Run, job.run_id)
+    cycle = judge_run(db, run, load_settings(), report)
+    job.result = {"cycle_index": cycle.cycle_index, "accepted": bool(cycle.accepted)}
+    verdict = "accepted" if cycle.accepted else "not accepted"
+    return f"Cycle {cycle.cycle_index} judged: {verdict}."
+
+
+def _deep_search(db, job: Job, report: Callable) -> str:
+    from app.models import Project
+    from app.research import deep_search_for_project
+    from app.settings import load_settings
+
+    project = db.get(Project, job.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    item = deep_search_for_project(db, project, job.payload, load_settings(), report)
+    job.result = item
+    return f"Stored {item['name']} with {len(item['sources'])} sources."
+
+
+HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export, "evaluate": _evaluate, "deep_search": _deep_search}
 
 
 class Worker:

@@ -1,6 +1,7 @@
-"""Process-local overrides. Tests install a judge or a searcher here."""
+"""Process-local overrides. Tests install a judge, a searcher, or a key checker here."""
 
 from app.judge import Judge
+from app.providers import KeyCheck
 from app.search import DeepSearchResult
 
 judge: Judge | None = None
@@ -11,3 +12,10 @@ class Searcher:
 
 
 searcher: Searcher | None = None
+
+
+class KeyChecker:
+    def check(self, provider: str, key: str) -> KeyCheck: ...
+
+
+key_checker: KeyChecker | None = None
