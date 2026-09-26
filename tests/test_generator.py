@@ -101,8 +101,22 @@ def test_card_and_loan_order_survive_a_short_budget():
             assert types.index("application.approved") < types.index("loan.disbursed")
 
 
+def test_an_account_opens_only_after_its_application_is_approved():
+    bundle = _bundle(sub_domains=list(SUB_DOMAINS), target_trajectory_count=64, event_budget=None, seed="approval")
+    assert banking_hard_checks(bundle) == []
+    events = {event.event_id: event for event in bundle.events}
+    opened = 0
+    for trajectory in bundle.trajectories:
+        types = [events[item].event_type for item in trajectory.event_ids]
+        if "account.opened" in types:
+            opened += 1
+            assert "application.approved" in types, types
+            assert types.index("application.approved") < types.index("account.opened"), types
+    assert opened > 0
+
+
 def test_feedback_drop_revise_and_keep_change_the_next_bundle():
-    parent = _bundle(sub_domains=["cards_and_payments", "onboarding_and_kyc"], seed="parent")
+    parent = _bundle(sub_domains=["cards_and_payments", "onboarding_and_kyc"], seed="parent", target_trajectory_count=6)
     purchase = next(event for event in parent.events if event.event_type == "card.purchase_authorised")
     activation = next(event for event in parent.events if event.event_type == "card.activated")
     child = _bundle(
@@ -245,7 +259,7 @@ def test_sixty_four_journeys_hold_at_least_thirty_two_distinct_sequences():
 
 def test_replay_rejects_an_outcome_after_the_decision():
     bundle = banking_fixture()
-    bundle.events[5].event_type = "kyc.failed"
+    bundle.events[6].event_type = "kyc.failed"
     errors = banking_hard_checks(bundle)
     assert any("KYC failed outside an open KYC case" in item for item in errors)
     assert any("account funded while not active" in item for item in errors)

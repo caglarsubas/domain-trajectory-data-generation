@@ -13,7 +13,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "banking-semi-markov-v2"
-PACK_VERSION = "banking-pack-3"
+PACK_VERSION = "banking-pack-4"
 
 OD = "onboarding_and_kyc"
 RC = "risk_and_compliance"
@@ -123,12 +123,12 @@ LIFECYCLE = LifecycleSpec(
             "account.opened", (DP,),
             requires=(
                 need("kyc", "kyc", "verified"),
-                need("application", "application", "submitted", "approved"),
+                need("application", "application", "approved"),
                 need("account", "account", None),
             ),
             sets=(put("account", "account", "active"), put("party", "relationship", "customer")),
             dwell_hours=(0.05, 2.0),
-            violation="account opened before an application with verified KYC",
+            violation="account opened before an approved application with verified KYC",
         ),
         EventSpec(
             "account.funded", (DP, SV),

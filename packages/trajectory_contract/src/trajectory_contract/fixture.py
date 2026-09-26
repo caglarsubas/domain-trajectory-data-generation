@@ -25,7 +25,7 @@ def _t(value: str) -> datetime:
 def banking_fixture() -> TrajectoryBundle:
     """One current-account journey plus a KYC-review alternative.
 
-    Every record is synthetic. Card issuance precedes activation. No loan is disbursed.
+    Every record is synthetic. Approval precedes account opening, and card issuance precedes activation. No loan is disbursed.
     """
 
     objects = [
@@ -59,6 +59,7 @@ def banking_fixture() -> TrajectoryBundle:
         ev("E03", "application.submitted", "2026-01-03T09:13:00", session_id="S01", case_id="C01", channel_id="web"),
         ev("E04", "kyc.started", "2026-01-03T09:15:00", session_id="S01", case_id="C01", channel_id="web"),
         ev("E05", "kyc.passed", "2026-01-03T09:16:00", session_id="S01", case_id="C01", channel_id="system"),
+        ev("E05A", "application.approved", "2026-01-03T09:16:30", case_id="C01", channel_id="system"),
         ev("E06", "account.opened", "2026-01-03T09:17:00", case_id="C01", channel_id="system"),
         ev("E07", "account.funded", "2026-01-04T18:20:00", session_id="S02", case_id="C01", channel_id="mobile", amount=1250, currency="GBP"),
         ev("E08", "card.issued", "2026-01-06T11:00:00", case_id="C01", channel_id="system"),
@@ -78,6 +79,8 @@ def banking_fixture() -> TrajectoryBundle:
         EventObject(event_id="E04", object_id="KYC01", object_role="case"),
         EventObject(event_id="E05", object_id="P001", object_role="subject"),
         EventObject(event_id="E05", object_id="KYC01", object_role="case"),
+        EventObject(event_id="E05A", object_id="P001", object_role="applicant"),
+        EventObject(event_id="E05A", object_id="APP01", object_role="application"),
         EventObject(event_id="E06", object_id="P001", object_role="holder"),
         EventObject(event_id="E06", object_id="ACC01", object_role="account"),
         EventObject(event_id="E07", object_id="ACC01", object_role="account"),
@@ -97,6 +100,7 @@ def banking_fixture() -> TrajectoryBundle:
         StateTransition(event_id="E03", object_id="APP01", state_dimension="application", state_before="started", state_after="submitted"),
         StateTransition(event_id="E04", object_id="KYC01", state_dimension="kyc", state_before=None, state_after="pending"),
         StateTransition(event_id="E05", object_id="KYC01", state_dimension="kyc", state_before="pending", state_after="verified"),
+        StateTransition(event_id="E05A", object_id="APP01", state_dimension="application", state_before="submitted", state_after="approved"),
         StateTransition(event_id="E06", object_id="ACC01", state_dimension="account", state_before="pending", state_after="active"),
         StateTransition(event_id="E08", object_id="CARD01", state_dimension="card", state_before=None, state_after="issued"),
         StateTransition(event_id="E09", object_id="CARD01", state_dimension="card", state_before="issued", state_after="active"),
@@ -113,7 +117,7 @@ def banking_fixture() -> TrajectoryBundle:
             observed_or_synthetic="synthetic",
             generator_id="fixture",
             probability=1.0,
-            event_ids=[f"E{n:02d}" for n in range(1, 11)],
+            event_ids=["E01", "E02", "E03", "E04", "E05", "E05A", "E06", "E07", "E08", "E09", "E10"],
         ),
         Trajectory(
             trajectory_id="T100-A",
@@ -146,7 +150,7 @@ def banking_fixture() -> TrajectoryBundle:
                                 Segment(
                                     segment_id="SEG-2",
                                     role="assistant",
-                                    text="Application submitted, KYC passed, account opened, card issued then activated.",
+                                    text="Application submitted, KYC passed, application approved, account opened, card issued then activated.",
                                     trainable=True,
                                 ),
                             ],
