@@ -463,3 +463,18 @@ label.check input { width: auto; margin: 0; }
 .catalogue-entry small { color: var(--muted); line-height: 1.4; }
 .catalogue-entry[data-availability="planned"] { opacity: 0.7; }
 .catalogue-entry button { justify-self: start; }
+.episode { background: var(--paper-2); border: 1px solid var(--line); border-radius: 20px; padding: 14px; margin: 14px 0; }
+.episode h4 { margin: 12px 0 6px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.episode-task { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 8px 0 0; }
+.episode-grid { display: grid; grid-template-columns: minmax(220px, 1fr) 2fr; gap: 16px; }
+.episode-state, .episode-tools { margin: 0; padding-left: 16px; font-size: 13px; line-height: 1.6; }
+.episode-tools li[data-legal="false"] { color: var(--muted); }
+.episode-rollouts { display: flex; flex-wrap: wrap; gap: 6px; }
+.episode-rollout { display: grid; gap: 2px; text-align: left; background: white; border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; }
+.episode-rollout[data-on="true"] { border-color: var(--ink); }
+.episode-rollout[data-outcome="fail"] b { color: #8a4b12; }
+.episode-rollout small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.episode-call { margin-top: 8px; background: white; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.episode-call pre { margin: 6px 0; font-size: 12px; white-space: pre-wrap; color: var(--muted); max-height: 180px; overflow: auto; }
+.episode-call .target-table { margin: 6px 0 0; }
+@media (max-width: 800px) { .episode-grid { grid-template-columns: 1fr; } }

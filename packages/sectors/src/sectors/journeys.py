@@ -166,6 +166,8 @@ def generate_bundle(
     jurisdiction: str = "neutral",
     corpus_steering: Any | None = None,
     calibration: Calibration | dict | None = None,
+    episodes: bool = False,
+    operations: list[dict] | None = None,
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -281,6 +283,11 @@ def generate_bundle(
     )
     assert bundle.generation is not None
     bundle.generation.quality = quality_report(lifecycle, bundle, sub_domains=domains, allowed=allowed, cold=cold)
+    if episodes:
+        from sectors.episodes import build_episodes, summarize
+
+        bundle.episodes = build_episodes(pack, bundle, language=language, seed=seed, operations=operations)
+        bundle.generation.episodes = summarize(bundle.episodes)
     if calibrated is not None:
         kinds = {event.event_id: event.event_type for event in bundle.events}
         primaries = [[kinds[item] for item in trajectory.event_ids] for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]

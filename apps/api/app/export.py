@@ -18,8 +18,11 @@ from pathlib import Path
 
 from trajectory_contract import TrajectoryBundle
 
-PARTS = ("samples.jsonl", "domain.jsonl", "ocel.json", "manifest.json")
-DATA_PARTS = PARTS[:3]
+from app.harness import HARNESSES, HELD_OUT, RENDER
+
+EPISODE_PARTS = ("episodes.jsonl", "episodes-openai.jsonl", "episodes-anthropic.jsonl", "episodes-react.jsonl")
+PARTS = ("samples.jsonl", *EPISODE_PARTS, "domain.jsonl", "ocel.json", "manifest.json")
+DATA_PARTS = PARTS[:-1]
 SPLIT_RATIOS = {"train": 0.8, "validation": 0.1, "test": 0.1}
 FORMAT_VERSION = 1
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -101,13 +104,15 @@ class Exporter:
         self.held_out = held_out
         self.open_part = open_part
         self.samples = Sink(open_part("samples.jsonl"))
+        # Episodes, then each rollout once per harness format.
+        self.episode_sinks = {name: Sink(open_part(name)) for name in EPISODE_PARTS}
         self.domain = Sink(open_part("domain.jsonl"))
         self.ocel_objects = scratch("objects")
         self.ocel_events = scratch("events")
         self.first_object = self.first_event = True
         self.object_dimensions: dict[str, set[str]] = {}
         self.event_types: set[str] = set()
-        self.counts = {"samples": 0, "sequences": 0, "trajectories": 0, "events": 0, "objects": 0, "relationships": 0}
+        self.counts = {"samples": 0, "sequences": 0, "episodes": 0, "rollouts": 0, "trajectories": 0, "events": 0, "objects": 0, "relationships": 0}
         self.split_counts = {"train": 0, "validation": 0, "test": 0, "heldout": 0}
 
     def add(self, bundle: TrajectoryBundle) -> None:
@@ -123,6 +128,16 @@ class Exporter:
             for sequence in sample.sequences:
                 if sequence.trajectory_id:
                     sample_of[sequence.trajectory_id] = sample.sample_id
+        for episode in bundle.episodes:
+            record = episode.model_dump(mode="json")
+            # An episode takes the split of the sample it was built from, so no journey leaks across splits.
+            record["split"] = split.get(episode.sample_id or "", "train")
+            self.episode_sinks["episodes.jsonl"].write(_line(record))
+            self.counts["episodes"] += 1
+            for rollout in record["rollouts"]:
+                self.counts["rollouts"] += 1
+                for harness in HARNESSES:
+                    self.episode_sinks[f"episodes-{harness}.jsonl"].write(_line(RENDER[harness](record, rollout, record["split"])))
         for record_type, records in (
             ("object", bundle.objects),
             ("relationship", bundle.relationships),
@@ -214,8 +229,9 @@ class Exporter:
         ocel.write('],"objectTypes":' + json.dumps(types, separators=(",", ":")) + ',"objects":[')
         _copy(self.ocel_objects, ocel)
         ocel.write("]}")
-        files = {name: sink.digest.hexdigest() for name, sink in (("samples.jsonl", self.samples), ("domain.jsonl", self.domain), ("ocel.json", ocel))}
-        sizes = {name: sink.size for name, sink in (("samples.jsonl", self.samples), ("domain.jsonl", self.domain), ("ocel.json", ocel))}
+        written = (("samples.jsonl", self.samples), *self.episode_sinks.items(), ("domain.jsonl", self.domain), ("ocel.json", ocel))
+        files = {name: sink.digest.hexdigest() for name, sink in written}
+        sizes = {name: sink.size for name, sink in written}
         manifest = _manifest(run, sector, cycles, generation or {}, self.counts, self.split_counts, self.held_out, files, sizes)
         Sink(self.open_part("manifest.json")).write(manifest)
         return {"files": files, "sizes": sizes, "counts": self.counts, "split": self.split_counts}
@@ -268,6 +284,11 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
             "accepted": accepted,
             "cycle": latest["cycle_index"] if latest else None,
             "exported_without_acceptance": not accepted,
+        },
+        "episodes": {
+            **(generation.get("episodes") or {"episodes": 0}),
+            "harnesses": {"formats": list(HARNESSES), "train": [name for name in HARNESSES if name != HELD_OUT], "held_out": HELD_OUT},
+            "note": "Each harness file holds every rollout once; train on the train formats and measure on the held-out one.",
         },
         "judge_cycles": [
             {

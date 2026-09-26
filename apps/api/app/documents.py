@@ -200,6 +200,15 @@ def _structured(text: str, load, label: str) -> Parsed:
 
 
 METHODS = ("get", "post", "put", "patch", "delete")
+OPERATION_LINE = re.compile(r"^- (GET|POST|PUT|PATCH|DELETE) (\S+)(?: \(([^)]+)\))?(?:: (.*?))?(?: \[[^\]]*\])?$", re.MULTILINE)
+
+
+def operations_from_text(text: str) -> list[dict]:
+    """The operations an API summary lists, as written by `api_summary` for uploads and repositories alike."""
+    return [
+        {"method": method, "path": path, "operationId": name, "summary": summary}
+        for method, path, name, summary in OPERATION_LINE.findall(text)
+    ]
 
 
 def api_summary(spec: dict) -> tuple[str, int]:

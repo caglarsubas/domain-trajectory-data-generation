@@ -111,6 +111,8 @@ class RunBody(BaseModel):
     jurisdiction: Literal["neutral", "tr", "uk"] = "neutral"
     # Reweight next steps and durations from the study's data sources when it has any.
     calibrate: bool = True
+    # Build agent episodes at decision points; unset means yes when the consumer is post-training.
+    episodes: bool | None = None
     # Generation does not call a provider; a key is only needed for deep search.
     credential_id: str | None = None
 
@@ -126,6 +128,7 @@ class RerunBody(BaseModel):
     feedback_ids: list[str] = Field(default_factory=list)
     jurisdiction: Literal["neutral", "tr", "uk"] | None = None
     calibrate: bool | None = None
+    episodes: bool | None = None
     target_trajectory_count: int | None = Field(default=None, ge=1, le=100_000)
     event_budget: int | None = None
     min_events: int | None = Field(default=None, ge=1, le=10_000)
