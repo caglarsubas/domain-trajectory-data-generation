@@ -1,7 +1,7 @@
 """Quality report v1: the four quality words as measurements.
 
 Complete and comprehensive are measured here. Representative waits for
-calibration from data sources (Slice 5) and qualitative for a reliable judge
+a study's data sources, replaced when a run is calibrated, and qualitative for a reliable judge
 (Slice 4); both say so rather than showing a number.
 
 The report is built by an accumulator, so a run generated in batches adds each
@@ -91,7 +91,7 @@ class QualityAccumulator:
                 "reason": (
                     "Cold start: there is no reference to measure against."
                     if self.cold
-                    else "Measured against calibration data from Slice 5."
+                    else "Add a data source to measure the run against real event logs."
                 ),
             },
             "qualitative": {"status": "not_measured", "reason": "Measured by the judge with agreement from Slice 4."},

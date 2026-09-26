@@ -30,6 +30,11 @@ class OfflineFetcher:
 
         raise FetchError("the network is off in tests")
 
+    def download(self, url: str, destination, max_bytes: int):
+        from app.fetch import FetchError
+
+        raise FetchError("the network is off in tests")
+
 
 class AcceptingKeyChecker:
     """Tests never reach a provider: every well-formed key is accepted unless a test installs another checker."""

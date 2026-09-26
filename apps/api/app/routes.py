@@ -23,8 +23,10 @@ from app.schemas import (
     CredentialUpdateBody,
     DeepSearchBody,
     EvaluateBody,
+    CatalogueBody,
     ExportBody,
     FactReviewBody,
+    MappingBody,
     FeedbackBody,
     LoginBody,
     ProjectBody,
@@ -39,6 +41,7 @@ from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.registry import get_sector
 from app import export as run_export
 from app import jobs
+from app.catalogue import BY_ID as CATALOGUE, ENTRIES, public
 from app.facts import facts_report
 from app.ingest import safe_name
 from sectors.jurisdictions import PROFILES, get_jurisdiction
@@ -338,13 +341,71 @@ async def upload_corpus(
     db.add(item)
     db.commit()
     db.refresh(item)
-    return {
-        "id": item.id,
-        "kind": item.kind,
-        "name": item.name,
-        "content_hash": item.content_hash,
-        "provenance": item.provenance,
-    }
+    job = None
+    if kind == "data_source":
+        # A data source is read into a calibration by a job.
+        job = jobs.enqueue(db, kind="calibrate", owner_id=account.id, run_id=None, project_id=project.id, payload={"item_id": item.id})
+        db.refresh(item)
+    return {**corpus_out(item), "job": job_out(job)}
+
+
+@router.get("/catalogue")
+def catalogue(sector: str = "banking") -> dict:
+    """Public data sources to calibrate from, with licence and what each covers; planned ones say why they wait."""
+    return {"data": [public(entry) for entry in ENTRIES if entry["sector"] == sector]}
+
+
+@router.post("/projects/{project_id}/catalogue")
+def add_catalogue_source(project_id: str, body: CatalogueBody, account: AccountDep, db: Db) -> dict:
+    project = require_project(db, project_id, account)
+    entry = CATALOGUE.get(body.entry)
+    if entry is None or entry["sector"] != project.sector:
+        raise HTTPException(status_code=404, detail="no such catalogue source for this study's sector")
+    if entry["availability"] != "download":
+        raise HTTPException(status_code=409, detail=entry.get("reason") or entry.get("describes"))
+    item = CorpusItem(
+        project_id=project.id,
+        kind="data_source",
+        name=entry["name"],
+        uri=entry["url"],
+        content_hash=hashlib.sha256(entry["url"].encode()).hexdigest(),
+        provenance=f"catalogue:{entry['id']}",
+        ingest={
+            "status": "pending",
+            "catalogue": entry["id"],
+            "licence": entry["licence"],
+            "citation": entry.get("citation"),
+            "doi": entry.get("doi"),
+            "source_url": entry["url"],
+        },
+    )
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    # Downloaded by a fetch job into the upload store, then calibrated; never committed to the repository.
+    job = jobs.enqueue(db, kind="fetch", owner_id=account.id, run_id=None, project_id=project.id, payload={"item_id": item.id})
+    db.refresh(item)
+    return {**corpus_out(item), "job": job_out(job)}
+
+
+@router.put("/projects/{project_id}/corpus/{item_id}/mapping")
+def map_activities(project_id: str, item_id: str, body: MappingBody, account: AccountDep, db: Db) -> dict:
+    """Save which event each activity of a data source stands for, and calibrate again."""
+    project = require_project(db, project_id, account)
+    item = db.get(CorpusItem, item_id)
+    if item is None or item.project_id != project.id or item.kind != "data_source":
+        raise HTTPException(status_code=404, detail="data source not found")
+    namespace = set(get_sector(project.sector).event_namespace)
+    unknown = sorted({event for event in body.mapping.values() if event is not None and event not in namespace})
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"unknown events: {', '.join(unknown)}")
+    current = dict(item.calibration or {})
+    current["mapping"] = {**(current.get("mapping") or {}), **body.mapping}
+    item.calibration = current
+    db.commit()
+    job = jobs.enqueue(db, kind="calibrate", owner_id=account.id, run_id=None, project_id=project.id, payload={"item_id": item.id})
+    db.refresh(item)
+    return {**corpus_out(item), "job": job_out(job)}
 
 
 @router.post("/projects/{project_id}/corpus/link")

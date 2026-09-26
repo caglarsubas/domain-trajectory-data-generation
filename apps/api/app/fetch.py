@@ -106,6 +106,41 @@ def safe_get(url: str, *, transport: httpx.BaseTransport | None = None, resolver
     raise FetchError("the link redirected too many times")
 
 
+def safe_download(url: str, destination, *, max_bytes: int, transport: httpx.BaseTransport | None = None, resolver=socket.getaddrinfo) -> tuple[str, str, int, str]:
+    """Stream a public file to disk under the same guard as a page. Returns final address, content type, size, and SHA-256."""
+    import hashlib
+
+    current = url
+    with httpx.Client(transport=transport, timeout=httpx.Timeout(TIMEOUT, read=120.0), follow_redirects=False) as client:
+        for _ in range(MAX_REDIRECTS + 1):
+            check_url(current, resolver)
+            try:
+                with client.stream("GET", current, headers={"User-Agent": USER_AGENT}) as response:
+                    stream = response.extensions.get("network_stream")
+                    peer = stream.get_extra_info("server_addr") if stream is not None else None
+                    if peer and not _public(str(peer[0])):
+                        raise FetchError("the link resolved to a private address when fetched")
+                    if response.status_code in {301, 302, 303, 307, 308} and response.headers.get("location"):
+                        current = urljoin(current, response.headers["location"])
+                        continue
+                    if response.status_code != 200:
+                        raise FetchError(f"the server answered {response.status_code}")
+                    digest, size = hashlib.sha256(), 0
+                    with open(destination, "wb") as handle:
+                        for chunk in response.iter_bytes():
+                            size += len(chunk)
+                            if size > max_bytes:
+                                raise FetchError(f"the file is larger than {max_bytes // 1_000_000} MB")
+                            digest.update(chunk)
+                            handle.write(chunk)
+                    return str(response.url), response.headers.get("content-type", ""), size, digest.hexdigest()
+            except httpx.TimeoutException as exc:
+                raise FetchError("the server took too long to answer") from exc
+            except httpx.HTTPError as exc:
+                raise FetchError("the server could not be reached") from exc
+    raise FetchError("the link redirected too many times")
+
+
 GITHUB = re.compile(r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?(?:[#?].*)?$")
 DOC_FILE = re.compile(r"^(docs?|documentation)/.+\.(md|mdx|markdown|rst|txt)$", re.IGNORECASE)
 API_FILE = re.compile(r"(^|/)(openapi|swagger|asyncapi)[^/]*\.(json|ya?ml)$", re.IGNORECASE)

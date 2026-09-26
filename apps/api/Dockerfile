@@ -10,7 +10,7 @@ COPY pyproject.toml README.md ./
 COPY packages ./packages
 COPY apps/api ./apps/api
 
-RUN pip install --no-cache-dir ".[postgres]"
+RUN pip install --no-cache-dir ".[postgres,parquet]"
 
 EXPOSE 8000
 

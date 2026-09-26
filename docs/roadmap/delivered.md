@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All twenty-five are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All twenty-six are merged and their branches are deleted.
 
-`main` history: `0920121`, `32b564b`, `a578aa4`, `911840f`, `04cf306`, `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `31846b5`, `0920121`, `32b564b`, `a578aa4`, `911840f`, `04cf306`, `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -171,3 +171,9 @@ Generation calls no provider, so `credential_id` is optional on a run and a key 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/26
 
 Slice 5, first part. PDF, Word, HTML, Markdown, and OpenAPI and AsyncAPI definitions are parsed once and cached; links are fetched by a job behind a guard that refuses private addresses before the request, on every redirect, and at the connected address; GitHub repositories are read through their README, docs, and API definitions; and the judge's brief carries BM25-ranked passages instead of the first 2,000 characters. An uploaded file's name no longer chooses where it is stored.
+
+## 27. Read facts from a study's documents for review, and add jurisdiction profiles
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/27
+
+Slice 5, second part. A study's documents are read into currency, channel, product, event, and negated-event facts with evidence and a confidence: explicit ones steer, strongly implied ones steer once accepted in the composer's review queue, and what no fact covers is listed as taken from defaults. Runs choose a neutral, Turkey, or United Kingdom profile, which sets currency, local product names, KYC rules for the judge and the samples, and the starting language.

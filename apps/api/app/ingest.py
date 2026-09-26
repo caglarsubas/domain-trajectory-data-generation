@@ -46,7 +46,46 @@ def _suffix(content_type: str, url: str) -> str:
     return guessed if guessed in set(SUFFIXES.values()) | {".yml", ".markdown"} else (mimetypes.guess_extension(kind) or ".txt")
 
 
+def download_into_corpus(db: Session, item: CorpusItem, cfg: Settings, progress=None) -> dict:
+    """A catalogue source streamed to the upload store, with its licence, origin, and snapshot date."""
+    from app.catalogue import BY_ID, MAX_DOWNLOAD
+    from app.fetch import safe_download
+
+    entry = BY_ID[item.ingest["catalogue"]]
+    if progress is not None:
+        progress(0, 2, f"Downloading {entry['name']} ({entry.get('bytes', 0) / 1_000_000:.0f} MB).")
+    cfg.upload_dir.mkdir(parents=True, exist_ok=True)
+    partial = cfg.upload_dir / f"{item.id}.partial"
+    download = runtime.fetcher.download if runtime.fetcher is not None else safe_download
+    try:
+        final, content_type, size, digest = download(entry["url"], partial, max_bytes=MAX_DOWNLOAD)
+    except FetchError as exc:
+        partial.unlink(missing_ok=True)
+        item.ingest = {**item.ingest, "status": "failed", "detail": str(exc), "at": datetime.now(timezone.utc).isoformat()}
+        db.commit()
+        raise HTTPException(status_code=422, detail=f"{entry['name']} could not be downloaded: {exc}") from exc
+    path = cfg.upload_dir / f"{digest}-{safe_name(entry['file'])}"
+    partial.replace(path)
+    item.storage_path = str(path)
+    item.content_hash = digest
+    item.ingest = {
+        **item.ingest,
+        "status": "fetched",
+        "final_url": final,
+        "content_type": content_type,
+        "bytes": size,
+        "content_hash": digest,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "snapshot_date": datetime.now(timezone.utc).date().isoformat(),
+        "detail": f"{entry['name']}, {size / 1_000_000:.1f} MB",
+    }
+    db.commit()
+    return {"id": item.id, "readable": True, "parser": "event log", "detail": item.ingest["detail"]}
+
+
 def fetch_into_corpus(db: Session, item: CorpusItem, cfg: Settings, progress=None) -> dict:
+    if (item.ingest or {}).get("catalogue"):
+        return download_into_corpus(db, item, cfg, progress)
     if progress is not None:
         progress(0, 2, f"Fetching {item.uri}.")
     try:

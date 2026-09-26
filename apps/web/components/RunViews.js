@@ -42,11 +42,22 @@ export function QualityCard({ quality }) {
           ))}
         </div>
       </div>
-      <div className="quality-tile" data-state="pending">
-        <span>Representative</span>
-        <strong>{representative.status === "unreferenced" ? "Unreferenced" : "Not measured"}</strong>
-        <small>{representative.reason}</small>
-      </div>
+      {representative.status === "measured" ? (
+        <div className="quality-tile" data-state={representative.fitness >= 0.7 && representative.precision >= 0.7 ? "good" : "pending"} title={representative.explanation}>
+          <span>Representative</span>
+          <strong>{pct(representative.fitness)} fitness · {pct(representative.precision)} precision</strong>
+          <small>
+            Against {(representative.sources || []).join(", ")}
+            {representative.next_step_divergence != null ? ` · next-step divergence ${representative.next_step_divergence}` : ""}
+          </small>
+        </div>
+      ) : (
+        <div className="quality-tile" data-state="pending">
+          <span>Representative</span>
+          <strong>{representative.status === "unreferenced" ? "Unreferenced" : "Not measured"}</strong>
+          <small>{representative.reason}</small>
+        </div>
+      )}
       <div className="quality-tile" data-state="pending">
         <span>Qualitative</span>
         <strong>Not measured</strong>

@@ -25,6 +25,7 @@ from trajectory_contract.models import (
     TrajectoryBundle,
 )
 
+from sectors.calibration import Calibration, representativeness, steps_of
 from sectors.jurisdictions import Jurisdiction, get_jurisdiction
 from sectors.lifecycle import LifecycleSpec, Path, Walker, allowed_events, dwell
 from sectors import rewards
@@ -164,6 +165,7 @@ def generate_bundle(
     id_prefix: str = "",
     jurisdiction: str = "neutral",
     corpus_steering: Any | None = None,
+    calibration: Calibration | dict | None = None,
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -174,6 +176,9 @@ def generate_bundle(
     # Reviewed facts steer when the caller has them; otherwise the text does, as before facts existed.
     steering = empty_steering if cold else (corpus_steering if corpus_steering is not None else steering_from_text(corpus_text or ""))
     profile = get_jurisdiction(jurisdiction)
+    calibrated = calibration if isinstance(calibration, Calibration) else (Calibration.from_dict(calibration) if calibration else None)
+    if calibrated is not None and calibrated.empty:
+        calibrated = None
     notes = _coerce_notes(feedback)
     revisions = [item for item in (revision_notes or []) if item]
     event_index, trajectory_index = _parent_index(parent_bundle)
@@ -184,7 +189,9 @@ def generate_bundle(
     notes_report = _notes_report(pack, notes, event_index, trajectory_index, revisions, dropped, kept)
     allowed = allowed_events(lifecycle, domains, dropped, extra=tuple(kept))
     named = tuple(name for name in steering.events if name in allowed)
-    walker = Walker(lifecycle, allowed=allowed, sub_domains=domains, named=named, kept=tuple(kept))
+    if calibrated is not None:
+        calibrated = calibrated.projected(allowed)
+    walker = Walker(lifecycle, allowed=allowed, sub_domains=domains, named=named, kept=tuple(kept), calibration=calibrated)
     # Separate streams: timing or wording changes never change which journeys are drawn.
     paths, clock, words = _rng(seed), _rng(seed + "|time"), _rng(seed + "|text")
     size = min(max(int(group_size), 1), MAX_GROUP_SIZE)
@@ -203,7 +210,7 @@ def generate_bundle(
     limited_by: str | None = None
     context = _Context(pack, domains, lang, language, steering, cold, revised, notes, revisions, reward_mechanism,
                        signal_mechanism, consumer, target_family, max(int(max_assistant_turns), 1), clock, words, ids,
-                       jurisdiction=profile)
+                       jurisdiction=profile, calibration=calibrated)
 
     report = progress or (lambda *args, **kwargs: None)
     report(0, limit, "Drawing journeys.")
@@ -269,10 +276,15 @@ def generate_bundle(
             },
             notes=notes_report,
             jurisdiction=profile.id,
+            calibration=calibrated.summary() if calibrated is not None else None,
         ),
     )
     assert bundle.generation is not None
     bundle.generation.quality = quality_report(lifecycle, bundle, sub_domains=domains, allowed=allowed, cold=cold)
+    if calibrated is not None:
+        kinds = {event.event_id: event.event_type for event in bundle.events}
+        primaries = [[kinds[item] for item in trajectory.event_ids] for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
+        bundle.generation.quality["representative"] = representativeness(calibrated, steps_of(primaries))
     return bundle
 
 
@@ -300,6 +312,7 @@ class _Context:
     words: random.Random
     ids: _Ids
     jurisdiction: Jurisdiction | None = None
+    calibration: Calibration | None = None
 
 
 def _choose(
@@ -560,7 +573,10 @@ def _emit(
             if event_type in context.revised:
                 low = max(low, REVISED_MIN_HOURS)
                 high = max(high, low)
-            cursor = cursor + max(timedelta(hours=dwell(rng, low, high)), timedelta(seconds=1))
+            # Observed durations for this step when a data source has enough of them; the pack's range otherwise.
+            observed = context.calibration.dwell_hours(rng, types[position - 1] if position else None, event_type) if context.calibration else None
+            hours = max(observed, low) if observed is not None and event_type in context.revised else observed
+            cursor = cursor + max(timedelta(hours=hours if hours is not None else dwell(rng, low, high)), timedelta(seconds=1))
         when = cursor
         for kind, _role in pack.roles[event_type]:
             _ensure(pack, kind, when, catalog, steering, ids, journey, context.jurisdiction)

@@ -40,6 +40,20 @@ def read_document(item) -> DocumentText:
     uri = getattr(item, "uri", None) or ""
     path = getattr(item, "storage_path", None)
     body = ""
+    if kind == "data_source":
+        summary = getattr(item, "calibration", None) or {}
+        if summary.get("status") == "ready":
+            parsed = Parsed(
+                f"Data source: {summary.get('format')}, {summary.get('cases', 0):,} cases, {summary.get('events', 0):,} events.",
+                "event log",
+                f"{summary.get('format')}, {summary.get('cases', 0):,} cases",
+            )
+        else:
+            reason = summary.get("reason") or ("The data source is being read." if path else "The data source has not been fetched yet.")
+            parsed = Parsed("", "event log", "", reason)
+        text = f"{scrub_text(f'{kind}: {name}')}\n{parsed.text}" if parsed.readable else ""
+        # The body stays empty, so retrieval never quotes a log to the judge.
+        return DocumentText(getattr(item, "id", ""), kind, name, text, parsed.readable, parsed.reason, parsed.parser, parsed.detail, "")
     if path:
         parsed = parse_file(path)
         body = _scrubbed(path) if parsed.readable else ""

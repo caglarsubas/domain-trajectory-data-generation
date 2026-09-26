@@ -109,6 +109,8 @@ class RunBody(BaseModel):
     domain_shares: dict[str, float] | None = None
     # Currency, product names, KYC rules, and default language: neutral retail, Turkey, or the United Kingdom.
     jurisdiction: Literal["neutral", "tr", "uk"] = "neutral"
+    # Reweight next steps and durations from the study's data sources when it has any.
+    calibrate: bool = True
     # Generation does not call a provider; a key is only needed for deep search.
     credential_id: str | None = None
 
@@ -123,6 +125,7 @@ class FeedbackBody(BaseModel):
 class RerunBody(BaseModel):
     feedback_ids: list[str] = Field(default_factory=list)
     jurisdiction: Literal["neutral", "tr", "uk"] | None = None
+    calibrate: bool | None = None
     target_trajectory_count: int | None = Field(default=None, ge=1, le=100_000)
     event_budget: int | None = None
     min_events: int | None = Field(default=None, ge=1, le=10_000)
@@ -142,6 +145,15 @@ class RerunBody(BaseModel):
     target_kind: Literal["prompts", "accepted_groups"] | None = None
     domain_shares: dict[str, float] | None = None
     credential_id: str | None = None
+
+
+class CatalogueBody(BaseModel):
+    entry: str = Field(min_length=2, max_length=64)
+
+
+class MappingBody(BaseModel):
+    # Activity name to event type, or null to leave an activity out.
+    mapping: dict[str, str | None]
 
 
 class FactReviewBody(BaseModel):

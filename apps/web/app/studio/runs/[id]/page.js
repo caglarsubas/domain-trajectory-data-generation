@@ -318,6 +318,9 @@ export default function RunPage() {
           {run.generation.steering?.facts
             ? ` Steered by ${run.generation.steering.facts.steering} ${run.generation.steering.facts.steering === 1 ? "fact" : "facts"} from the documents${run.generation.steering.facts.awaiting_review ? `; ${run.generation.steering.facts.awaiting_review} more ${run.generation.steering.facts.awaiting_review === 1 ? "waits" : "wait"} for review in the composer` : ""}.`
             : null}
+          {run.generation.calibration
+            ? ` Calibrated from ${run.generation.calibration.sources.join(", ")} (${run.generation.calibration.cases.toLocaleString()} cases, ${(run.generation.calibration.steps_observed || 0).toLocaleString()} observed steps).`
+            : null}
           {run.generation.jurisdiction && run.generation.jurisdiction !== "neutral"
             ? ` Jurisdiction: ${sectors.find((item) => item.id === run.config.sector)?.jurisdictions?.find((item) => item.id === run.generation.jurisdiction)?.label || run.generation.jurisdiction}.`
             : null}

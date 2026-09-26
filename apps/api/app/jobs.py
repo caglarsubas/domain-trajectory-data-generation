@@ -166,18 +166,26 @@ def run_job(job_id: str) -> None:
 
 
 def _then(job_id: str) -> None:
-    """A regenerated run is judged as soon as it has been generated."""
+    """What follows a job: a regenerated run is judged once generated, and a fetched data source is calibrated."""
+    from app.models import CorpusItem
+
     db = SessionLocal()
     try:
         job = db.get(Job, job_id)
-        follow = job is not None and job.status == "succeeded" and job.kind == "generate" and (job.payload or {}).get("judge_after")
-        owner, run_id = (job.owner_id, job.run_id) if follow else (None, None)
+        follow = None
+        if job is not None and job.status == "succeeded":
+            if job.kind == "generate" and (job.payload or {}).get("judge_after"):
+                follow = {"kind": "evaluate", "owner_id": job.owner_id, "run_id": job.run_id, "payload": {}}
+            elif job.kind == "fetch":
+                item = db.get(CorpusItem, job.payload.get("item_id"))
+                if item is not None and item.kind == "data_source":
+                    follow = {"kind": "calibrate", "owner_id": job.owner_id, "run_id": None, "project_id": job.project_id, "payload": {"item_id": item.id}}
     finally:
         db.close()
     if follow:
         db = SessionLocal()
         try:
-            enqueue(db, kind="evaluate", owner_id=owner, run_id=run_id, payload={})
+            enqueue(db, **follow)
         finally:
             db.close()
 
@@ -294,7 +302,18 @@ def _fetch(db, job: Job, report: Callable) -> str:
     return f"Fetched {item.name}: {job.result['detail']}."
 
 
-HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export, "evaluate": _evaluate, "deep_search": _deep_search, "fetch": _fetch}
+def _calibrate(db, job: Job, report: Callable) -> str:
+    from app.calibrate import calibrate_item
+    from app.models import CorpusItem
+
+    item = db.get(CorpusItem, job.payload["item_id"])
+    if item is None:
+        raise HTTPException(status_code=404, detail="the data source was removed")
+    job.result = calibrate_item(db, item, report)
+    return f"Calibrated from {item.name}: {job.result['cases']:,} cases."
+
+
+HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export, "evaluate": _evaluate, "deep_search": _deep_search, "fetch": _fetch, "calibrate": _calibrate}
 
 
 class Worker:

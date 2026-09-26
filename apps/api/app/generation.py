@@ -15,6 +15,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.corpus_text import ordered, read_corpus_text, read_document
+from dataclasses import replace
+
+from app.calibrate import study_calibration
 from app.facts import facts_report, steering_for
 from app.models import CorpusItem, EvalCycle, Project, Run
 from app.store import BATCH_SEQUENCES, MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, batch_name, batch_path, journey_entries, run_dir, store_for, write_json
@@ -51,6 +54,12 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         # Warm runs steer from the study's facts: explicit ones, and implied ones a person accepted.
         project = db.get(Project, project_id)
         corpus_steering = steering_for(items, get_sector(config["sector"]), project.fact_reviews if project else None)
+    calibration, channels = (None, {})
+    if config.get("start_mode") == "warm" and config.get("calibrate", True):
+        # Data sources reweight next steps and durations; their channel mix fills in when no fact names a channel.
+        calibration, channels = study_calibration(items)
+        if corpus_steering is not None and corpus_steering.channel is None and channels:
+            corpus_steering = replace(corpus_steering, channel=max(channels, key=lambda name: (channels[name], name)))
     seed_payload = {
         "config": {key: config[key] for key in sorted(config) if key != "credential_id"},
         "facts": corpus_steering.report() if corpus_steering is not None else None,
@@ -59,6 +68,9 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         "revisions": revisions,
         "corpus": sorted(item.content_hash for item in items),
     }
+    if calibration is not None:
+        # Only a calibrated run's seed changes, so runs without data sources draw as before.
+        seed_payload["calibration"] = calibration.summary()
     sector = get_sector(config["sector"])
     kwargs = {
         "sub_domains": list(config["sub_domains"]),
@@ -81,6 +93,7 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         "group_size": int(config.get("group_size") or 1),
         "jurisdiction": config.get("jurisdiction") or "neutral",
         "corpus_steering": corpus_steering,
+        "calibration": calibration,
     }
     return sector, kwargs, items
 
@@ -221,6 +234,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
                     "steering": meta.steering,
                     "mechanism": rewards.get("mechanism"),
                     "notes": meta.notes,
+                    "calibration": meta.calibration,
                 }
             standing["groups"] += meta.primary_trajectories
             standing["accepted"] += rewards.get("accepted_groups", 0)
@@ -271,8 +285,9 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
             "flags": totals["flags"],
             "note": None if totals["signal"] else "Groups of one carry no group-relative signal; set a group size above 1.",
         },
-        "quality": quality.report(),
+        "quality": _with_representative(quality.report(), kwargs.get("calibration"), overview.report()),
         "overview": overview.report(),
+        "calibration": (meta_first or {}).get("calibration"),
         "storage": {"kind": "files", "batches": len(state["done"]), "batch_sequences": BATCH_SEQUENCES},
         "target": target,
     }
@@ -303,6 +318,18 @@ def _resolve_notes(parent: Run, feedback: list[dict]) -> list[dict]:
             target = store.trajectory_type(target) or target
         resolved.append({**note, "target_id": target})
     return resolved
+
+
+def _with_representative(report: dict, calibration, summary: dict) -> dict:
+    """A large run's representativeness, measured over the steps of every batch through the overview's edges."""
+    if calibration is None:
+        return report
+    from collections import Counter
+
+    from sectors.calibration import representativeness
+
+    steps = Counter({(edge["from"], edge["to"]): edge["count"] for edge in summary.get("edges") or []})
+    return {**report, "representative": representativeness(calibration, steps)}
 
 
 def _facts_counts(db: Session, config: dict, project_id: str, items: list, sector) -> dict:

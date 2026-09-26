@@ -155,6 +155,8 @@ class GenerationMeta(BaseModel):
     notes: dict[str, Any] | None = None
     # The jurisdiction profile the run was generated under: neutral, tr, or uk.
     jurisdiction: str | None = None
+    # The data sources that calibrated next-step shares and durations, and how much they covered.
+    calibration: dict[str, Any] | None = None
 
 
 class TrajectoryBundle(BaseModel):
