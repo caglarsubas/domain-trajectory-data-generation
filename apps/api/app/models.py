@@ -54,6 +54,8 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(200))
     sector: Mapped[str] = mapped_column(String(32), default="banking")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # A person's decisions on extracted facts: fact key to "accepted" or "rejected".
+    fact_reviews: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     corpus_items: Mapped[list[CorpusItem]] = relationship(back_populates="project")
 
 

@@ -76,7 +76,13 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id)))
     cold = run.config["start_mode"] == "cold"
     passages, chosen = ("", []) if cold else reference_passages(items, sector, run.config["sub_domains"], budget=cfg.judge_reference_chars)
-    brief = sector.judge_brief(sub_domains=run.config["sub_domains"], language=run.config["language"], corpus_excerpt=passages, cold_start=cold)
+    brief = sector.judge_brief(
+        sub_domains=run.config["sub_domains"],
+        language=run.config["language"],
+        corpus_excerpt=passages,
+        cold_start=cold,
+        jurisdiction=run.config.get("jurisdiction") or "neutral",
+    )
     created: list[InferenceEngineClient] = []
 
     class _Lazy:

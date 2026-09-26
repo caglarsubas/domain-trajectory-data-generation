@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All twenty-three are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All twenty-five are merged and their branches are deleted.
 
-`main` history: `911840f`, `04cf306`, `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `0920121`, `32b564b`, `a578aa4`, `911840f`, `04cf306`, `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -159,3 +159,15 @@ Follow-up to #12. The run page's process map and its time axis and sequence view
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/23
 
 Follow-up to #21. A helpfulness note raised the minimum length for every primary journey, so a banking run over onboarding, deposits, and consumer credit went from 16.7 declined applications and failed KYC checks per 100 journeys to none. The raised minimum now applies only to journeys that can go on, and one the domain ends is held to the requested minimum. Runs without the note are unchanged, and a test checks that the note keeps at least half the failure share it had without it.
+
+## 25. Let runs start without a provider key
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/25
+
+Generation calls no provider, so `credential_id` is optional on a run and a key is checked only when one is given; reruns and regenerations of a keyless run keep none. The composer marks the key optional. Deep search still needs one.
+
+## 26. Read warm-start documents and links, and brief the judge with the passages that matter
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/26
+
+Slice 5, first part. PDF, Word, HTML, Markdown, and OpenAPI and AsyncAPI definitions are parsed once and cached; links are fetched by a job behind a guard that refuses private addresses before the request, on every redirect, and at the connected address; GitHub repositories are read through their README, docs, and API definitions; and the judge's brief carries BM25-ranked passages instead of the first 2,000 characters. An uploaded file's name no longer chooses where it is stored.

@@ -302,7 +302,7 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
         ],
         "data_card": {
             "scope": {"sector": sector.id, "sub_domains": config.get("sub_domains"), "language": config.get("language")},
-            "jurisdiction_profile": "neutral retail; Turkey and United Kingdom profiles arrive in Slice 5",
+            "jurisdiction_profile": _jurisdiction_label(config.get("jurisdiction")),
             "intended_use": INTENDED_USE.get(config.get("consumer"), INTENDED_USE["post_training"]),
             "target_family": config.get("target_family"),
             "start": config.get("start_mode"),
@@ -374,3 +374,10 @@ def write_files(run, store, sector, cycles: list[dict], held_out: str | None, ro
 
 def prepared(root: Path, held_out: str | None, unaccepted: bool = False) -> bool:
     return part_path(root, held_out, "manifest.json", unaccepted).is_file()
+
+
+def _jurisdiction_label(profile: str | None) -> str:
+    from sectors.jurisdictions import get_jurisdiction
+
+    found = get_jurisdiction(profile)
+    return found.label + (f" ({found.currency})" if found.currency else "")
