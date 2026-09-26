@@ -3,7 +3,7 @@ from __future__ import annotations
 from trajectory_contract.models import TrajectoryBundle
 
 from sectors.insurance.checks import insurance_hard_checks
-from sectors.insurance.spec import LIFECYCLE
+from sectors.insurance.spec import LIFECYCLE, PACK
 
 SUB_DOMAINS = (
     "quoting",
@@ -28,6 +28,8 @@ class InsurancePack:
     state_dimensions = STATE_DIMENSIONS
     languages = ("en", "tr")
     lifecycle = LIFECYCLE
+    # The pack's full spec: its goal, phrases, and version, which exports describe.
+    pack = PACK
 
     def judge_brief(
         self,

@@ -12,6 +12,8 @@ const PARTS = [
   ["episodes-react.jsonl", "Episodes · ReAct", "Every rollout as Thought, Action, and Observation text, held out to measure generalization."],
   ["decisions.jsonl", "Decision records", "Each outcome decision as choice, true-or-false, and score questions with criteria, targets, and variants."],
   ["decision-record.schema.json", "Decision-record schema", "The JSON Schema every decision record validates against, versioned with the contract."],
+  ["tasks.jsonl", "Evaluation tasks", "Each prompt and each episode as a task with its environment, verifiers, reference trajectories, and results."],
+  ["evaluation.json", "Evaluation report", "avg@k and pass@k by verifier and by policy, with the environment and the verifiers' definitions."],
   ["domain.jsonl", "Domain records", "Objects, relationships, events, event-object links, state changes, and trajectories."],
   ["ocel.json", "OCEL 2.0", "The domain layer for process-mining tools such as PM4Py."],
   ["manifest.json", "Manifest", "Configuration, counts, split, judge cycles, quality, data card, and file checksums."],
@@ -21,7 +23,7 @@ const PARTS = [
 const CONSUMER_PARTS = {
   post_training: ["samples.jsonl", "prefixes.jsonl", "episodes.jsonl", "episodes-openai.jsonl", "episodes-anthropic.jsonl", "episodes-react.jsonl"],
   decision_scoring: ["decisions.jsonl", "decision-record.schema.json", "prefixes.jsonl"],
-  evaluation: ["samples.jsonl", "domain.jsonl", "ocel.json"],
+  evaluation: ["tasks.jsonl", "evaluation.json", "domain.jsonl", "ocel.json"],
 };
 const CONSUMER_LABEL = { post_training: "post-training", decision_scoring: "decision scoring", evaluation: "evaluation" };
 

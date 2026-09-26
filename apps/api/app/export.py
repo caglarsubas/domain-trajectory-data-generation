@@ -18,16 +18,18 @@ from pathlib import Path
 
 from trajectory_contract import DECISION_SCHEMA_VERSION, DecisionRecord, TrajectoryBundle
 
+from app.eval_tasks import Report, episode_task, journey_task
 from app.harness import HARNESSES, HELD_OUT, RENDER
 
 EPISODE_PARTS = ("episodes.jsonl", "episodes-openai.jsonl", "episodes-anthropic.jsonl", "episodes-react.jsonl")
 DECISION_PARTS = ("decisions.jsonl", "decision-record.schema.json")
-PARTS = ("samples.jsonl", "prefixes.jsonl", *EPISODE_PARTS, *DECISION_PARTS, "domain.jsonl", "ocel.json", "manifest.json")
+EVALUATION_PARTS = ("tasks.jsonl", "evaluation.json")
+PARTS = ("samples.jsonl", "prefixes.jsonl", *EPISODE_PARTS, *DECISION_PARTS, *EVALUATION_PARTS, "domain.jsonl", "ocel.json", "manifest.json")
 # What each consumer trains or measures on; every export holds every part, empty when a run built none.
 CONSUMER_PARTS = {
     "post_training": ["samples.jsonl", "prefixes.jsonl", *EPISODE_PARTS],
     "decision_scoring": [*DECISION_PARTS, "prefixes.jsonl"],
-    "evaluation": ["samples.jsonl", "domain.jsonl", "ocel.json"],
+    "evaluation": [*EVALUATION_PARTS, "domain.jsonl", "ocel.json"],
 }
 DATA_PARTS = PARTS[:-1]
 SPLIT_RATIOS = {"train": 0.8, "validation": 0.1, "test": 0.1}
@@ -50,7 +52,8 @@ INTENDED_USE = {
     "evaluation": "Evaluating models against synthetic journeys with verifiable outcomes.",
 }
 LIMITATIONS = (
-    "Solution and behavior scores are deterministic measures until the judge supplies rubric scores (Slice 4).",
+    "Solution and behavior scores are rubrics code checks over each journey's events and waits; the judge's scores do not change them.",
+    "Journey pass@k is over the generator's own attempts per prompt, a reference for task difficulty rather than a model's score.",
     "Sample turn text narrates events from templates in English or Turkish; agent episodes carry the tool-using turns.",
     "Decision targets are the generator's policy shares and simulated goal shares, not observed decisions or outcomes.",
     "Penalty rules run in record-only mode: flags are recorded but change no reward, mask, or advantage.",
@@ -138,13 +141,16 @@ def prefix_records(sample: dict, split: str) -> list[dict]:
 class Exporter:
     """Add bundles one at a time; `finish` writes the OCEL document and returns the manifest."""
 
-    def __init__(self, run_id: str, lifecycle, held_out: str | None, open_part, scratch, language: str = "en") -> None:
+    def __init__(self, run_id: str, lifecycle, held_out: str | None, open_part, scratch, language: str = "en", signal: str = "outcome") -> None:
         self.run_id = run_id
         self.lifecycle = lifecycle
         self.held_out = held_out
         self.open_part = open_part
         self.language = language
+        self.signal = signal
         self.samples = Sink(open_part("samples.jsonl"))
+        self.tasks = Sink(open_part("tasks.jsonl"))
+        self.report = Report()
         self.prefixes = Sink(open_part("prefixes.jsonl"))
         self.decisions = Sink(open_part("decisions.jsonl"))
         # Episodes, then each rollout once per harness format.
@@ -156,7 +162,7 @@ class Exporter:
         self.object_dimensions: dict[str, set[str]] = {}
         self.event_types: set[str] = set()
         self.counts = {
-            "samples": 0, "sequences": 0, "prefixes": 0, "episodes": 0, "rollouts": 0, "decision_points": 0, "decision_records": 0,
+            "samples": 0, "sequences": 0, "prefixes": 0, "episodes": 0, "rollouts": 0, "decision_points": 0, "decision_records": 0, "tasks": 0,
             "trajectories": 0, "events": 0, "objects": 0, "relationships": 0,
         }
         self.decision_splits = {"train": 0, "calibration": 0, "held_out": 0}
@@ -164,6 +170,14 @@ class Exporter:
 
     def add(self, bundle: TrajectoryBundle) -> None:
         split = splits(self.run_id, bundle, self.lifecycle, self.held_out)
+        kinds = {event.event_id: event for event in bundle.events}
+        paths = {
+            trajectory.trajectory_id: {
+                "events": [kinds[item].event_type for item in trajectory.event_ids if item in kinds],
+                "times": [kinds[item].event_time.isoformat() for item in trajectory.event_ids if item in kinds],
+            }
+            for trajectory in bundle.trajectories
+        }
         sample_of = {}
         for sample in bundle.samples:
             record = sample.model_dump(mode="json")
@@ -178,12 +192,14 @@ class Exporter:
             for prefix in prefix_records(record, record["split"]):
                 self.prefixes.write(_line(prefix))
                 self.counts["prefixes"] += 1
+            self._task(journey_task(record, record["split"], paths, self.signal))
         for episode in bundle.episodes:
             record = episode.model_dump(mode="json")
             # An episode takes the split of the sample it was built from, so no journey leaks across splits.
             record["split"] = split.get(episode.sample_id or "", "train")
             self.episode_sinks["episodes.jsonl"].write(_line(record))
             self.counts["episodes"] += 1
+            self._task(episode_task(record, record["split"]))
             for rollout in record["rollouts"]:
                 self.counts["rollouts"] += 1
                 for harness in HARNESSES:
@@ -215,6 +231,11 @@ class Exporter:
         self.counts["objects"] += len(bundle.objects)
         self.counts["relationships"] += len(bundle.relationships)
         self._ocel(bundle)
+
+    def _task(self, task: dict) -> None:
+        self.tasks.write(_line(task))
+        self.report.add(task)
+        self.counts["tasks"] += 1
 
     def _ocel(self, bundle: TrajectoryBundle) -> None:
         events_by_id = {event.event_id: event for event in bundle.events}
@@ -290,18 +311,23 @@ class Exporter:
         ocel.write("]}")
         schema = Sink(self.open_part("decision-record.schema.json"))
         schema.write(decision_schema())
+        report = self.report.as_dict(sector=sector, config=run.config or {}, primary_signal=self.signal)
+        evaluation = Sink(self.open_part("evaluation.json"))
+        evaluation.write(json.dumps(report, sort_keys=True, ensure_ascii=False, indent=1))
         written = (
             ("samples.jsonl", self.samples),
             ("prefixes.jsonl", self.prefixes),
             *self.episode_sinks.items(),
             ("decisions.jsonl", self.decisions),
             ("decision-record.schema.json", schema),
+            ("tasks.jsonl", self.tasks),
+            ("evaluation.json", evaluation),
             ("domain.jsonl", self.domain),
             ("ocel.json", ocel),
         )
         files = {name: sink.digest.hexdigest() for name, sink in written}
         sizes = {name: sink.size for name, sink in written}
-        manifest = _manifest(run, sector, cycles, generation or {}, self.counts, self.split_counts, self.held_out, files, sizes, self.decision_splits)
+        manifest = _manifest(run, sector, cycles, generation or {}, self.counts, self.split_counts, self.held_out, files, sizes, self.decision_splits, report)
         Sink(self.open_part("manifest.json")).write(manifest)
         return {"files": files, "sizes": sizes, "counts": self.counts, "split": self.split_counts}
 
@@ -320,7 +346,7 @@ def _copy(scratch, sink: Sink) -> None:
         sink.write(chunk)
 
 
-def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, files, sizes, decision_splits=None) -> str:
+def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, files, sizes, decision_splits=None, evaluation=None) -> str:
     config = {key: value for key, value in (run.config or {}).items() if key != "credential_id"}
     steering = dict(generation.get("steering") or {})
     limitations = list(LIMITATIONS)
@@ -381,6 +407,12 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
             "records": counts.get("prefixes", 0),
             "note": "One record per trainable assistant turn: the conversation before it and the turn, for prefix-conditioned distillation.",
         },
+        "evaluation": {
+            "tasks": (evaluation or {}).get("tasks"),
+            "journeys": (evaluation or {}).get("journeys"),
+            "agent_episodes": (evaluation or {}).get("agent_episodes"),
+            "report_file": "evaluation.json",
+        },
         "consumer_parts": CONSUMER_PARTS,
         "parts_for_this_run": CONSUMER_PARTS.get(config.get("consumer"), CONSUMER_PARTS["post_training"]),
         "judge_cycles": [
@@ -437,7 +469,8 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
 def build(run, bundle: TrajectoryBundle, sector, cycles: list[dict], held_out: str | None) -> dict[str, str]:
     """A small run's parts, in memory."""
     buffers = {name: io.BytesIO() for name in PARTS}
-    exporter = Exporter(run.id, sector.lifecycle, held_out, lambda name: buffers[name], lambda _name: io.StringIO(), (run.config or {}).get("language", "en"))
+    config = run.config or {}
+    exporter = Exporter(run.id, sector.lifecycle, held_out, lambda name: buffers[name], lambda _name: io.StringIO(), config.get("language", "en"), config.get("signal_mechanism", "outcome"))
     exporter.add(bundle)
     exporter.finish(run, sector, cycles, run.generation or (bundle.generation.model_dump(mode="json") if bundle.generation else None))
     return {name: buffer.getvalue().decode() for name, buffer in buffers.items()}
@@ -474,7 +507,8 @@ def write_files(run, store, sector, cycles: list[dict], held_out: str | None, ro
         return handle
 
     try:
-        exporter = Exporter(run.id, sector.lifecycle, held_out, open_part, scratch, (run.config or {}).get("language", "en"))
+        config = run.config or {}
+        exporter = Exporter(run.id, sector.lifecycle, held_out, open_part, scratch, config.get("language", "en"), config.get("signal_mechanism", "outcome"))
         names = store.batches()
         for index, bundle in enumerate(store.bundles(), start=1):
             exporter.add(bundle)

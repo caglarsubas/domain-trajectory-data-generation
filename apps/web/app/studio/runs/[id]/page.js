@@ -8,6 +8,7 @@ import { api } from "../../../../lib/api";
 import DownloadPanel from "../../../../components/DownloadPanel";
 import EpisodeViewer from "../../../../components/EpisodeViewer";
 import DecisionViewer from "../../../../components/DecisionViewer";
+import SignalTable from "../../../../components/SignalTable";
 import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
 import RunDiff from "../../../../components/RunDiff";
 import { GroupViewer, ProcessMap, QualityCard, VariantList, formatHours, journeyOverview, laneLabel, shortLabel, typeSummary } from "../../../../components/RunViews";
@@ -31,6 +32,14 @@ function decisionNote(decisions) {
   const groups = Object.entries(decisions.groups || {}).map(([name, count]) => `${count} ${name.replaceAll("_", " ")}`).join(", ");
   const value = decisions.mean_taken_value != null ? `; the step each journey took reaches the goal in ${Math.round(decisions.mean_taken_value * 100)}% of simulated continuations on average` : "";
   return `Recorded ${decisions.points} outcome ${decisions.points === 1 ? "decision" : "decisions"} (${groups}) as ${decisions.records.toLocaleString()} typed records${value}.`;
+}
+
+function modelNote(models) {
+  const rows = Object.entries(models || {}).map(([policy, found]) => {
+    const scores = Object.entries(found.pass_at_k || {}).map(([k, value]) => `pass@${k} ${Math.round(value * 100)}%`).join(", ");
+    return scores ? `${policy.replace("provider:", "")}: ${scores} over ${found.episodes} ${found.episodes === 1 ? "episode" : "episodes"}` : null;
+  }).filter(Boolean);
+  return rows.length ? ` ${rows.join("; ")}.` : "";
 }
 
 function providerNote(provider) {
@@ -346,7 +355,7 @@ export default function RunPage() {
             ? ` ${decisionNote(run.generation.decisions)}`
             : null}
           {run.generation.episodes?.provider
-            ? ` ${providerNote(run.generation.episodes.provider)}`
+            ? ` ${providerNote(run.generation.episodes.provider)}${modelNote(run.generation.episodes.models)}`
             : null}
           {run.generation.jurisdiction && run.generation.jurisdiction !== "neutral"
             ? ` Jurisdiction: ${sectors.find((item) => item.id === run.config.sector)?.jurisdictions?.find((item) => item.id === run.generation.jurisdiction)?.label || run.generation.jurisdiction}.`
@@ -362,6 +371,7 @@ export default function RunPage() {
       {run.generation?.target?.buckets?.length > 1 || run.generation?.target?.kind === "accepted_groups" ? (
         <TargetTable target={run.generation.target} />
       ) : null}
+      <SignalTable rewards={run.generation?.rewards} />
       {run.inherited_feedback_ids?.length ? (
         <p className="warn">This iteration inherited {run.inherited_feedback_ids.length} note{run.inherited_feedback_ids.length === 1 ? "" : "s"} from the previous run.</p>
       ) : null}

@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.evaluation import DEFAULT_THRESHOLDS
+from app.generation import EPISODE_CONSUMERS
 from app.store import MAX_RUN_SEQUENCES
 from app.models import Account, CorpusItem, Credential, Feedback, Project, Run
 from app.schemas import RerunBody, RunBody
@@ -74,13 +75,13 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
             raise HTTPException(status_code=403, detail="user and demo runs require your own key")
         if not credential.ready:
             raise HTTPException(status_code=422, detail="credential is not ready for deep search")
-    episodes_on = body.episodes if body.episodes is not None else body.consumer == "post_training"
+    episodes_on = body.episodes if body.episodes is not None else body.consumer in EPISODE_CONSUMERS
     budget = None
     if body.provider_rollouts:
         if credential is None:
             raise HTTPException(status_code=422, detail="provider rollouts run on your own provider key; choose one")
         if not episodes_on:
-            raise HTTPException(status_code=422, detail="provider rollouts need episodes; turn them on or use the post-training consumer")
+            raise HTTPException(status_code=422, detail="provider rollouts need episodes; turn them on or use the post-training or evaluation consumer")
         if body.group_size < 2:
             raise HTTPException(status_code=422, detail="provider rollouts need episodes, and an episode is a decision where a group's sequences part; set at least two sequences per prompt")
         # Two calls per rollout, one episode per prompt at most, unless the owner caps it lower.

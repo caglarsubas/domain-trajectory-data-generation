@@ -3,7 +3,7 @@ from __future__ import annotations
 from trajectory_contract.models import TrajectoryBundle
 
 from sectors.banking.checks import banking_hard_checks
-from sectors.banking.spec import LIFECYCLE
+from sectors.banking.spec import LIFECYCLE, PACK
 
 SUB_DOMAINS = (
     "deposits",
@@ -28,6 +28,8 @@ class BankingPack:
     state_dimensions = STATE_DIMENSIONS
     languages = ("en", "tr")
     lifecycle = LIFECYCLE
+    # The pack's full spec: its goal, phrases, and version, which exports describe.
+    pack = PACK
 
     def judge_brief(
         self,

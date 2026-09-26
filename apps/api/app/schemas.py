@@ -111,7 +111,7 @@ class RunBody(BaseModel):
     jurisdiction: Literal["neutral", "tr", "uk"] = "neutral"
     # Reweight next steps and durations from the study's data sources when it has any.
     calibrate: bool = True
-    # Build agent episodes at decision points; unset means yes when the consumer is post-training.
+    # Build agent episodes at decision points; unset means yes when the consumer is post-training or evaluation.
     episodes: bool | None = None
     # Record outcome decisions as typed questions; unset means yes for decision scoring or Jev-type targets.
     decisions: bool | None = None

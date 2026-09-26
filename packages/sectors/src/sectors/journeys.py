@@ -30,6 +30,7 @@ from sectors.jurisdictions import Jurisdiction, get_jurisdiction
 from sectors.lifecycle import LifecycleSpec, Path, Walker, allowed_events, dwell
 from sectors import rewards
 from sectors.quality import quality_report
+from sectors.scorers import PASS_AT, Scorer, pass_at_k
 
 STUDIO_TRAJECTORY_CAP = 64
 REVISED_MIN_HOURS = 24.0 * 7
@@ -120,11 +121,11 @@ class _Ids:
 class _Member:
     """One sequence of a group: the events it narrates and how it scores."""
 
-    def __init__(self, types: list[str], trajectory_id: str, success: bool, coverage: float) -> None:
+    def __init__(self, types: list[str], trajectory_id: str, hours: list[float]) -> None:
         self.types = types
         self.trajectory_id = trajectory_id
-        self.success = success
-        self.coverage = coverage
+        # Waits before each step after the first, which the behavior rubric reads.
+        self.hours = hours
 
 
 class _Journey:
@@ -254,7 +255,9 @@ def generate_bundle(
         limited_by = "studio_cap"
     samples = [_group_sample(context, group) for journey in built for group in journey.groups]
     groups = [group for journey in built for group in journey.groups]
-    reward_summary = score_samples(samples, groups, reward_mechanism)
+    # Decision values are simulated only when the signal or the decision records need them.
+    scorer = Scorer(pack, walker, domains=domains, floor=floor, cap=cap, decisions=decisions or signal_mechanism == "decision_score")
+    reward_summary = score_samples(samples, groups, reward_mechanism, signal_mechanism, scorer)
     events = [event for journey in built for event in journey.events]
     bundle = TrajectoryBundle(
         objects=[item for journey in built for item in journey.objects],
@@ -390,7 +393,7 @@ def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, floa
             event_ids=[item.event_id for item in primary],
         )
     )
-    journey.groups.append([_member(context, types, trajectory_id)])
+    journey.groups.append([_member(context, types, trajectory_id, primary)])
     if branch is not None:
         alt_path, split, probability = branch
         anchor = primary[split - 1]
@@ -413,7 +416,7 @@ def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, floa
                 event_ids=[item.event_id for item in primary[:split]] + [item.event_id for item in alt_events],
             )
         )
-        journey.groups.append([_member(context, alt_path.types, alt_id)])
+        journey.groups.append([_member(context, alt_path.types, alt_id, primary[:split] + alt_events)])
     _relate(pack, catalog, primary[0].event_time, context.ids, journey)
     return journey
 
@@ -498,7 +501,7 @@ def _materialize_group(context: _Context, *, path: Path, split: int, rollouts: l
             event_ids=[item.event_id for item in primary],
         )
     )
-    members = [_member(context, path.types, trajectory_id)]
+    members = [_member(context, path.types, trajectory_id, primary)]
     anchor = primary[split - 1] if rollouts else None
     for number, rollout in enumerate(rollouts, start=2):
         assert anchor is not None
@@ -527,7 +530,7 @@ def _materialize_group(context: _Context, *, path: Path, split: int, rollouts: l
                 event_ids=[item.event_id for item in primary[:split]] + [item.event_id for item in events],
             )
         )
-        members.append(_member(context, rollout.types, rollout_id))
+        members.append(_member(context, rollout.types, rollout_id, primary[:split] + events))
     journey.groups.append(members)
     _relate(pack, catalog, primary[0].event_time, context.ids, journey)
     return journey
@@ -539,11 +542,9 @@ def _swap_prefix(record_id: str, old: str, new: str) -> str:
     return f"{namespace}.{swapped}" if namespace else swapped
 
 
-def _member(context: _Context, types: list[str], trajectory_id: str) -> _Member:
-    lifecycle = context.pack.lifecycle
-    touched = set(types)
-    covered = sum(1 for domain in context.domains if any(domain in lifecycle[name].sub_domains for name in touched))
-    return _Member(types, trajectory_id, context.pack.success(types), covered / len(context.domains))
+def _member(context: _Context, types: list[str], trajectory_id: str, events: list[Event]) -> _Member:
+    hours = [(later.event_time - earlier.event_time).total_seconds() / 3600 for earlier, later in zip(events, events[1:])]
+    return _Member(types, trajectory_id, hours)
 
 
 # Relative likelihood of a journey starting on each weekday (Monday first) and in each hour.
@@ -795,16 +796,31 @@ def _flag(segments: list[Segment]) -> None:
         previous = segment.text
 
 
-def score_samples(samples: list[Sample], groups: list[list[_Member]], mechanism: str) -> dict:
-    """Rewards and advantages per group with the shared MiMo mechanisms, then segment advantages across the run."""
+def score_samples(samples: list[Sample], groups: list[list[_Member]], mechanism: str, signal: str, scorer: Scorer) -> dict:
+    """Rewards and advantages per group with the shared MiMo mechanisms, then segment advantages across the run.
+
+    Every sequence is scored by all five signals; the run's signal decides pass or fail, and the solution and
+    behavior rubrics are the solution and behavior terms of the reward.
+    """
     flags: dict[str, int] = {}
     accepted = judged = passes = total = 0
     all_sequences: list[Sequence] = []
+    tallies: dict[str, list[float]] = {}
     for sample, members in zip(samples, groups):
-        passed = [member.success for member in members]
-        solution = [0.5 + 0.5 * member.coverage for member in members]
-        # Behavior is conformance to the pack's machines: every generated journey replays legally.
-        behavior = [1.0 for _ in members]
+        scored = [scorer.score(member.types, member.hours) for member in members]
+        passed = [found[signal]["passed"] for found in scored]
+        solution = [found["solution_rubric"]["score"] for found in scored]
+        behavior = [found["behavior_rubric"]["score"] for found in scored]
+        for found in scored:
+            for name, verdict in found.items():
+                tallies.setdefault(name, []).append(verdict["score"])
+                tallies.setdefault(f"{name}.passed", []).append(float(verdict["passed"]))
+        # Each group is k attempts at one prompt by the generator's policy: pass@k per signal, averaged over groups.
+        for name in scored[0]:
+            hits = sum(found[name]["passed"] for found in scored)
+            for k in PASS_AT:
+                if k <= len(scored):
+                    tallies.setdefault(f"{name}.pass@{k}", []).append(pass_at_k(len(scored), hits, k))
         lengths = []
         for sequence in sample.sequences:
             segments = [segment for context in sequence.contexts for segment in context.segments]
@@ -831,7 +847,8 @@ def score_samples(samples: list[Sample], groups: list[list[_Member]], mechanism:
             reward = binary
             advantage = rewards.group_advantages(reward)
         survives = []
-        for sequence, value, adv, ok, sol, beh, factor in zip(sample.sequences, reward, advantage, passed, solution, behavior, quality):
+        for sequence, value, adv, ok, sol, beh, factor, found in zip(sample.sequences, reward, advantage, passed, solution, behavior, quality, scored):
+            sequence.signals = found
             sequence.reward = round(value, 4)
             sequence.advantage = round(adv, 4)
             sequence.outcome = "pass" if ok else "fail"
@@ -877,6 +894,18 @@ def score_samples(samples: list[Sample], groups: list[list[_Member]], mechanism:
         ]
     return {
         "mechanism": mechanism,
+        "signal": signal,
+        "signals": {
+            name: {
+                "mean": round(sum(values) / len(values), 4),
+                "pass_rate": round(sum(tallies[f"{name}.passed"]) / len(values), 4),
+                "sequences": len(values),
+                "pass_at_k": {str(k): round(sum(tallies[f"{name}.pass@{k}"]) / len(tallies[f"{name}.pass@{k}"]), 4) for k in PASS_AT if f"{name}.pass@{k}" in tallies},
+                "groups": len(samples),
+            }
+            for name, values in tallies.items()
+            if "." not in name
+        },
         "groups": len(samples),
         "groups_with_signal": judged,
         "accepted_groups": accepted,

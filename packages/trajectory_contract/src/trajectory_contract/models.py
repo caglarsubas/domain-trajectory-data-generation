@@ -120,6 +120,8 @@ class Sequence(BaseModel):
     quality_factor: float | None = None
     token_estimate: int | None = None
     dropped: bool | None = None
+    # Every signal's verdict on this sequence: {signal: {"score", "passed", "items"}}; the run's signal sets `outcome`.
+    signals: dict[str, dict[str, Any]] | None = None
 
 
 class Sample(BaseModel):

@@ -326,15 +326,44 @@ def build_episodes(pack, bundle: TrajectoryBundle, *, language: str = "en", seed
     return episodes
 
 
+# A rollout passes when the call is well formed, legal, grounded, and leads to the goal; the report item does not decide it.
+PASSING_ITEMS = ("format", "legality", "grounding", "decision")
+
+
+def passes(rollout) -> bool:
+    scores = rollout.rubric_scores if hasattr(rollout, "rubric_scores") else rollout.get("rubric_scores") or {}
+    return all(scores.get(item) == 1.0 for item in PASSING_ITEMS)
+
+
 def summarize(episodes: list[Episode]) -> dict:
+    from sectors.scorers import PASS_AT, pass_at_k
+
     rollouts = [item for episode in episodes for item in episode.rollouts]
     accepted = sum(1 for episode in episodes if rewards.group_accepted([item.outcome == "pass" and item.legal for item in episode.rollouts]))
+    # Each provider model's attempts per episode, as pass@k averaged over the episodes it attempted at least k times.
+    models: dict[str, dict] = {}
+    for episode in episodes:
+        attempts: dict[str, list[bool]] = {}
+        for item in episode.rollouts:
+            if item.policy.startswith("provider:"):
+                attempts.setdefault(item.policy, []).append(passes(item))
+        for policy, found in attempts.items():
+            row = models.setdefault(policy, {"episodes": 0, "pass_at_k": {}, "episodes_at_k": {}})
+            row["episodes"] += 1
+            for k in PASS_AT:
+                if k <= len(found):
+                    row["pass_at_k"][str(k)] = row["pass_at_k"].get(str(k), 0.0) + pass_at_k(len(found), sum(found), k)
+                    row["episodes_at_k"][str(k)] = row["episodes_at_k"].get(str(k), 0) + 1
     return {
         "episodes": len(episodes),
         "rollouts": len(rollouts),
         "accepted_groups": accepted,
         "policies": {name: sum(1 for item in rollouts if item.policy == name) for name in sorted({item.policy for item in rollouts})},
         "with_api_operations": sum(1 for episode in episodes if any(tool.http for tool in episode.tools)),
+        "models": {
+            policy: {"episodes": row["episodes"], "episodes_at_k": row["episodes_at_k"], "pass_at_k": {k: round(value / row["episodes_at_k"][k], 4) for k, value in row["pass_at_k"].items()}}
+            for policy, row in models.items()
+        },
     }
 
 

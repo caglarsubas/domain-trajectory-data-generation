@@ -103,6 +103,23 @@ Export turns each decision into typed questions in `decisions.jsonl`:
 
 Every record has explicit criteria, an abstain answer that is never a target, and two variants that share its target and split: keys and options reordered, and the question paraphrased. A decision takes its sample's split as train, calibration (validation), or held out (test or a held-out sub-domain). `decision-record.schema.json` is the JSON Schema every record validates against, versioned with the contract (`decision-record/1`). `prefixes.jsonl` holds a record per trainable assistant turn, the conversation before it and the turn, for prefix-conditioned distillation. The manifest lists the parts each consumer uses, and the export panel marks the run's own. Consumer and target family no longer appear in the prompt text.
 
+## Signals and evaluation
+
+Every sequence is scored by five signal scorers (`sectors.scorers`):
+- **outcome:** the journey reaches the pack's goal.
+- **solution rubric:** the goal, no one-off decision left open at the end, and every selected sub-domain reached.
+- **behavior rubric:** no step returns an object to a state it had left, and waits fall in the faster half of each step's range.
+- **process conformance:** each step's policy share against the most likely step's, under the priors or the calibrated shares.
+- **decision score:** at each first outcome decision of a group, the choice's simulated value against the best there.
+
+The run's signal decides pass or fail, and so the rewards, advantages, and which groups are accepted. The solution and behavior rubrics are always the solution and behavior terms of MiMo's multiplicative reward (verification × solution × behavior). Choosing a signal draws the same journeys. Each sequence carries every signal's score, verdict, and items in `signals`, and `generation.rewards.signals` gives each signal's mean, pass rate, and pass@k over each prompt's group. The run page shows them in a table.
+
+Evaluation runs build episodes by default, and choosing the evaluation consumer starts from groups of four. Export writes `tasks.jsonl`:
+- **Journey tasks:** a task per prompt, with its opening, the group's sequences as reference trajectories (events and times), and each verifier's results over the attempts.
+- **Agent tasks:** a task per episode, with the mock bank as its environment (state, operations, objects, legal events, and the answers to each step a journey took), the rubric's verifiers, the reference rollouts, and each policy's results.
+
+`evaluation.json` reports avg@k and pass@k (the unbiased estimate from n attempts with c passes, 1 − C(n−c, k) / C(n, k)) by verifier for journeys and by policy for agent tasks. It also carries the pack's environment (events, preconditions, effects, milestones, goal) and the verifiers' definitions. With provider rollouts, each model's pass@k over its own attempts is a real evaluation of that model, and the run page shows it. The generator's pass@k is a reference for how hard each task is.
+
 ## Judge
 
 A cycle judges a sample of the run's journeys, six by default (`JUDGE_SAMPLE_SIZE`), taken from each kind of journey and outcome in turn, largest first, and chosen deterministically from the run and the cycle. The judge reads each journey with its objects, amounts and their direction, state changes, and the sample's text, shortened to fit `JUDGE_PROMPT_TOKENS` (8,000) when it must. Helpfulness, correctness, and safety are asked of the primary judge, `INFERENCE_ENGINE_JUDGE_MODEL` (`qwen3.8:27b`), and of the second opinion, `INFERENCE_ENGINE_SECOND_JUDGE_MODEL` (`gemma4:26b`, or empty for none); pairwise quality against the journey's alternative is asked in both orders. Each judge also gets one control journey, a sampled journey with its events put out of order, which the pack's replay rejects.
