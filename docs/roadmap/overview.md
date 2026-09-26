@@ -165,6 +165,14 @@ Progress, 26 September 2026: Slice 6 ships as episodes, decision records, and ev
 
 Telecommunication, airways, and hotels, each a pack of state machines and priors on the shared lifecycle engine, rewards, quality report, calibration, and episode builder. Each pack must pass the same gates as banking before the composer offers it.
 
+Progress, 26 September 2026: Slice 7 ships a pack per pull request. The first adds the gates as code (`sectors.gates`), run by the test suite for every registered pack, and the telecommunications pack.
+- **Gates:** a complete spec, a random sweep with no broken rule, every sub-domain reaching its milestones, 32 distinct sequences in 64 journeys, every event reachable, stable seeds, and episodes, decisions, and signals.
+- **Pack settings:** packs now carry their own operation map and agent wording, so episodes speak each industry's language: BIAN for banking, capability domains for insurance, and TM Forum Open API domains for telecoms.
+- **Jurisdictions:** profiles carry rules per sector.
+- **API and composer:** the API accepts any registered sector, and the composer takes default sub-domains from the pack.
+
+Airline and hotel packs follow.
+
 ## UX track
 
 Every slice ships the view that makes its change visible. Views are drawn in plain SVG on the existing design tokens; the process map, time axis, and variant explorer from Slice 1 needed nothing more. A charting library comes in only when a view needs distributions, such as the calibration comparisons in Slice 5.

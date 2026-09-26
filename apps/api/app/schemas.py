@@ -63,7 +63,8 @@ class CredentialUpdateBody(BaseModel):
 
 class ProjectBody(BaseModel):
     name: str = Field(min_length=1, max_length=200)
-    sector: Literal["banking", "insurance"] = "banking"
+    # Any registered sector pack; an unknown one is refused with 422.
+    sector: str = Field(default="banking", min_length=1, max_length=40)
 
 
 class CorpusLinkBody(BaseModel):
@@ -74,7 +75,8 @@ class CorpusLinkBody(BaseModel):
 
 class RunBody(BaseModel):
     project_id: str
-    sector: Literal["banking", "insurance"] = "banking"
+    # Any registered sector pack; an unknown one is refused with 422.
+    sector: str = Field(default="banking", min_length=1, max_length=40)
     target_trajectory_count: int = Field(ge=1, le=100_000)
     event_budget: int | None = Field(default=None, ge=1, le=5_000_000)
     min_events: int = Field(ge=1, le=10_000)

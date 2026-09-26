@@ -15,7 +15,7 @@ export default function Studio() {
 
   return (
     <Shell>
-      <p className="lede">Banking and insurance studies, newest last. Open one to inspect the journey.</p>
+      <p className="lede">Studies across every sector, newest last. Open one to inspect the journey.</p>
       <h1 className="word" style={{ fontSize: 56, margin: "0 0 8px" }}>The studio</h1>
       {error ? <div className="error">{error}</div> : null}
       {runs && runs.length === 0 ? (

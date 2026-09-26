@@ -6,7 +6,7 @@ const sans = Figtree({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata = {
   title: "Trajectory studio",
-  description: "Configure, inspect, and re-run banking trajectory studies.",
+  description: "Configure, inspect, and re-run domain trajectory studies.",
 };
 
 export default function RootLayout({ children }) {

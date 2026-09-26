@@ -12,7 +12,9 @@ class SectorPack(Protocol):
     event_namespace: tuple[str, ...]
     state_dimensions: tuple[str, ...]
     languages: tuple[str, ...]
+    default_sub_domains: tuple[str, ...]
     lifecycle: object
+    pack: object
 
     def judge_brief(
         self,

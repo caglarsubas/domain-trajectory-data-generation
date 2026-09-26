@@ -96,6 +96,10 @@ class PackSpec:
     intent: Callable[[list[str]], str | None] = lambda types: None
     # What `success` means, per language, for decision records that score the chance of reaching it.
     goal: dict[str, str] = field(default_factory=dict)
+    # Event to (service domain, action term) for episode operations, after the industry's own API map (BIAN for banking).
+    operations: dict[str, tuple[str, str]] = field(default_factory=dict)
+    # The episode agent's system text and task, per language, with {party} and {situation} in the task.
+    agent: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -721,7 +725,7 @@ def _group_sample(context: _Context, members: list[_Member]) -> Sample:
             f"Sub-domains: {', '.join(context.domains)}.",
             f"Reward {context.reward_mechanism}. Signal {context.signal_mechanism}.",
             reference,
-            f"Jurisdiction {context.jurisdiction.label}. KYC: {' '.join(context.jurisdiction.kyc)}" if context.jurisdiction else "",
+            _rules_line(context.jurisdiction, pack.sector) if context.jurisdiction else "",
             f"Generator {pack.generator_id}, pack {pack.pack_version}.",
             "Alternative branches are simulated, not causal counterfactuals.",
         )
@@ -780,6 +784,11 @@ ENFORCED_RULES: frozenset[str] = frozenset()
 
 def token_estimate(text: str) -> int:
     return round(len(text.split()) * 4 / 3)
+
+
+def _rules_line(profile: Jurisdiction, sector: str) -> str:
+    heading, rules = profile.rules_for(sector)
+    return f"Jurisdiction {profile.label}. {heading}: {' '.join(rules)}"
 
 
 def _flag(segments: list[Segment]) -> None:

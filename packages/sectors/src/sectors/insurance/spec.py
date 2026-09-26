@@ -244,6 +244,28 @@ TR = {
     "complaint.resolved": "Şikayet çözüldü.",
 }
 
+# Insurance capability domains, with the action terms the episode builder uses for every pack.
+OPERATIONS = {
+    "product.viewed": ("Product Catalog", "Retrieve"),
+    "quote.started": ("Quote Management", "Initiate"),
+    "quote.submitted": ("Quote Management", "Update"),
+    "underwriting.started": ("Underwriting", "Initiate"),
+    "underwriting.referred": ("Underwriting", "Request"),
+    "underwriting.accepted": ("Underwriting", "Evaluate"),
+    "underwriting.declined": ("Underwriting", "Evaluate"),
+    "policy.bound": ("Policy Administration", "Initiate"),
+    "policy.issued": ("Policy Administration", "Execute"),
+    "premium.paid": ("Premium Billing", "Execute"),
+    "claim.notified": ("Claims Management", "Initiate"),
+    "claim.assessed": ("Claims Management", "Evaluate"),
+    "claim.settled": ("Claims Management", "Execute"),
+    "claim.denied": ("Claims Management", "Execute"),
+    "policy.renewed": ("Policy Administration", "Update"),
+    "policy.cancelled": ("Policy Administration", "Control"),
+    "complaint.received": ("Customer Case Management", "Initiate"),
+    "complaint.resolved": ("Customer Case Management", "Execute"),
+}
+
 TRAJECTORY_TYPES = (
     "claim_denied",
     "claim_settled",
@@ -389,6 +411,17 @@ PACK = PackSpec(
     success=success,
     subtype=subtype,
     correctness_drops=("claim.denied",),
+    operations=OPERATIONS,
+    agent={
+        "en": {
+            "system": "You are an operations agent at a retail insurer. Use only the listed operations and only the case's own identifiers.",
+            "task": "You operate the insurer's systems for customer {party}. {situation} Decide the next step and record it with one operation call, then say what you did.",
+        },
+        "tr": {
+            "system": "Bir perakende sigorta şirketinde operasyon temsilcisisiniz. Yalnızca listelenen işlemleri ve yalnızca bu vakanın kimliklerini kullanın.",
+            "task": "{party} numaralı müşteri için sigorta şirketinin sistemlerini yönetiyorsunuz. {situation} Sıradaki adıma karar verin, tek bir işlem çağrısıyla kaydedin ve ne yaptığınızı söyleyin.",
+        },
+    },
     goal={
         "en": "The journey ends without underwriting declining the application, a denied claim, or a cancelled policy.",
         "tr": "Yolculuk, başvurunun risk değerlendirmesinde reddedilmesi, reddedilen bir hasar talebi veya iptal edilen bir poliçe olmadan biter.",

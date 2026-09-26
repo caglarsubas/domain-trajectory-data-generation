@@ -109,7 +109,7 @@ function Composer() {
 
   const sector = sectors.find((item) => item.id === form.sector) || sectors[0];
   const subDomains = sector?.sub_domains || [];
-  const sectorLabel = sector?.label || (form.sector === "insurance" ? "Insurance" : "Banking");
+  const sectorLabel = sector?.label || form.sector.replace(/^./, (letter) => letter.toUpperCase());
   const reward = REWARDS.find((item) => item[0] === form.reward_mechanism);
   const signal = SIGNALS.find((item) => item[0] === form.signal_mechanism);
   const docCount = existingDocs.length + files.length + links.length;
@@ -215,9 +215,7 @@ function Composer() {
       setExistingDocs([]);
       return;
     }
-    const defaults = project.sector === "insurance"
-      ? ["quoting", "underwriting", "policy_administration"]
-      : ["onboarding_and_kyc", "deposits"];
+    const defaults = defaultDomains(project.sector);
     setProjectId(project.id);
     setExistingDocs(project.corpus || []);
     patch({ name: project.name, sector: project.sector, sub_domains: project.sector === form.sector ? form.sub_domains : defaults });
@@ -237,12 +235,15 @@ function Composer() {
     setLinks([]);
   }
 
+  // Each pack names the sub-domains a new study in it starts with.
+  function defaultDomains(id) {
+    const found = sectors.find((item) => item.id === id);
+    return found?.default_sub_domains || found?.sub_domains?.slice(0, 2) || [];
+  }
+
   function chooseSector(id) {
     if (from || projectId) return;
-    const defaults = id === "insurance"
-      ? ["quoting", "underwriting", "policy_administration"]
-      : ["onboarding_and_kyc", "deposits"];
-    patch({ sector: id, sub_domains: defaults });
+    patch({ sector: id, sub_domains: defaultDomains(id) });
   }
 
   function toggleDomain(name) {
@@ -472,7 +473,7 @@ function Composer() {
               <input value={form.name} onChange={(e) => patch({ name: e.target.value })} disabled={Boolean(from)} />
               <label>Sector</label>
               <div className="chips">
-                {(sectors.length ? sectors : [{ id: "banking", label: "Banking" }, { id: "insurance", label: "Insurance" }]).map((item) => (
+                {(sectors.length ? sectors : [{ id: "banking", label: "Banking" }]).map((item) => (
                   <button key={item.id} type="button" className="chip" data-on={form.sector === item.id} disabled={Boolean(from || projectId)} onClick={() => chooseSector(item.id)}>
                     {item.label}
                   </button>
@@ -693,7 +694,7 @@ function Composer() {
                   : !form.credential_id
                     ? "Choose a key to let a model at your provider take each episode's turn."
                     : rollouts
-                      ? `A model at ${chosenKey?.provider || "your provider"} takes each episode's turn ${rollouts} ${rollouts === 1 ? "time" : "times"}: it picks an operation, the mock bank answers, and it reports. Each rollout is two calls, so this run makes at most ${providerCalls.toLocaleString()} (${form.target_trajectory_count.toLocaleString()} prompts × ${rollouts} × 2${providerCalls < callEstimate ? `, capped from ${callEstimate.toLocaleString()}` : ""}). Every call is checked against the episode's skeleton and scored on the same rubric. Your provider bills these calls.`
+                      ? `A model at ${chosenKey?.provider || "your provider"} takes each episode's turn ${rollouts} ${rollouts === 1 ? "time" : "times"}: it picks an operation, the mock system answers, and it reports. Each rollout is two calls, so this run makes at most ${providerCalls.toLocaleString()} (${form.target_trajectory_count.toLocaleString()} prompts × ${rollouts} × 2${providerCalls < callEstimate ? `, capped from ${callEstimate.toLocaleString()}` : ""}). Every call is checked against the episode's skeleton and scored on the same rubric. Your provider bills these calls.`
                       : "Set rollouts above 0 to let a model at your provider take each episode's turn. Each rollout is two calls on your key."}
               </p>
               {searches.map((item) => (

@@ -12,11 +12,11 @@ def test_fixture_round_trip_and_alternative_branch():
     assert banking_hard_checks(restored) == []
 
 
-def test_registered_sectors_stop_at_insurance():
-    assert known_sectors() == ["banking", "insurance"]
-    assert get_sector("insurance").id == "insurance"
+def test_registered_sectors_are_the_packs_that_passed_their_gates():
+    assert known_sectors() == ["banking", "insurance", "telecom"]
+    assert get_sector("telecom").id == "telecom"
     with pytest_raises():
-        get_sector("telecommunication")
+        get_sector("airline")
 
 
 def pytest_raises():
