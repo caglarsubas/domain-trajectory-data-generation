@@ -27,7 +27,7 @@ from sectors.registry import get_sector
 
 
 # Settings that change no journey stay out of the seed, so turning them on draws the same journeys.
-SEED_FREE = {"credential_id", "episodes", "provider_rollouts", "provider_call_budget", "provider_model"}
+SEED_FREE = {"credential_id", "episodes", "decisions", "provider_rollouts", "provider_call_budget", "provider_model"}
 
 
 def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, parent: Run | None) -> tuple:
@@ -102,8 +102,25 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         # Episodes by default for post-training, where agent rollouts are the training data.
         "episodes": config.get("episodes") if config.get("episodes") is not None else config.get("consumer") == "post_training",
         "operations": _operations(items),
+        # Decision records by default where decisions are the data: decision scoring and Jev-type targets.
+        "decisions": decisions_on(config),
     }
     return sector, kwargs, items
+
+
+def _decision_totals(summed: dict | None) -> dict | None:
+    if not summed:
+        return None
+    found = {key: value for key, value in summed.items() if key != "taken_value_sum"}
+    found["groups"] = dict(sorted(summed["groups"].items()))
+    found["mean_taken_value"] = round(summed["taken_value_sum"] / summed["points"], 4) if summed["points"] else None
+    return found
+
+
+def decisions_on(config: dict) -> bool:
+    if config.get("decisions") is not None:
+        return bool(config["decisions"])
+    return config.get("consumer") == "decision_scoring" or config.get("target_family") == "jev"
 
 
 def is_large(config: dict) -> bool:
@@ -256,6 +273,14 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
                     summed[key] += meta.episodes.get(key, 0)
                 for policy, count in (meta.episodes.get("policies") or {}).items():
                     summed["policies"][policy] = summed["policies"].get(policy, 0) + count
+            if meta.decisions:
+                added = totals.setdefault("decisions", {"points": 0, "groups": {}, "with_distractor": 0, "records": 0, "taken_value_sum": 0.0})
+                for key in ("points", "with_distractor", "records"):
+                    added[key] += meta.decisions.get(key, 0)
+                for group, count in (meta.decisions.get("groups") or {}).items():
+                    added["groups"][group] = added["groups"].get(group, 0) + count
+                added["taken_value_sum"] += (meta.decisions.get("mean_taken_value") or 0.0) * meta.decisions.get("points", 0)
+                added.update(value_samples=meta.decisions.get("value_samples"), counterfactual_basis=meta.decisions.get("counterfactual_basis"))
             if meta_first is None:
                 meta_first = {
                     "generator_id": meta.generator_id,
@@ -318,6 +343,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "overview": overview.report(),
         "calibration": (meta_first or {}).get("calibration"),
         "episodes": {**(totals.get("episodes") or summarize_episodes([])), "provider": state.get("provider") or calls.as_dict()} if agent is not None else totals.get("episodes"),
+        "decisions": _decision_totals(totals.get("decisions")),
         "storage": {"kind": "files", "batches": len(state["done"]), "batch_sequences": BATCH_SEQUENCES},
         "target": target,
     }

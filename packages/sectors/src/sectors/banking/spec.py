@@ -556,4 +556,8 @@ PACK = PackSpec(
     subtype=subtype,
     correctness_drops=("loan.delinquent",),
     intent=intent,
+    goal={
+        "en": "The journey ends without a failed outcome: no abandoned or declined application, failed KYC check, rejected complaint, or declined limit change; a delinquent loan is cured and the last card purchase is authorised.",
+        "tr": "Yolculuk başarısız bir sonuç olmadan biter: terk edilen veya reddedilen başvuru, başarısız KYC kontrolü, reddedilen şikâyet veya reddedilen limit değişikliği olmaz; geciken kredi düzelir ve son kart harcaması onaylanır.",
+    },
 )

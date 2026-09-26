@@ -93,6 +93,8 @@ class PackSpec:
     correctness_drops: tuple[str, ...] = ()
     # What the customer is after, such as a loan; the sequences of one group keep the same intent.
     intent: Callable[[list[str]], str | None] = lambda types: None
+    # What `success` means, per language, for decision records that score the chance of reaching it.
+    goal: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -168,6 +170,7 @@ def generate_bundle(
     calibration: Calibration | dict | None = None,
     episodes: bool = False,
     operations: list[dict] | None = None,
+    decisions: bool = False,
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -288,6 +291,12 @@ def generate_bundle(
 
         bundle.episodes = build_episodes(pack, bundle, language=language, seed=seed, operations=operations)
         bundle.generation.episodes = summarize(bundle.episodes)
+    if decisions:
+        from sectors.decisions import build_decisions, summarize as summarize_decisions
+
+        # Values are simulated on their own random streams, so recording decisions changes no journey.
+        bundle.decisions = build_decisions(pack, bundle, walker, floor=floor, cap=cap, language=language)
+        bundle.generation.decisions = summarize_decisions(bundle.decisions)
     if calibrated is not None:
         kinds = {event.event_id: event.event_type for event in bundle.events}
         primaries = [[kinds[item] for item in trajectory.event_ids] for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
@@ -704,11 +713,11 @@ def _group_sample(context: _Context, members: list[_Member]) -> Sample:
         if steering.events:
             parts.append("Corpus events: " + ", ".join(steering.events) + ".")
         reference = " ".join(parts) or f"Warm corpus attached. No {pack.sector} terms matched."
+    # Consumer and target family choose export parts, not text, so they stay out of the prompt.
     system = " ".join(
         (
             f"Synthetic {pack.sector} study. Language {context.language}.",
             f"Sub-domains: {', '.join(context.domains)}.",
-            f"Consumer {context.consumer}. Target family {context.target_family}.",
             f"Reward {context.reward_mechanism}. Signal {context.signal_mechanism}.",
             reference,
             f"Jurisdiction {context.jurisdiction.label}. KYC: {' '.join(context.jurisdiction.kyc)}" if context.jurisdiction else "",

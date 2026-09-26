@@ -200,6 +200,88 @@ class Episode(BaseModel):
     rollouts: list[Rollout]
 
 
+# Exported decision records carry this version; it changes whenever their fields change meaning.
+DECISION_SCHEMA_VERSION = "decision-record/1"
+
+
+class DecisionOption(BaseModel):
+    """One outcome open at a decision point, with the generator's policy share and its simulated value."""
+
+    option_id: str
+    event_type: str
+    label: str
+    # The generator policy's share of this option among the decision's options.
+    probability: float
+    # The share of simulated continuations after this option, under the same policy, that reach the goal.
+    value: float
+    # The machine states that make the option legal, such as `application.application in {submitted}`.
+    requires: list[str] = Field(default_factory=list)
+
+
+class DecisionPoint(BaseModel):
+    """An outcome decision in a journey: what was known, what was open, what the policy and the simulation say, and what happened."""
+
+    decision_id: str
+    trajectory_id: str
+    sample_id: str | None = None
+    # How many events of the journey happened before the decision, and the event that recorded it.
+    decision_index: int
+    decision_event_id: str
+    # The pack's outcome group, such as application_decision, and the object kind it decides.
+    group: str
+    subject: str
+    # Machine states before the decision (`kind.dimension` to state), and facts derived from the history.
+    state: dict[str, str]
+    facts: dict[str, Any]
+    history: list[str]
+    objects: dict[str, str]
+    options: list[DecisionOption]
+    # An outcome the state does not allow, for a true-or-false question with a false answer.
+    distractor: dict[str, Any] | None = None
+    taken: str
+    # What the journey did after the decision: whether it reached the goal, its type, and its last event.
+    outcome: dict[str, Any]
+    value_samples: int
+    goal: str
+    # A decision-level counterfactual is relative to the generator's own policy, never a causal claim.
+    counterfactual_basis: Literal["generator_policy"] = "generator_policy"
+
+
+class DecisionRecord(BaseModel):
+    """A typed question about a decision point, as exported for decision-scoring and Jev-type models."""
+
+    schema_version: str = DECISION_SCHEMA_VERSION
+    record_id: str
+    decision_id: str
+    trajectory_id: str
+    sample_id: str | None = None
+    language: str
+    split: Literal["train", "calibration", "held_out"]
+    # original, reordered (the same content with keys and options in another order), or paraphrase.
+    variant: Literal["original", "reordered", "paraphrase"]
+    variant_of: str | None = None
+    question_type: Literal["choice", "score", "true_false"]
+    question: str
+    criteria: list[str]
+    # The answers a model may give; the abstain answer is always allowed and never a target.
+    options: list[dict[str, str]]
+    abstain: dict[str, str]
+    state: dict[str, str]
+    facts: dict[str, Any]
+    history: list[str]
+    # A distribution over option ids for choice and true-or-false questions, a value in [0, 1] for score questions.
+    target_distribution: dict[str, float] | None = None
+    target_score: float | None = None
+    # generator_policy_share, machine_rules, or simulated_goal_share.
+    target_basis: str
+    # Why the answer holds when a rule decides it, such as the unmet precondition of a false answer.
+    rationale: str | None = None
+    outcome: dict[str, Any]
+    counterfactual_basis: Literal["generator_policy"] = "generator_policy"
+    # The record as one prompt, for a language model.
+    prompt: str
+
+
 class GenerationMeta(BaseModel):
     generator_id: str
     requested_trajectories: int
@@ -226,6 +308,8 @@ class GenerationMeta(BaseModel):
     calibration: dict[str, Any] | None = None
     # How many episodes were built, with how many rollouts, and how many were accepted as groups.
     episodes: dict[str, Any] | None = None
+    # How many decision points were recorded, by outcome group, and how their values were simulated.
+    decisions: dict[str, Any] | None = None
 
 
 class TrajectoryBundle(BaseModel):
@@ -237,4 +321,5 @@ class TrajectoryBundle(BaseModel):
     trajectories: list[Trajectory]
     samples: list[Sample] = Field(default_factory=list)
     episodes: list[Episode] = Field(default_factory=list)
+    decisions: list[DecisionPoint] = Field(default_factory=list)
     generation: GenerationMeta | None = None

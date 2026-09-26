@@ -127,6 +127,7 @@ function Composer() {
   const unit = accepted ? "accepted groups" : groupSize > 1 ? `prompts × ${groupSize}` : "journeys";
   // An accepted-group target may draw up to five times its size; demo limits count that.
   const drawn = accepted ? sequences * 5 : sequences;
+  const decisionsOn = form.decisions ?? (form.consumer === "decision_scoring" || form.target_family === "jev");
   // Provider rollouts: two calls each, one episode per prompt at most, capped by the owner and at 4,000.
   const episodesOn = form.episodes ?? form.consumer === "post_training";
   const rollouts = Number(form.provider_rollouts) || 0;
@@ -253,6 +254,12 @@ function Composer() {
       if (next.length < 2) domainShares = null;
     }
     patch({ sub_domains: next, domain_shares: domainShares });
+  }
+
+  // A consumer chooses what the run builds and exports, and presets the signal that fits it.
+  function chooseConsumer(consumer) {
+    const preset = { decision_scoring: "decision_score" }[consumer];
+    patch({ consumer, signal_mechanism: preset && form.signal_mechanism === "outcome" ? preset : form.signal_mechanism });
   }
 
   function setGroupSize(value) {
@@ -609,7 +616,7 @@ function Composer() {
               <div className="row">
                 <div>
                   <label>Consumer</label>
-                  <select value={form.consumer} onChange={(e) => patch({ consumer: e.target.value })}>
+                  <select value={form.consumer} onChange={(e) => chooseConsumer(e.target.value)}>
                     <option value="post_training">Post-training</option>
                     <option value="decision_scoring">Decision scoring</option>
                     <option value="evaluation">Evaluation</option>
@@ -627,6 +634,18 @@ function Composer() {
                   <input type="number" min="1" max="8" value={form.max_cycles} onChange={(e) => patch({ max_cycles: Number(e.target.value) })} />
                 </div>
               </div>
+              <p className="lede">
+                {{
+                  post_training: "Post-training exports samples, history prefixes, and agent episodes in three harness formats.",
+                  decision_scoring: "Decision scoring exports each outcome decision as typed questions: a choice among the outcomes, true or false on what the state allows, and a score per outcome.",
+                  evaluation: "Evaluation exports the journeys with their domain records and an OCEL 2.0 log.",
+                }[form.consumer]}
+                {form.target_family === "jev" ? " Jev-type targets get decision records with derived facts precomputed, since they do no arithmetic or date reasoning." : ""}
+              </p>
+              <label className="check">
+                <input type="checkbox" checked={decisionsOn} onChange={(e) => patch({ decisions: e.target.checked })} />
+                Record decisions: state, derived facts, the policy&apos;s share of each outcome, and each outcome&apos;s simulated chance of reaching the goal
+              </label>
               <label>Provider key (optional)</label>
               <select value={form.credential_id} onChange={(e) => patch({ credential_id: e.target.value })}>
                 <option value="">No key</option>
@@ -752,6 +771,8 @@ function Composer() {
             <dd>{reward?.[1]}</dd>
             <dt>Signal</dt>
             <dd>{signal?.[1]}</dd>
+            <dt>Exports</dt>
+            <dd>{[episodesOn ? "episodes" : null, decisionsOn ? "decision records" : null, "samples"].filter(Boolean).join(", ")}</dd>
             {rollouts ? (
               <>
                 <dt>Provider</dt>

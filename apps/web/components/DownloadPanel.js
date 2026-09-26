@@ -5,14 +5,25 @@ import { api, apiText, download } from "../lib/api";
 
 const PARTS = [
   ["samples.jsonl", "Samples", "One line per prompt: the group of sequences, turns, rewards, advantages, and split."],
+  ["prefixes.jsonl", "History prefixes", "One line per assistant turn: the conversation before it and the turn, for prefix-conditioned distillation."],
   ["episodes.jsonl", "Episodes", "Each decision as an agent task: state, operations, task, rubric, skeleton, and scored rollouts."],
   ["episodes-openai.jsonl", "Episodes · chat tools", "Every rollout as chat messages with tool calls, for training."],
   ["episodes-anthropic.jsonl", "Episodes · tool blocks", "Every rollout as content blocks with tool use and results, for training."],
   ["episodes-react.jsonl", "Episodes · ReAct", "Every rollout as Thought, Action, and Observation text, held out to measure generalization."],
+  ["decisions.jsonl", "Decision records", "Each outcome decision as choice, true-or-false, and score questions with criteria, targets, and variants."],
+  ["decision-record.schema.json", "Decision-record schema", "The JSON Schema every decision record validates against, versioned with the contract."],
   ["domain.jsonl", "Domain records", "Objects, relationships, events, event-object links, state changes, and trajectories."],
   ["ocel.json", "OCEL 2.0", "The domain layer for process-mining tools such as PM4Py."],
   ["manifest.json", "Manifest", "Configuration, counts, split, judge cycles, quality, data card, and file checksums."],
 ];
+
+// The parts each consumer trains or measures on, marked for the run's own consumer.
+const CONSUMER_PARTS = {
+  post_training: ["samples.jsonl", "prefixes.jsonl", "episodes.jsonl", "episodes-openai.jsonl", "episodes-anthropic.jsonl", "episodes-react.jsonl"],
+  decision_scoring: ["decisions.jsonl", "decision-record.schema.json", "prefixes.jsonl"],
+  evaluation: ["samples.jsonl", "domain.jsonl", "ocel.json"],
+};
+const CONSUMER_LABEL = { post_training: "post-training", decision_scoring: "decision scoring", evaluation: "evaluation" };
 
 function bytes(value) {
   if (value == null) return "";
@@ -39,6 +50,7 @@ export default function DownloadPanel({ run, paged = false }) {
   const prefix = `run-${run.id.slice(0, 8)}${heldOut ? `-heldout-${heldOut}` : ""}${accepted ? "" : "-unaccepted"}`;
   const current = exports.find((item) => (item.held_out || "") === heldOut && Boolean(item.unaccepted) === !accepted);
   const working = exports.some((item) => ["queued", "running"].includes(item.job.status));
+  const ownParts = CONSUMER_PARTS[run.config.consumer] || [];
 
   const refresh = useCallback(async () => {
     try {
@@ -162,8 +174,9 @@ export default function DownloadPanel({ run, paged = false }) {
       ) : null}
       {paged && !current?.ready ? null : <div className="parts">
         {PARTS.map(([part, label, detail]) => (
-          <button key={part} type="button" className="part" onClick={() => save(part)} disabled={!open || Boolean(busy)}>
+          <button key={part} type="button" className="part" data-primary={ownParts.includes(part)} onClick={() => save(part)} disabled={!open || Boolean(busy)}>
             <b>{busy === part ? "Preparing" : label}</b>
+            {ownParts.includes(part) ? <small className="part-tag">For {CONSUMER_LABEL[run.config.consumer] || "this run"}</small> : null}
             <code>{paged && part !== "manifest.json" ? `${part}.gz` : part}</code>
             <small>{detail}</small>
             {current?.download_sizes?.[part] != null ? (

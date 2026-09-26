@@ -389,4 +389,8 @@ PACK = PackSpec(
     success=success,
     subtype=subtype,
     correctness_drops=("claim.denied",),
+    goal={
+        "en": "The journey ends without underwriting declining the application, a denied claim, or a cancelled policy.",
+        "tr": "Yolculuk, başvurunun risk değerlendirmesinde reddedilmesi, reddedilen bir hasar talebi veya iptal edilen bir poliçe olmadan biter.",
+    },
 )

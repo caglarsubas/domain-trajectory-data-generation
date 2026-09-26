@@ -21,7 +21,7 @@ dependencies = [
 postgres = ["psycopg[binary]>=3.2"]
 # Parquet event logs; without it a Parquet data source says it cannot be read.
 parquet = ["pyarrow>=14"]
-dev = ["pytest>=8.3", "psycopg[binary]>=3.2"]
+dev = ["pytest>=8.3", "psycopg[binary]>=3.2", "jsonschema>=4.21"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
