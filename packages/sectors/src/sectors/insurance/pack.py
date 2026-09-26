@@ -36,7 +36,11 @@ class InsurancePack:
         language: str,
         corpus_excerpt: str,
         cold_start: bool,
+        jurisdiction: str = "neutral",
     ) -> str:
+        from sectors.jurisdictions import get_jurisdiction
+
+        profile = get_jurisdiction(jurisdiction)
         scope = ", ".join(sub_domains) if sub_domains else "unspecified insurance scope"
         if cold_start:
             reference = (
@@ -52,6 +56,9 @@ class InsurancePack:
             "A representative trajectory respects object-centric insurance order: "
             "a quote before underwriting, acceptance before the policy is issued, "
             "the policy in force before a claim is notified, and assessment before settlement or denial.\n"
+            f"Jurisdiction: {profile.label}"
+            + (f", amounts in {profile.currency}" if profile.currency else "")
+            + f". KYC rules: {' '.join(profile.kyc)} Identity documents: {', '.join(profile.documents)}.\n"
             f"{reference}"
         )
 
@@ -64,6 +71,12 @@ class InsurancePack:
         from sectors.insurance.corpus import steering_from_text
 
         return steering_from_text(text)
+
+    @property
+    def vocabulary(self):
+        from sectors.insurance.corpus import VOCABULARY
+
+        return VOCABULARY
 
     def hard_checks(self, bundle: TrajectoryBundle) -> list[str]:
         return insurance_hard_checks(bundle)

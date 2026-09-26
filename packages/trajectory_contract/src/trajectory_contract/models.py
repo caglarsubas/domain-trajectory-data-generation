@@ -153,6 +153,8 @@ class GenerationMeta(BaseModel):
     storage: dict[str, Any] | None = None
     # The notes and revision notes this run was generated from, and what each did.
     notes: dict[str, Any] | None = None
+    # The jurisdiction profile the run was generated under: neutral, tr, or uk.
+    jurisdiction: str | None = None
 
 
 class TrajectoryBundle(BaseModel):

@@ -40,6 +40,7 @@ ADDED_COLUMNS = {
     "eval_cycles": {name: "JSON" for name in ("sample", "models", "scores", "agreement", "flags", "canary", "reference")},
     "eval_verdicts": {"trajectory_id": "VARCHAR(64)", "pair_order": "VARCHAR(4)", "canary": "INTEGER DEFAULT 0"},
     "corpus_items": {"ingest": "JSON"},
+    "projects": {"fact_reviews": "JSON"},
 }
 
 

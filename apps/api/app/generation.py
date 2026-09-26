@@ -15,7 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.corpus_text import ordered, read_corpus_text, read_document
-from app.models import CorpusItem, EvalCycle, Run
+from app.facts import facts_report, steering_for
+from app.models import CorpusItem, EvalCycle, Project, Run
 from app.store import BATCH_SEQUENCES, MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, batch_name, batch_path, journey_entries, run_dir, store_for, write_json
 from sectors.overview import OverviewAccumulator, overview_of, variant_id
 from sectors.quality import QualityAccumulator
@@ -45,8 +46,14 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         else:
             # A large parent is never loaded whole: each note's target is resolved to its type name instead.
             feedback = _resolve_notes(parent, feedback)
+    corpus_steering = None
+    if config.get("start_mode") == "warm":
+        # Warm runs steer from the study's facts: explicit ones, and implied ones a person accepted.
+        project = db.get(Project, project_id)
+        corpus_steering = steering_for(items, get_sector(config["sector"]), project.fact_reviews if project else None)
     seed_payload = {
         "config": {key: config[key] for key in sorted(config) if key != "credential_id"},
+        "facts": corpus_steering.report() if corpus_steering is not None else None,
         "corpus_text": corpus_text,
         "feedback": feedback,
         "revisions": revisions,
@@ -72,6 +79,8 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         "parent_bundle": parent_bundle,
         "seed": json.dumps(seed_payload, sort_keys=True, default=str),
         "group_size": int(config.get("group_size") or 1),
+        "jurisdiction": config.get("jurisdiction") or "neutral",
+        "corpus_steering": corpus_steering,
     }
     return sector, kwargs, items
 
@@ -91,6 +100,7 @@ def candidate_for_run(db: Session, config: dict, *, project_id: str, feedback_ro
     assert bundle.generation is not None
     if bundle.generation.steering is not None:
         bundle.generation.steering["documents"] = [_document_report(sector, item) for item in items]
+        bundle.generation.steering["facts"] = _facts_counts(db, config, project_id, items, sector)
     bundle.generation.overview = overview_of(bundle, sector.classify)
     return bundle
 
@@ -235,7 +245,11 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
     }
     steering = (meta_first or {}).get("steering")
     if steering is not None:
-        steering = {**steering, "documents": [_document_report(sector, item) for item in items]}
+        steering = {
+            **steering,
+            "documents": [_document_report(sector, item) for item in items],
+            "facts": _facts_counts(db, run.config, run.project_id, items, sector),
+        }
     generation = {
         "generator_id": (meta_first or {}).get("generator_id"),
         "pack_version": (meta_first or {}).get("pack_version"),
@@ -289,6 +303,19 @@ def _resolve_notes(parent: Run, feedback: list[dict]) -> list[dict]:
             target = store.trajectory_type(target) or target
         resolved.append({**note, "target_id": target})
     return resolved
+
+
+def _facts_counts(db: Session, config: dict, project_id: str, items: list, sector) -> dict:
+    project = db.get(Project, project_id)
+    report = facts_report(
+        items,
+        sector,
+        project.fact_reviews if project else None,
+        sub_domains=list(config["sub_domains"]),
+        jurisdiction=config.get("jurisdiction") or "neutral",
+        language=config["language"],
+    )
+    return {**report["counts"], "unsupported": [item["statement"] for item in report["unsupported"]]}
 
 
 def _document_report(sector, item) -> dict:

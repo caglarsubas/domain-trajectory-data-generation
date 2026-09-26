@@ -36,7 +36,11 @@ class BankingPack:
         language: str,
         corpus_excerpt: str,
         cold_start: bool,
+        jurisdiction: str = "neutral",
     ) -> str:
+        from sectors.jurisdictions import get_jurisdiction
+
+        profile = get_jurisdiction(jurisdiction)
         scope = ", ".join(sub_domains) if sub_domains else "unspecified banking scope"
         if cold_start:
             reference = (
@@ -53,6 +57,9 @@ class BankingPack:
             "an application with verified KYC before account opening, one decision per application, "
             "card issuance before activation, no loan disbursement before approval, "
             "and nothing on an account after it closes.\n"
+            f"Jurisdiction: {profile.label}"
+            + (f", amounts in {profile.currency}" if profile.currency else "")
+            + f". KYC rules: {' '.join(profile.kyc)} Identity documents: {', '.join(profile.documents)}.\n"
             f"{reference}"
         )
 
@@ -65,6 +72,12 @@ class BankingPack:
         from sectors.banking.corpus import steering_from_text
 
         return steering_from_text(text)
+
+    @property
+    def vocabulary(self):
+        from sectors.banking.corpus import VOCABULARY
+
+        return VOCABULARY
 
     def hard_checks(self, bundle: TrajectoryBundle) -> list[str]:
         return banking_hard_checks(bundle)

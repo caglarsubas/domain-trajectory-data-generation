@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Shell from "../../../components/Shell";
 import { api } from "../../../lib/api";
+import FactsPanel from "../../../components/FactsPanel";
 
 const REWARDS = [
   ["binary_outcome", "Binary outcome", "The journey scores when it reaches the terminal state you care about."],
@@ -40,6 +41,7 @@ const EMPTY = {
   group_size: 1,
   target_kind: "prompts",
   domain_shares: null,
+  jurisdiction: "neutral",
   credential_id: "",
   thresholds: { helpfulness: 3, correctness: 0.5, safety: 1, pairwise_quality: 0.5 },
 };
@@ -411,6 +413,15 @@ function Composer() {
                       Each says why above. PDF, Word, web pages, Markdown, text, and API definitions are read; scanned PDFs are not.
                     </p>
                   ) : null}
+                  {existingDocs.length ? (
+                    <FactsPanel
+                      projectId={projectId}
+                      subDomains={form.sub_domains}
+                      jurisdiction={form.jurisdiction}
+                      language={form.language}
+                      refreshKey={existingDocs.length}
+                    />
+                  ) : null}
                 </div>
               )}
             </>
@@ -428,6 +439,25 @@ function Composer() {
                   </button>
                 ))}
               </div>
+              <label>Jurisdiction</label>
+              <div className="chips">
+                {(sector?.jurisdictions || [{ id: "neutral", label: "Neutral retail" }]).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="chip"
+                    data-on={form.jurisdiction === item.id}
+                    onClick={() => patch({ jurisdiction: item.id, ...(item.language && languages.includes(item.language) ? { language: item.language } : {}) })}
+                  >
+                    {item.label}{item.currency ? ` · ${item.currency}` : ""}
+                  </button>
+                ))}
+              </div>
+              <p className="lede">
+                {form.jurisdiction === "neutral"
+                  ? "No country: currency follows the documents, then the language."
+                  : "Sets the currency, local product names, and the KYC rules the judge checks and the samples state; the language starts in the country's own."}
+              </p>
               <label>Sub-domain</label>
               <div className="chips">
                 {subDomains.map((name) => (
@@ -638,6 +668,8 @@ function Composer() {
             </dd>
             <dt>Scope</dt>
             <dd>{form.sub_domains.map((item) => item.replaceAll("_", " ")).join(", ") || "None selected"}</dd>
+            <dt>Jurisdiction</dt>
+            <dd>{(sector?.jurisdictions || []).find((item) => item.id === form.jurisdiction)?.label || "Neutral retail"}</dd>
             <dt>Language</dt>
             <dd>{form.language}</dd>
             <dt>Size</dt>

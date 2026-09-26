@@ -61,9 +61,9 @@ Warm-start text weights the sampler instead of forcing events in: a named event 
 
 ## Run metadata
 
-`generation` records the generator id, the pack version, the limit that stopped the run if any, `notes` when the run was generated from notes (each note and revision note with what it did), and two reports:
+`generation` records the generator id, the pack version, the limit that stopped the run if any, `notes` when the run was generated from notes (each note and revision note with what it did), the `jurisdiction` profile, and two reports:
 
-- `steering`: the currency, channel, products, and events the warm-start text named, the events a negation cancelled, the events weighted because they are in scope, and one entry per document saying whether it was readable, why not, and what it contributed. Terms match on whole words; currency codes match only in capitals.
+- `steering`: the currency, channel, products, and events the study's steering facts named (explicit facts, and implied ones a person accepted), `facts` with how many steered, awaited review, were accepted or rejected, and what came from defaults, the events a negation cancelled, the events weighted because they are in scope, and one entry per document saying whether it was readable, why not, and what it contributed. Terms match on whole words; currency codes match only in capitals.
 - `quality`: version 1 of the quality report. `complete` counts hard-check violations and filler runs and checks referential integrity; `comprehensive` counts distinct sequences, event-type coverage per selected sub-domain, the share of rare paths, and distinct transitions. `representative` and `qualitative` say they are not measured yet, and a cold start is marked unreferenced.
 
 Runs are written in the languages the pack declares, English and Turkish today. The API refuses any other language instead of producing English.

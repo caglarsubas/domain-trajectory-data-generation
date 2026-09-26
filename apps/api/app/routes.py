@@ -24,6 +24,7 @@ from app.schemas import (
     DeepSearchBody,
     EvaluateBody,
     ExportBody,
+    FactReviewBody,
     FeedbackBody,
     LoginBody,
     ProjectBody,
@@ -38,7 +39,9 @@ from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.registry import get_sector
 from app import export as run_export
 from app import jobs
+from app.facts import facts_report
 from app.ingest import safe_name
+from sectors.jurisdictions import PROFILES, get_jurisdiction
 from app.serialize import corpus_out, job_out, project_out, run_out, run_summary
 from app.store import MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, DbStore, run_dir, store_for
 from app.service import config_from_body, require_project, require_run, rerun_config
@@ -136,6 +139,10 @@ def sectors() -> dict:
                 "small_run_sequences": SMALL_RUN_SEQUENCES,
                 "max_run_sequences": MAX_RUN_SEQUENCES,
                 "event_kinds": {name: pack.lifecycle.kind_of(name) for name in pack.event_namespace},
+                "jurisdictions": [
+                    {"id": profile.id, "label": profile.label, "currency": profile.currency, "language": profile.language}
+                    for profile in PROFILES.values()
+                ],
                 "lanes": _lanes(pack.lifecycle),
             }
         )
@@ -360,6 +367,36 @@ def link_corpus(project_id: str, body: CorpusLinkBody, account: AccountDep, db: 
     job = jobs.enqueue(db, kind="fetch", owner_id=account.id, run_id=None, project_id=project.id, payload={"item_id": item.id})
     db.refresh(item)
     return {**corpus_out(item), "job": job_out(job)}
+
+
+@router.get("/projects/{project_id}/facts")
+def project_facts(
+    project_id: str, account: AccountDep, db: Db, sub_domains: str = "", jurisdiction: str = "neutral", language: str = "en"
+) -> dict:
+    """What the study's documents state, what they only imply (for review), and what runs take from defaults."""
+    project = require_project(db, project_id, account)
+    sector = get_sector(project.sector)
+    try:
+        get_jurisdiction(jurisdiction)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    chosen = [name for name in sub_domains.split(",") if name in sector.sub_domains]
+    items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == project.id)))
+    return facts_report(items, sector, project.fact_reviews, sub_domains=chosen, jurisdiction=jurisdiction, language=language)
+
+
+@router.post("/projects/{project_id}/facts/review")
+def review_fact(project_id: str, body: FactReviewBody, account: AccountDep, db: Db) -> dict:
+    """Accept or reject an extracted fact, or clear the decision. Accepted implied facts steer the next run."""
+    project = require_project(db, project_id, account)
+    reviews = dict(project.fact_reviews or {})
+    if body.decision == "clear":
+        reviews.pop(body.key, None)
+    else:
+        reviews[body.key] = body.decision
+    project.fact_reviews = reviews
+    db.commit()
+    return {"key": body.key, "review": reviews.get(body.key), "reviews": reviews}
 
 
 @router.post("/projects/{project_id}/deep-search")

@@ -315,6 +315,12 @@ export default function RunPage() {
           {run.generation.limited_by === "studio_cap"
             ? ` ${run.generation.requested_trajectories} were requested; this view stores ${run.generation.primary_trajectories}.`
             : null}
+          {run.generation.steering?.facts
+            ? ` Steered by ${run.generation.steering.facts.steering} ${run.generation.steering.facts.steering === 1 ? "fact" : "facts"} from the documents${run.generation.steering.facts.awaiting_review ? `; ${run.generation.steering.facts.awaiting_review} more ${run.generation.steering.facts.awaiting_review === 1 ? "waits" : "wait"} for review in the composer` : ""}.`
+            : null}
+          {run.generation.jurisdiction && run.generation.jurisdiction !== "neutral"
+            ? ` Jurisdiction: ${sectors.find((item) => item.id === run.config.sector)?.jurisdictions?.find((item) => item.id === run.generation.jurisdiction)?.label || run.generation.jurisdiction}.`
+            : null}
           {run.generation.target?.kind === "accepted_groups"
             ? ` ${run.generation.target.reached} of ${run.generation.target.requested} accepted groups reached.`
             : null}

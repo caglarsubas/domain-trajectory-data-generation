@@ -25,6 +25,7 @@ from trajectory_contract.models import (
     TrajectoryBundle,
 )
 
+from sectors.jurisdictions import Jurisdiction, get_jurisdiction
 from sectors.lifecycle import LifecycleSpec, Path, Walker, allowed_events, dwell
 from sectors import rewards
 from sectors.quality import quality_report
@@ -161,6 +162,8 @@ def generate_bundle(
     group_size: int = 1,
     progress: Callable[..., None] | None = None,
     id_prefix: str = "",
+    jurisdiction: str = "neutral",
+    corpus_steering: Any | None = None,
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -168,7 +171,9 @@ def generate_bundle(
     lifecycle = pack.lifecycle
     domains = [name for name in sub_domains if name in lifecycle.sub_domains] or [pack.default_domain]
     cold = start_mode == "cold"
-    steering = empty_steering if cold else steering_from_text(corpus_text or "")
+    # Reviewed facts steer when the caller has them; otherwise the text does, as before facts existed.
+    steering = empty_steering if cold else (corpus_steering if corpus_steering is not None else steering_from_text(corpus_text or ""))
+    profile = get_jurisdiction(jurisdiction)
     notes = _coerce_notes(feedback)
     revisions = [item for item in (revision_notes or []) if item]
     event_index, trajectory_index = _parent_index(parent_bundle)
@@ -197,7 +202,8 @@ def generate_bundle(
     built: list[_Journey] = []
     limited_by: str | None = None
     context = _Context(pack, domains, lang, language, steering, cold, revised, notes, revisions, reward_mechanism,
-                       signal_mechanism, consumer, target_family, max(int(max_assistant_turns), 1), clock, words, ids)
+                       signal_mechanism, consumer, target_family, max(int(max_assistant_turns), 1), clock, words, ids,
+                       jurisdiction=profile)
 
     report = progress or (lambda *args, **kwargs: None)
     report(0, limit, "Drawing journeys.")
@@ -262,6 +268,7 @@ def generate_bundle(
                 "outside_scope_events": [name for name in steering.events if name not in allowed],
             },
             notes=notes_report,
+            jurisdiction=profile.id,
         ),
     )
     assert bundle.generation is not None
@@ -292,6 +299,7 @@ class _Context:
     clock: random.Random
     words: random.Random
     ids: _Ids
+    jurisdiction: Jurisdiction | None = None
 
 
 def _choose(
@@ -334,7 +342,7 @@ def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, floa
     state: dict[tuple[str, str], str] = {}
     snapshots: dict[str, dict[tuple[str, str], str]] = {}
     start = _start_time(context.clock)
-    _ensure(pack, "party", start, catalog, context.steering, context.ids, journey)
+    _ensure(pack, "party", start, catalog, context.steering, context.ids, journey, context.jurisdiction)
     types = path.types
     primary = _emit(context, types, start=start, advance_first=False, catalog=catalog, state=state,
                     snapshots=snapshots, journey=journey)
@@ -441,7 +449,7 @@ def _materialize_group(context: _Context, *, path: Path, split: int, rollouts: l
     state: dict[tuple[str, str], str] = {}
     snapshots: dict[str, dict[tuple[str, str], str]] = {}
     start = _start_time(context.clock)
-    _ensure(pack, "party", start, catalog, context.steering, context.ids, journey)
+    _ensure(pack, "party", start, catalog, context.steering, context.ids, journey, context.jurisdiction)
     primary = _emit(context, path.types, start=start, advance_first=False, catalog=catalog, state=state,
                     snapshots=snapshots, journey=journey)
     root = catalog["party"].object_id
@@ -539,7 +547,9 @@ def _emit(
     journey: _Journey,
 ) -> list[Event]:
     pack, rng, ids, steering = context.pack, context.clock, context.ids, context.steering
-    currency = steering.currency or LANG_CURRENCY.get(context.lang, "GBP")
+    # A jurisdiction's currency is the study's choice and wins; then the documents; then the language.
+    profile_currency = context.jurisdiction.currency if context.jurisdiction is not None else None
+    currency = profile_currency or steering.currency or LANG_CURRENCY.get(context.lang, "GBP")
     cursor = start
     emitted: list[Event] = []
     party = catalog["party"].object_id
@@ -553,7 +563,7 @@ def _emit(
             cursor = cursor + max(timedelta(hours=dwell(rng, low, high)), timedelta(seconds=1))
         when = cursor
         for kind, _role in pack.roles[event_type]:
-            _ensure(pack, kind, when, catalog, steering, ids, journey)
+            _ensure(pack, kind, when, catalog, steering, ids, journey, context.jurisdiction)
         lag = pack.effective_lag_hours.get(event_type)
         amount = pack.amounts.get(event_type)
         event = Event(
@@ -585,7 +595,7 @@ def _emit(
                 )
             )
         for effect in spec.sets:
-            obj = catalog.get(effect.kind) or _ensure(pack, effect.kind, when, catalog, steering, ids, journey)
+            obj = catalog.get(effect.kind) or _ensure(pack, effect.kind, when, catalog, steering, ids, journey, context.jurisdiction)
             key = (obj.object_id, effect.dimension)
             before = state.get(key)
             if before == effect.state:
@@ -615,6 +625,7 @@ def _ensure(
     steering: Any,
     ids: _Ids,
     journey: _Journey,
+    profile: Jurisdiction | None = None,
 ) -> ObjectRecord:
     existing = catalog.get(kind)
     if existing is not None:
@@ -623,10 +634,14 @@ def _ensure(
     attributes: dict[str, Any] = {"synthetic": True}
     if kind == "offering" and steering.terms:
         attributes["corpus_terms"] = list(steering.terms)
+    subtype = pack.subtype(kind, default, steering)
+    if profile is not None and kind != "party" and subtype in profile.products:
+        # The jurisdiction's local name for the product, such as "vadesiz hesap" for a Turkish current account.
+        attributes["product_name"] = profile.products[subtype]
     record = ObjectRecord(
         object_id=ids.take(prefix),
         object_type=object_type,
-        subtype=pack.subtype(kind, default, steering),
+        subtype=subtype,
         valid_from=when,
         attributes=attributes,
         source_system=pack.generator_id,
@@ -673,6 +688,7 @@ def _group_sample(context: _Context, members: list[_Member]) -> Sample:
             f"Consumer {context.consumer}. Target family {context.target_family}.",
             f"Reward {context.reward_mechanism}. Signal {context.signal_mechanism}.",
             reference,
+            f"Jurisdiction {context.jurisdiction.label}. KYC: {' '.join(context.jurisdiction.kyc)}" if context.jurisdiction else "",
             f"Generator {pack.generator_id}, pack {pack.pack_version}.",
             "Alternative branches are simulated, not causal counterfactuals.",
         )
