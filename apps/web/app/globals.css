@@ -364,6 +364,8 @@ label.doc { text-transform: none; letter-spacing: 0; font-size: 14px; color: var
 .part code { font-size: 12px; color: var(--copper); }
 .part small { color: var(--muted); line-height: 1.35; }
 .part .size { color: var(--ink); font-variant-numeric: tabular-nums; }
+.part[data-primary="true"] { border-color: var(--copper); }
+.part .part-tag { color: var(--copper); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
 .export-status { margin-top: 12px; display: grid; gap: 6px; max-width: 420px; }
 .export-status small { color: var(--muted); }
 .data-card { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 12px; }
@@ -478,4 +480,10 @@ label.check input { width: auto; margin: 0; }
 .episode-call pre { margin: 6px 0; font-size: 12px; white-space: pre-wrap; color: var(--muted); max-height: 180px; overflow: auto; }
 .episode-call .target-table { margin: 6px 0 0; }
 .episode-checks { margin: 6px 0 0; font-size: 12px; color: var(--muted); }
+.decision-options td { vertical-align: top; }
+.decision-options tr[data-taken="true"] td:first-child { font-weight: 600; }
+.decision-options small { font-weight: 400; color: var(--muted); }
+.decision-requires { display: block; font-size: 11px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.decision-bar { display: inline-block; width: 64px; height: 6px; margin-right: 6px; background: var(--line); border-radius: 3px; vertical-align: middle; overflow: hidden; }
+.decision-bar i { display: block; height: 100%; background: var(--ink); }
 @media (max-width: 800px) { .episode-grid { grid-template-columns: 1fr; } }

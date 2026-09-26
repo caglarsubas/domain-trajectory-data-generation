@@ -196,3 +196,9 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/30
 
 Slice 6, first part. Where a group's rollouts part, an episode holds the machines' state, operations named after BIAN service domains and shaped by the study's OpenAPI definitions, a task in the run's language, five code-checked rubric items, and scripted rollouts (the step taken, legal alternatives, a forbidden operation, another case's object) rewarded as verification times rubric score, with group-relative advantages. Export writes every rollout in chat-tool, tool-block, and ReAct formats, with ReAct held out, and the run page shows the focused journey's episode.
 
+## 31. Let provider models take episode turns on the account's own key, checked against the skeleton
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/31
+
+Slice 6, second part of episodes. A model at OpenAI, Anthropic, Google, or xAI takes each episode's turn on the run owner's key: it calls an operation, the mock bank answers, and it reports. Code checks the call against the skeleton (a known operation, valid arguments, a legal step, the case's own objects, one call) and scores it on the same rubric, so it joins its group's advantages. The composer estimates the calls and takes a cap, failed calls count against it, three failures stop the rollouts, a large run spends one budget across its batches, demo runs make at most 100 calls, and the key never reaches an error or the run.
+

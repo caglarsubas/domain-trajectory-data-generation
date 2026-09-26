@@ -110,6 +110,7 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         "jurisdiction": body.jurisdiction,
         "calibrate": body.calibrate,
         "episodes": body.episodes,
+        "decisions": body.decisions,
         "provider_rollouts": body.provider_rollouts,
         "provider_call_budget": budget,
         "provider_model": body.provider_model or None,

@@ -86,6 +86,23 @@ Export adds `episodes.jsonl` and each rollout once per harness: `episodes-openai
 
 Provider rollouts (`provider_rollouts`, 0 to 4 per episode) let a model at the provider of the run's own key take each episode's turn: it sees the task and the operations, makes a call, the mock bank answers with the recorded result or a refusal, and the model reports what it did. That is two calls per rollout, sent only to that provider with the key in a header. Code checks every call against the skeleton: a known operation, arguments the schema accepts, a legal step, the case's own objects, and one call only, and scores it on the same rubric, so a provider rollout joins its group's advantages with policy `provider:<model>` and its `checks`. They need a key, episodes, and at least two sequences per prompt. The composer estimates the calls (prompts × rollouts × 2) and takes a cap (`provider_call_budget`, at most 4,000); failed calls count against it, and three failures stop the run's rollouts. A large run spends one budget across its batches and keeps it in the checkpoint. `generation.episodes.provider` reports calls, rollouts, skipped rollouts and why, errors, and how many calls were legal, grounded, or missing. The model defaults to `OPENAI_AGENT_MODEL` (gpt-5.5), `ANTHROPIC_AGENT_MODEL` (claude-sonnet-4-5), `GOOGLE_AGENT_MODEL` (gemini-2.5-flash), or `XAI_AGENT_MODEL` (grok-4.5); `provider_model` overrides it for a run. Demo runs make at most `DEMO_MAX_PROVIDER_CALLS` (100) calls.
 
+## Decision records
+
+Decision-scoring runs and Jev-type targets record decisions (`decisions`, on by default for either). Each prompt's journey records the first decision of each outcome group, such as KYC passing or failing and an application being approved or declined, with what a model needs and nothing it cannot use:
+- **Curated state.** The machines' states before the decision.
+- **Derived facts.** Events so far, days since the start and since the previous step, money credited, debited, and net, and how often each event happened, precomputed because Jev-type models do not do arithmetic or date reasoning.
+- **Options.** The outcomes that were open, each with the preconditions that make it legal, the generator policy's share of it, and its value: the share of 64 simulated continuations under the same policy that reach the pack's goal.
+- **Outcome.** What the journey did next and whether it reached the goal.
+
+Every counterfactual is relative to the generator's own policy (`counterfactual_basis: generator_policy`), never causal. Values run on their own random streams, seeded by the policy and the context, so recording decisions draws the same journeys, and one context gets one target across all of a run's batches.
+
+Export turns each decision into typed questions in `decisions.jsonl`:
+- a choice among the outcomes, whose target is the policy's shares
+- true or false on whether the outcome taken, and one the state forbids, are allowed, decided by the machine rules
+- a score for each outcome, whose target is its value
+
+Every record has explicit criteria, an abstain answer that is never a target, and two variants that share its target and split: keys and options reordered, and the question paraphrased. A decision takes its sample's split as train, calibration (validation), or held out (test or a held-out sub-domain). `decision-record.schema.json` is the JSON Schema every record validates against, versioned with the contract (`decision-record/1`). `prefixes.jsonl` holds a record per trainable assistant turn, the conversation before it and the turn, for prefix-conditioned distillation. The manifest lists the parts each consumer uses, and the export panel marks the run's own. Consumer and target family no longer appear in the prompt text.
+
 ## Judge
 
 A cycle judges a sample of the run's journeys, six by default (`JUDGE_SAMPLE_SIZE`), taken from each kind of journey and outcome in turn, largest first, and chosen deterministically from the run and the cycle. The judge reads each journey with its objects, amounts and their direction, state changes, and the sample's text, shortened to fit `JUDGE_PROMPT_TOKENS` (8,000) when it must. Helpfulness, correctness, and safety are asked of the primary judge, `INFERENCE_ENGINE_JUDGE_MODEL` (`qwen3.8:27b`), and of the second opinion, `INFERENCE_ENGINE_SECOND_JUDGE_MODEL` (`gemma4:26b`, or empty for none); pairwise quality against the journey's alternative is asked in both orders. Each judge also gets one control journey, a sampled journey with its events put out of order, which the pack's replay rejects.

@@ -1,7 +1,11 @@
 """Object-centric trajectory records and the agent rollout hierarchy."""
 
 from trajectory_contract.models import (
+    DECISION_SCHEMA_VERSION,
     Context,
+    DecisionOption,
+    DecisionPoint,
+    DecisionRecord,
     Episode,
     EpisodeTurn,
     Event,
@@ -23,7 +27,11 @@ from trajectory_contract.models import (
 from trajectory_contract.fixture import banking_fixture
 
 __all__ = [
+    "DECISION_SCHEMA_VERSION",
     "Context",
+    "DecisionOption",
+    "DecisionPoint",
+    "DecisionRecord",
     "Episode",
     "EpisodeTurn",
     "Event",

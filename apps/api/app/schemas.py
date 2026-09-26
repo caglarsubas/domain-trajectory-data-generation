@@ -113,6 +113,8 @@ class RunBody(BaseModel):
     calibrate: bool = True
     # Build agent episodes at decision points; unset means yes when the consumer is post-training.
     episodes: bool | None = None
+    # Record outcome decisions as typed questions; unset means yes for decision scoring or Jev-type targets.
+    decisions: bool | None = None
     # Provider-model rollouts per episode through the run's key (two calls each), and a cap on the calls.
     provider_rollouts: int = Field(default=0, ge=0, le=4)
     provider_call_budget: int | None = Field(default=None, ge=2, le=4000)
@@ -133,6 +135,7 @@ class RerunBody(BaseModel):
     jurisdiction: Literal["neutral", "tr", "uk"] | None = None
     calibrate: bool | None = None
     episodes: bool | None = None
+    decisions: bool | None = None
     provider_rollouts: int | None = Field(default=None, ge=0, le=4)
     provider_call_budget: int | None = Field(default=None, ge=2, le=4000)
     provider_model: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9._:-]*$")

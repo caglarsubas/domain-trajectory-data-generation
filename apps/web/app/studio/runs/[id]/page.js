@@ -7,6 +7,7 @@ import Shell from "../../../../components/Shell";
 import { api } from "../../../../lib/api";
 import DownloadPanel from "../../../../components/DownloadPanel";
 import EpisodeViewer from "../../../../components/EpisodeViewer";
+import DecisionViewer from "../../../../components/DecisionViewer";
 import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
 import RunDiff from "../../../../components/RunDiff";
 import { GroupViewer, ProcessMap, QualityCard, VariantList, formatHours, journeyOverview, laneLabel, shortLabel, typeSummary } from "../../../../components/RunViews";
@@ -24,6 +25,12 @@ function markClass(type) {
   if (type === "policy") return "policy";
   if (type === "claim") return "claim";
   return "kyc_case";
+}
+
+function decisionNote(decisions) {
+  const groups = Object.entries(decisions.groups || {}).map(([name, count]) => `${count} ${name.replaceAll("_", " ")}`).join(", ");
+  const value = decisions.mean_taken_value != null ? `; the step each journey took reaches the goal in ${Math.round(decisions.mean_taken_value * 100)}% of simulated continuations on average` : "";
+  return `Recorded ${decisions.points} outcome ${decisions.points === 1 ? "decision" : "decisions"} (${groups}) as ${decisions.records.toLocaleString()} typed records${value}.`;
 }
 
 function providerNote(provider) {
@@ -335,6 +342,9 @@ export default function RunPage() {
           {run.generation.calibration
             ? ` Calibrated from ${run.generation.calibration.sources.join(", ")} (${run.generation.calibration.cases.toLocaleString()} cases, ${(run.generation.calibration.steps_observed || 0).toLocaleString()} observed steps).`
             : null}
+          {run.generation.decisions?.points
+            ? ` ${decisionNote(run.generation.decisions)}`
+            : null}
           {run.generation.episodes?.provider
             ? ` ${providerNote(run.generation.episodes.provider)}`
             : null}
@@ -455,6 +465,7 @@ export default function RunPage() {
             {" "}Select a node or a step to inspect it and leave a note.
           </p>
           <EpisodeViewer key={detail?.episodes?.[0]?.episode_id} episode={detail?.episodes?.[0]} />
+          <DecisionViewer key={detail?.decisions?.[0]?.decision_id} decisions={detail?.decisions} />
           <ProcessMap
             overview={mapOverview}
             eventKinds={eventKinds}
