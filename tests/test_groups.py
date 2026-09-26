@@ -3,7 +3,7 @@ import pytest
 from sectors.banking.checks import banking_hard_checks
 from sectors.banking.generate import generate_banking_bundle
 from sectors.banking.pack import SUB_DOMAINS
-from sectors.banking.spec import intent
+from sectors.banking.spec import LIFECYCLE, PACK, intent
 from test_api import _auth, _link, _project, _ready_key, _run
 
 
@@ -55,6 +55,40 @@ def test_a_group_shares_its_prompt_and_prefix_then_diverges():
             split = first.event_ids.index(rollout.branch_event_id) + 1
             assert rollout.event_ids[:split] == first.event_ids[:split]
     assert any(len({tuple(_types(bundle, s.trajectory_id)) for s in sample.sequences}) > 1 for sample in bundle.samples)
+
+
+def test_the_first_sequence_is_not_chosen_for_success():
+    # Declined and abandoned applications end before eight events. The first sequence was redrawn until it reached
+    # the minimum, so it passed every time, while its rollouts, which keep such endings, passed seven in ten.
+    bundle = _bundle(sub_domains=["onboarding_and_kyc", "deposits"], min_events=8, max_events=24, target_trajectory_count=200,
+                     materialization_cap=800, seed="first")
+    assert banking_hard_checks(bundle) == []
+    firsts = [sample.sequences[0] for sample in bundle.samples]
+    rollouts = [sequence for sample in bundle.samples for sequence in sample.sequences[1:]]
+    after_failure = [sequence for sample in bundle.samples if sample.sequences[0].outcome == "fail" for sequence in sample.sequences[1:]]
+
+    def rate(sequences):
+        return sum(sequence.outcome == "pass" for sequence in sequences) / len(sequences)
+
+    assert rate(firsts) < 0.9
+    assert abs(rate(firsts) - rate(rollouts)) < 0.12
+    # A first sequence that reached no product leaves its rollouts free to reach one, so they need not fail with it.
+    assert rate(after_failure) > 0.4
+    short = [_types(bundle, sequence.trajectory_id) for sequence in firsts if len(_types(bundle, sequence.trajectory_id)) < 8]
+    assert short and all(LIFECYCLE[types[-1]].ends_journey for types in short)
+
+
+def test_the_opening_asks_for_the_product_the_group_reached():
+    bundle = _bundle(sub_domains=["onboarding_and_kyc", "consumer_credit"], target_trajectory_count=60, materialization_cap=240, seed="asking")
+    loan = PACK.openings["en"]["loan_origination"] + PACK.openings["en"]["loan_delinquency"]
+    reopened = 0
+    for sample in bundle.samples:
+        reached = [intent(_types(bundle, sequence.trajectory_id)) for sequence in sample.sequences]
+        opening = next(segment.text for segment in sample.sequences[0].contexts[0].segments if segment.role == "user")
+        if "loan" in reached:
+            assert opening in loan, (reached, opening)
+            reopened += reached[0] is None
+    assert reopened
 
 
 def test_group_rewards_are_centred_and_all_pass_groups_are_not_accepted():

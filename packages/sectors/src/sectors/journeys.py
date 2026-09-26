@@ -205,9 +205,7 @@ def generate_bundle(
     # The cap counts every sequence the studio stores, so larger groups mean fewer prompts.
     limit = min(requested, max(int(materialization_cap) // size, 1))
     floor, cap = _bounds(min_events, max_events)
-    # A helpfulness note lengthens the journeys that can go on. One the domain ends, such as a declined
-    # application, keeps the requested minimum, or the note would leave out those outcomes.
-    ended_floor = floor
+    # A helpfulness note lengthens the journeys that can go on; one the domain ends keeps its natural length.
     if enrich:
         floor = min(floor + 1, cap)
     remaining = None if event_budget is None else max(int(event_budget), 1)
@@ -226,8 +224,7 @@ def generate_bundle(
         if built and room < floor:
             limited_by = "event_budget"
             break
-        path = _choose(walker, pack, paths, floor=min(floor, room), ended_floor=min(ended_floor, room), cap=room,
-                       dropped=dropped_kinds, kept=kept_kinds)
+        path = _choose(walker, pack, paths, floor=min(floor, room), cap=room, dropped=dropped_kinds, kept=kept_kinds)
         if not path.steps:
             # Nothing is legal from the start, for example when notes dropped every opening event.
             break
@@ -340,15 +337,14 @@ def _choose(
     rng: random.Random,
     *,
     floor: int,
-    ended_floor: int,
     cap: int,
     dropped: set[str],
     kept: set[str],
 ) -> Path:
     """Walk until a journey meets the length floor and the trajectory-type notes.
 
-    A journey the domain ended, such as a declined application, only has to reach `ended_floor`, which is
-    below `floor` when a revision note asked for longer journeys: those outcomes cannot run longer.
+    A journey the domain ended, such as a declined application, counts at its natural length, as a rollout
+    does: redrawing it would make the first sequence of a group almost always one of the long successes.
     """
     best: Path | None = None
     best_score: tuple[bool, bool, int] | None = None
@@ -357,7 +353,7 @@ def _choose(
         kind = pack.classify(path.types)
         wanted = kind not in dropped and (not kept or kind in kept)
         ended = bool(path.steps) and pack.lifecycle[path.types[-1]].ends_journey
-        long_enough = len(path.steps) >= (ended_floor if ended else floor)
+        long_enough = ended or len(path.steps) >= floor
         if wanted and long_enough:
             return path
         score = (wanted, long_enough, len(path.steps))
@@ -445,7 +441,9 @@ def _rollouts(
 ) -> tuple[int, list[Path]]:
     """Further sequences for the same prompt: the shared prefix, then a fresh walk from the first decision.
 
-    A rollout keeps the first sequence's intent, such as a loan, so one opening fits the whole group.
+    A rollout keeps the group's intent, such as a loan, so one opening fits the whole group. The intent is
+    the first sequence's, or, when that reached no product, such as a declined application, the first
+    rollout's that did: holding every rollout to no product would make them all fail with the first.
     A rollout the domain ended, such as an abandoned application, counts even below the length floor:
     rejecting it would keep only the outcomes that run long, and those are mostly the successes.
     """
@@ -462,7 +460,7 @@ def _rollouts(
         best: Path | None = None
         for _attempt in range(PATH_ATTEMPTS):
             walked = walker.walk(rng, floor=floor, cap=cap, state=state, counts=counts, prefix=path.steps[:split])
-            fits = pack.intent(walked.types) in (None, intent)
+            fits = intent is None or pack.intent(walked.types) in (None, intent)
             wanted = pack.classify(walked.types) not in dropped
             ended = bool(walked.steps) and pack.lifecycle[walked.types[-1]].ends_journey
             best = walked if best is None else best
@@ -471,6 +469,7 @@ def _rollouts(
                 break
         assert best is not None
         rollouts.append(best)
+        intent = intent or pack.intent(best.types)
     return split, rollouts
 
 
@@ -702,7 +701,11 @@ def _relate(pack: PackSpec, catalog: dict[str, ObjectRecord], when: datetime, id
 
 
 def _group_sample(context: _Context, members: list[_Member]) -> Sample:
-    """One prompt, one opening, and one sequence per member. The first member sets the prompt."""
+    """One prompt, one opening, and one sequence per member.
+
+    The first member sets the prompt, and the opening asks for the group's intent: the first member's, or the
+    first rollout's when the first member reached no product.
+    """
     pack, words, ids, steering = context.pack, context.words, context.ids, context.steering
     phrases = pack.phrases[context.lang]
     if context.cold:
@@ -733,8 +736,9 @@ def _group_sample(context: _Context, members: list[_Member]) -> Sample:
         system += " Revision notes: " + " | ".join(context.revisions)
     system = system[:2000]
     first = members[0].types
+    asking = next((member.types for member in members if pack.intent(member.types)), first)
     openings = pack.openings[context.lang]
-    opening = words.choice(openings.get(f"@{first[0]}") or openings.get(pack.classify(first)) or openings["*"])
+    opening = words.choice(openings.get(f"@{first[0]}") or openings.get(pack.classify(asking)) or openings["*"])
     prompt = words.choice(pack.prompts[context.lang])
     sequences = []
     for member in members:
