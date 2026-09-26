@@ -214,6 +214,12 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/33
 
 Slice 6, evaluation, completing the slice. Five scorers read only a journey's events and waits: outcome, solution rubric, behavior rubric, process conformance, and decision score. The run's signal decides pass or fail and so rewards and group acceptance, while the solution and behavior rubrics become the reward's solution and behavior terms. Evaluation runs export every prompt and episode as a task with its environment, verifiers, and reference trajectories, and report avg@k and pass@k by verifier and by policy; a provider model's attempts on the owner's key become its pass@k.
 
+## 34. Draw a group's first sequence like its rollouts, not for success
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/34
+
+Follow-up to #23, found with the #33 scorers. A journey the domain ends, such as a declined application, was redrawn until it reached the minimum length unless it was a rollout, so on a banking run over onboarding and deposits every group's first sequence passed, at typicality 0.98, while its rollouts passed 70% at 0.83. Such journeys now count at their natural length for the first sequence too. That exposed a second coupling: banking reads intent from the product a journey reached, so a declined first sequence held every rollout to reaching none, and they failed with it. The group's intent is now the first sequence's, or else the first rollout's that reached a product, and the opening asks for it. Over five seeds the first sequence now passes as often as unselected walks, and rollouts are within four points.
+
 ## 35. Add the sector gates as code and a telecommunications pack that passes them
 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/35
@@ -228,4 +234,3 @@ Slice 7, first part. `sectors.gates` checks any pack against the gates banking p
 - episodes, decisions, and signals
 
 The telecommunications pack covers ordering with a credit check, activation with number porting, billing with suspension and restoration, plan changes, fault repair, retention, and complaints, with operations named after TM Forum Open API domains. Packs gained their own operation maps and agent wording, jurisdictions gained rules per sector, the API accepts any registered sector, and the composer takes each pack's default sub-domains.
-
