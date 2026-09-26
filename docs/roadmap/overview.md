@@ -171,7 +171,7 @@ Progress, 26 September 2026: Slice 7 ships a pack per pull request. The first ad
 - **Jurisdictions:** profiles carry rules per sector.
 - **API and composer:** the API accepts any registered sector, and the composer takes default sub-domains from the pack.
 
-Airline and hotel packs follow.
+The second adds the airline pack in IATA's NDC and ONE Order vocabulary. It covers booking, ancillaries and changes, check-in and boarding with denied boarding and no-shows, disruption with rebooking or refund, compensation under UK261 and SHY-Yolcu, baggage, loyalty, and complaints, and passes the same gates. The hotel pack follows.
 
 ## UX track
 

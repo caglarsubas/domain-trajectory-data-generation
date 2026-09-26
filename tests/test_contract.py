@@ -13,10 +13,10 @@ def test_fixture_round_trip_and_alternative_branch():
 
 
 def test_registered_sectors_are_the_packs_that_passed_their_gates():
-    assert known_sectors() == ["banking", "insurance", "telecom"]
-    assert get_sector("telecom").id == "telecom"
+    assert known_sectors() == ["airline", "banking", "insurance", "telecom"]
+    assert get_sector("airline").id == "airline"
     with pytest_raises():
-        get_sector("airline")
+        get_sector("hotel")
 
 
 def pytest_raises():

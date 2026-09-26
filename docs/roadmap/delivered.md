@@ -220,3 +220,17 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/34
 
 Follow-up to #23, found with the #33 scorers. A journey the domain ends, such as a declined application, was redrawn until it reached the minimum length unless it was a rollout, so on a banking run over onboarding and deposits every group's first sequence passed, at typicality 0.98, while its rollouts passed 70% at 0.83. Such journeys now count at their natural length for the first sequence too. That exposed a second coupling: banking reads intent from the product a journey reached, so a declined first sequence held every rollout to reaching none, and they failed with it. The group's intent is now the first sequence's, or else the first rollout's that reached a product, and the opening asks for it. Over five seeds the first sequence now passes as often as unselected walks, and rollouts are within four points.
 
+## 35. Add the sector gates as code and a telecommunications pack that passes them
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/35
+
+Slice 7, first part. `sectors.gates` checks any pack against the gates banking passes, and the suite runs them for every registered pack:
+- a complete spec
+- a random sweep with no broken rule
+- every sub-domain reaching its milestones
+- 32 distinct sequences in 64 journeys
+- every event reachable
+- stable seeds
+- episodes, decisions, and signals
+
+The telecommunications pack covers ordering with a credit check, activation with number porting, billing with suspension and restoration, plan changes, fault repair, retention, and complaints, with operations named after TM Forum Open API domains. Packs gained their own operation maps and agent wording, jurisdictions gained rules per sector, the API accepts any registered sector, and the composer takes each pack's default sub-domains.
