@@ -64,11 +64,18 @@ PROFILES: dict[str, Jurisdiction] = {
             "sim_only": "SIM-only plan",
             "broadband": "home broadband",
             "fibre": "fibre broadband",
+            "economy": "economy fare",
+            "premium_economy": "premium economy fare",
+            "business": "business class fare",
         },
         rules={
             "telecom": (
                 "Identity is checked before a contract starts or a SIM is activated.",
                 "A customer who switches provider can keep their number.",
+            ),
+            "airline": (
+                "A passenger whose flight is cancelled can choose a refund or another flight.",
+                "Denied boarding and long delays can entitle passengers to care and compensation.",
             ),
         },
         kyc=(
@@ -98,11 +105,19 @@ PROFILES: dict[str, Jurisdiction] = {
             "sim_only": "SIM-only deal",
             "broadband": "broadband",
             "fibre": "full-fibre broadband",
+            "economy": "economy fare",
+            "premium_economy": "premium economy fare",
+            "business": "business class fare",
         },
         rules={
             "telecom": (
                 "A mobile customer can switch provider by text and keep their number, and the code to do so is free.",
                 "A complaint not resolved within eight weeks can go to an Ofcom-approved dispute resolution scheme.",
+            ),
+            "airline": (
+                "Under UK261, a passenger who arrives three hours or more late, or whose flight is cancelled at short notice, can claim fixed compensation unless extraordinary circumstances caused it.",
+                "A passenger denied boarding against their will is offered a refund or rerouting, care, and compensation.",
+                "A complaint the airline does not resolve can go to a CAA-approved dispute resolution body.",
             ),
         },
         kyc=(
@@ -133,11 +148,18 @@ PROFILES: dict[str, Jurisdiction] = {
             "sim_only": "cihazsız tarife",
             "broadband": "ev interneti",
             "fibre": "fiber internet",
+            "economy": "ekonomi sınıfı bilet",
+            "premium_economy": "premium ekonomi bilet",
+            "business": "business sınıfı bilet",
         },
         rules={
             "telecom": (
                 "Aboneler, BTK düzenlemelerine göre hat açılmadan önce kimlik doğrulamasından geçer.",
                 "Müşteri, numara taşıma ile numarasını koruyarak operatör değiştirebilir.",
+            ),
+            "airline": (
+                "SHY-Yolcu yönetmeliğine göre uçuşu iptal edilen, uzun rötara uğrayan veya fazla rezervasyon nedeniyle binişi reddedilen yolcular ikram ve tazminat hakkına sahiptir.",
+                "Uçuşu iptal edilen yolcu, bilet ücretinin iadesi ile başka bir uçuş arasında seçim yapabilir.",
             ),
         },
         kyc=(

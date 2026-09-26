@@ -214,3 +214,18 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/33
 
 Slice 6, evaluation, completing the slice. Five scorers read only a journey's events and waits: outcome, solution rubric, behavior rubric, process conformance, and decision score. The run's signal decides pass or fail and so rewards and group acceptance, while the solution and behavior rubrics become the reward's solution and behavior terms. Evaluation runs export every prompt and episode as a task with its environment, verifiers, and reference trajectories, and report avg@k and pass@k by verifier and by policy; a provider model's attempts on the owner's key become its pass@k.
 
+## 35. Add the sector gates as code and a telecommunications pack that passes them
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/35
+
+Slice 7, first part. `sectors.gates` checks any pack against the gates banking passes, and the suite runs them for every registered pack:
+- a complete spec
+- a random sweep with no broken rule
+- every sub-domain reaching its milestones
+- 32 distinct sequences in 64 journeys
+- every event reachable
+- stable seeds
+- episodes, decisions, and signals
+
+The telecommunications pack covers ordering with a credit check, activation with number porting, billing with suspension and restoration, plan changes, fault repair, retention, and complaints, with operations named after TM Forum Open API domains. Packs gained their own operation maps and agent wording, jurisdictions gained rules per sector, the API accepts any registered sector, and the composer takes each pack's default sub-domains.
+
