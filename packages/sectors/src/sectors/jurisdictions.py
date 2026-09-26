@@ -7,7 +7,7 @@ language, as before profiles existed.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,14 @@ class Jurisdiction:
     products: dict[str, str]
     kyc: tuple[str, ...]
     documents: tuple[str, ...]
+    # Rules for sectors where KYC is not the point, such as number porting for telecoms, by sector id.
+    rules: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    def rules_for(self, sector: str) -> tuple[str, tuple[str, ...]]:
+        """The heading and rules a sector's samples and judge see: its own rules, else the KYC rules."""
+        if sector in self.rules:
+            return "Rules", self.rules[sector]
+        return "KYC", self.kyc
 
     def describe(self) -> dict:
         return {
@@ -30,6 +38,7 @@ class Jurisdiction:
             "products": dict(self.products),
             "kyc": list(self.kyc),
             "documents": list(self.documents),
+            "rules": {sector: list(rules) for sector, rules in self.rules.items()},
         }
 
 
@@ -50,6 +59,17 @@ PROFILES: dict[str, Jurisdiction] = {
             "home": "home insurance",
             "travel": "travel insurance",
             "life": "life insurance",
+            "mobile_postpaid": "pay-monthly mobile plan",
+            "mobile_prepaid": "prepaid SIM",
+            "sim_only": "SIM-only plan",
+            "broadband": "home broadband",
+            "fibre": "fibre broadband",
+        },
+        rules={
+            "telecom": (
+                "Identity is checked before a contract starts or a SIM is activated.",
+                "A customer who switches provider can keep their number.",
+            ),
         },
         kyc=(
             "Identity is verified before an account is opened or a policy is bound.",
@@ -73,6 +93,17 @@ PROFILES: dict[str, Jurisdiction] = {
             "home": "buildings and contents insurance",
             "travel": "travel insurance",
             "life": "term life insurance",
+            "mobile_postpaid": "pay monthly contract",
+            "mobile_prepaid": "pay as you go SIM",
+            "sim_only": "SIM-only deal",
+            "broadband": "broadband",
+            "fibre": "full-fibre broadband",
+        },
+        rules={
+            "telecom": (
+                "A mobile customer can switch provider by text and keep their number, and the code to do so is free.",
+                "A complaint not resolved within eight weeks can go to an Ofcom-approved dispute resolution scheme.",
+            ),
         },
         kyc=(
             "Identity and address are verified under the Money Laundering Regulations 2017 before an account is opened.",
@@ -97,6 +128,17 @@ PROFILES: dict[str, Jurisdiction] = {
             "home": "konut sigortası",
             "travel": "seyahat sağlık sigortası",
             "life": "hayat sigortası",
+            "mobile_postpaid": "faturalı hat",
+            "mobile_prepaid": "faturasız hat",
+            "sim_only": "cihazsız tarife",
+            "broadband": "ev interneti",
+            "fibre": "fiber internet",
+        },
+        rules={
+            "telecom": (
+                "Aboneler, BTK düzenlemelerine göre hat açılmadan önce kimlik doğrulamasından geçer.",
+                "Müşteri, numara taşıma ile numarasını koruyarak operatör değiştirebilir.",
+            ),
         },
         kyc=(
             "Kimlik, MASAK düzenlemelerine göre T.C. kimlik numarasıyla hesap açılmadan önce doğrulanır.",

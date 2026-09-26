@@ -135,6 +135,7 @@ def sectors() -> dict:
                 "id": pack.id,
                 "label": pack.label,
                 "sub_domains": list(pack.sub_domains),
+                "default_sub_domains": list(pack.default_sub_domains),
                 "event_namespace": list(pack.event_namespace),
                 "state_dimensions": list(pack.state_dimensions),
                 "languages": list(pack.languages),

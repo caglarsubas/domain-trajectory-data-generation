@@ -61,6 +61,7 @@ RUBRIC = (
     ("report", "report", "Ends with a message that says what was recorded, or why it was refused."),
 )
 
+# The banking wording; a pack gives its own in `PackSpec.agent`.
 TASK = {
     "en": "You operate the bank's systems for customer {party}. {situation} Decide the next step and record it with one operation call, then say what you did.",
     "tr": "{party} numaralı müşteri için bankanın sistemlerini yönetiyorsunuz. {situation} Sıradaki adıma karar verin, tek bir işlem çağrısıyla kaydedin ve ne yaptığınızı söyleyin.",
@@ -72,8 +73,9 @@ SYSTEM = {
 REFUSED = {"en": "The operation was refused: {reason}.", "tr": "İşlem reddedildi: {reason}."}
 
 
-def tool_name(event: str) -> tuple[str, str, str]:
-    domain, action = BIAN.get(event) or (event.split(".")[0].replace("_", " ").title(), event.split(".")[-1].split("_")[0].title())
+def tool_name(event: str, operations: dict[str, tuple[str, str]] | None = None) -> tuple[str, str, str]:
+    """An event's operation name, service domain, and action: the pack's own API map, BIAN when it has none, else the event's words."""
+    domain, action = (operations or BIAN).get(event) or (event.split(".")[0].replace("_", " ").title(), event.split(".")[-1].split("_")[0].title())
     return re.sub(r"[^A-Za-z]", "", domain.title()) + "." + action, domain, action
 
 
@@ -84,10 +86,10 @@ def _outcome(event: str) -> str:
 def build_tools(pack, events: list[str], operations: list[dict] | None = None) -> list[ToolSpec]:
     grouped: dict[str, list[str]] = {}
     for event in events:
-        grouped.setdefault(tool_name(event)[0], []).append(event)
+        grouped.setdefault(tool_name(event, pack.operations)[0], []).append(event)
     tools = []
     for name, members in grouped.items():
-        _, domain, action = tool_name(members[0])
+        _, domain, action = tool_name(members[0], pack.operations)
         properties: dict[str, Any] = {}
         required: list[str] = []
         for event in members:
@@ -178,7 +180,7 @@ def _arguments(pack, event: str, objects: dict[str, str], taken_links: dict[str,
         found = objects.get(kind) or taken_links.get(kind)
         if found:
             arguments[f"{role}_id"] = found
-    tool = tools.get(tool_name(event)[0])
+    tool = tools.get(tool_name(event, pack.operations)[0])
     if tool is not None and "outcome" in tool.parameters["properties"]:
         arguments["outcome"] = _outcome(event)
     return arguments
@@ -203,6 +205,7 @@ def _score(well_formed: bool, legal: bool, grounded: bool, outcome: str) -> tupl
 
 def build_episodes(pack, bundle: TrajectoryBundle, *, language: str = "en", seed: str = "episodes", operations: list[dict] | None = None) -> list[Episode]:
     lang = language.split("-")[0] if language.split("-")[0] in TASK else "en"
+    wording = pack.agent.get(lang) or {"system": SYSTEM[lang], "task": TASK[lang]}
     rng = random.Random(f"{seed}|episodes")
     events = {event.event_id: event for event in bundle.events}
     trajectories = {item.trajectory_id: item for item in bundle.trajectories}
@@ -236,18 +239,18 @@ def build_episodes(pack, bundle: TrajectoryBundle, *, language: str = "en", seed
         distractors = rng.sample(illegal, min(2, len(illegal)))
         tools = build_tools(pack, legal + distractors, operations)
         by_name = {tool.name: tool for tool in tools}
-        tool_of = {event: tool_name(event)[0] for event in legal + distractors}
+        tool_of = {event: tool_name(event, pack.operations)[0] for event in legal + distractors}
         history = [
             {"event_type": events[item].event_type, "time": events[item].event_time.isoformat(), "text": phrases.get(events[item].event_type, events[item].event_type)}
             for item in prefix_ids
             if item in events
         ]
         party = objects.get("party") or primary.root_party_id
-        task = TASK[lang].format(party=party, situation=" ".join(item["text"] for item in history[-2:]))
-        system = SYSTEM[lang]
+        task = wording["task"].format(party=party, situation=" ".join(item["text"] for item in history[-2:]))
+        system = wording["system"]
 
         def rollout(policy: str, event: str, arguments: dict, result: dict, legal_step: bool, grounded: bool, outcome: str, index: int) -> Rollout:
-            call = ToolCall(name=tool_of.get(event, tool_name(event)[0]), arguments=arguments)
+            call = ToolCall(name=tool_of.get(event, tool_name(event, pack.operations)[0]), arguments=arguments)
             final = phrases.get(event, event) if result.get("status") == "ok" else REFUSED[lang].format(reason=result.get("reason", ""))
             scores, reward = _score(valid_arguments(by_name.get(call.name), arguments), legal_step, grounded, outcome)
             return Rollout(
@@ -303,7 +306,7 @@ def build_episodes(pack, bundle: TrajectoryBundle, *, language: str = "en", seed
             item.advantage = round(advantage, 4)
         skeleton = {
             "legal_events": legal,
-            "legal_tools": sorted({tool_name(event)[0] for event in legal}),
+            "legal_tools": sorted({tool_name(event, pack.operations)[0] for event in legal}),
             "objects": objects,
             "reference": {"tool": reference.turns[2].tool_call.name, "event": reference.action_event, "arguments": reference.turns[2].tool_call.arguments},
             "alternatives": [item.action_event for item in rollouts if item.policy == "alternative"],

@@ -3,8 +3,10 @@ from __future__ import annotations
 from sectors.banking.pack import BANKING
 from sectors.base import SectorPack
 from sectors.insurance.pack import INSURANCE
+from sectors.telecom.pack import TELECOM
 
-_PACKS: dict[str, SectorPack] = {BANKING.id: BANKING, INSURANCE.id: INSURANCE}
+# A pack is registered here only once it passes the gates in `sectors.gates`, the same ones banking passes.
+_PACKS: dict[str, SectorPack] = {BANKING.id: BANKING, INSURANCE.id: INSURANCE, TELECOM.id: TELECOM}
 
 
 def known_sectors() -> list[str]:

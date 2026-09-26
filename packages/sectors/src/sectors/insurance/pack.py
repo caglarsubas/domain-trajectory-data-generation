@@ -27,6 +27,8 @@ class InsurancePack:
     event_namespace = EVENT_NAMESPACE
     state_dimensions = STATE_DIMENSIONS
     languages = ("en", "tr")
+    # What the composer selects when a study in this sector starts.
+    default_sub_domains = ("quoting", "underwriting", "policy_administration")
     lifecycle = LIFECYCLE
     # The pack's full spec: its goal, phrases, and version, which exports describe.
     pack = PACK

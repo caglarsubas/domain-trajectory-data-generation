@@ -25,7 +25,7 @@ function shown(value) {
   return typeof value === "number" ? (Number.isInteger(value) ? String(value) : value.toFixed(2)) : "—";
 }
 
-// A decision of this journey as an agent task: the mock bank's state and operations, the task, and scored rollouts.
+// A decision of this journey as an agent task: the mock system's state and operations, the task, and scored rollouts.
 export default function EpisodeViewer({ episode }) {
   const [open, setOpen] = useState(0);
   if (!episode) return null;
@@ -37,7 +37,7 @@ export default function EpisodeViewer({ episode }) {
     <div className="episode">
       <div className="panel-head">
         <h3>Episode</h3>
-        <small>After {episode.decision_index} steps, the agent takes the next one against a mock bank. Rubric items are checked by code; reward is verification times the rubric score.</small>
+        <small>After {episode.decision_index} steps, the agent takes the next one against a mock of the provider's systems. Rubric items are checked by code; reward is verification times the rubric score.</small>
       </div>
       <p className="episode-task">{episode.task}</p>
       <div className="episode-grid">

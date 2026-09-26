@@ -1,13 +1,13 @@
 # Domain trajectory studio
 
-A studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Banking and insurance each have a constrained generator on the same run schema. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
+A studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Banking, insurance, and telecommunications each have a constrained generator on the same run schema. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
 
 ## Layout
 
 - `apps/api` — FastAPI accounts, encrypted keys, runs, and the judge client
 - `apps/web` — the studio interface
 - `packages/trajectory_contract` — object-centric records and the Sample / Sequence / Context / Segment hierarchy
-- `packages/sectors` — sector packs; `banking` and `insurance` are registered
+- `packages/sectors` — sector packs; `banking`, `insurance`, and `telecom` are registered, each after passing the gates in `sectors.gates`
 - `docs/banking` — the warm-start research reports
 - `docs/roadmap` — the purpose, the standing constraints, what shipped, and the next slice
 
@@ -119,6 +119,30 @@ Evaluation runs build episodes by default, and choosing the evaluation consumer 
 - **Agent tasks:** a task per episode, with the mock bank as its environment (state, operations, objects, legal events, and the answers to each step a journey took), the rubric's verifiers, the reference rollouts, and each policy's results.
 
 `evaluation.json` reports avg@k and pass@k (the unbiased estimate from n attempts with c passes, 1 − C(n−c, k) / C(n, k)) by verifier for journeys and by policy for agent tasks. It also carries the pack's environment (events, preconditions, effects, milestones, goal) and the verifiers' definitions. With provider rollouts, each model's pass@k over its own attempts is a real evaluation of that model, and the run page shows it. The generator's pass@k is a reference for how hard each task is.
+
+## Sector packs
+
+A sector pack is a set of state machines and priors on the shared lifecycle engine, with its own objects, phrases in English and Turkish, prompts and openings, a goal, a map from events to its industry's operations for episodes, and the episode agent's wording. Rewards, the quality report, calibration, episodes, decision records, and the five scorers work on every pack unchanged. Banking names its operations after BIAN, insurance after insurance capability domains, and telecommunications after TM Forum Open API domains.
+
+A pack is registered, and so offered in the composer, only once it passes the gates in `sectors.gates` that banking passes, which the test suite runs for every registered pack:
+- **complete_spec:** every event has roles, phrases, and an operation.
+- **legal_sweep:** 150 random configurations break no rule, repeat limit, or length bound.
+- **every_sub_domain:** each sub-domain, alone and together, reaches its milestones.
+- **diversity:** at least 32 distinct sequences in 64 journeys.
+- **reachable:** every event occurs in a large run.
+- **stable:** a fixed seed reproduces the run.
+- **agent_ready:** groups yield episodes, decision points, and all five signals.
+
+Telecommunications (`telecom-semi-markov-v1`) covers:
+- **Sales and ordering:** orders that may be abandoned, and a credit check that passes, asks for a deposit, or fails.
+- **Activation and porting:** a SIM sent before the line goes live, and number ports that complete or fail before activation.
+- **Billing and payments:** monthly bills paid or overdue, with suspension for an overdue bill and restoration once it is paid.
+- **Plan changes:** changes that may be declined.
+- **Fault management:** faults diagnosed and fixed remotely or by an engineer.
+- **Retention:** cancellation requests that end in a retention offer, a cancellation, or a port-out.
+- **Complaints:** complaints resolved or escalated to the dispute scheme.
+
+Jurisdiction profiles carry rules per sector: telecom runs are told about number porting and dispute schemes rather than KYC. Airline and hotel packs follow.
 
 ## Judge
 

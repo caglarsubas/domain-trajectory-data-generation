@@ -208,3 +208,9 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/32
 
 Slice 6, decision records. Decision-scoring and Jev-type runs record the first decision of each outcome group in a journey. Each record holds the machines' state, facts precomputed from the history, each outcome's policy share and its value from 64 simulated continuations under that policy, and what the journey did. Export writes each decision as choice, true-or-false, and score questions with criteria, an abstain answer, reordered and paraphrased variants, and train, calibration, and held-out splits, validated against a versioned schema that ships with the export. History-prefix records, consumer export parts, and a decision viewer come with it.
 
+## 33. Give each signal mechanism a scorer, and export evaluation tasks with verifiers and pass@k
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/33
+
+Slice 6, evaluation, completing the slice. Five scorers read only a journey's events and waits: outcome, solution rubric, behavior rubric, process conformance, and decision score. The run's signal decides pass or fail and so rewards and group acceptance, while the solution and behavior rubrics become the reward's solution and behavior terms. Evaluation runs export every prompt and episode as a task with its environment, verifiers, and reference trajectories, and report avg@k and pass@k by verifier and by policy; a provider model's attempts on the owner's key become its pass@k.
+
