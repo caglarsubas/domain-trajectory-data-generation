@@ -240,3 +240,9 @@ The telecommunications pack covers ordering with a credit check, activation with
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/36
 
 Runs could only be removed by hand in the database. `DELETE /runs/{id}` lets a run's owner remove it with its judge cycles and verdicts, its notes, and its files, exports included, and is refused while a job is still working on it. Its jobs stay with the run cleared, so a demo account's daily quota still counts them, and runs made from it keep their journeys and lose only the comparison with it. The run page and the job panel for a failed or cancelled run get a Delete run button that asks first.
+
+## 38. Add an airline pack in IATA's NDC and ONE Order vocabulary that passes the sector gates
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/38
+
+Slice 7, second part. The airline pack covers booking with payment captured, failed, or expired before ticketing; seats, bags, changes that may be declined, and voluntary cancellation with a refund; check-in, bag drop, and boarding, a no-show, or denied boarding; delays and cancellations rebooked or refunded; late arrivals and compensation claims paid or rejected; delayed bags; loyalty; and complaints. Operations follow NDC and ONE Order service areas, and the agent speaks as an airline. Jurisdictions gain airline rules, UK261 with CAA-approved dispute resolution for the United Kingdom and SHY-Yolcu for Turkey, and local fare names. The pack passes every gate, with 55 distinct sequences in 64 journeys; the gates caught bags stranded by boarding first, so boarding now waits for a checked bag to be dropped.
