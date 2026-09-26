@@ -185,7 +185,7 @@ def _mark_run(db, job: Job, status: str) -> None:
 
 
 def _generate(db, job: Job, report: Callable) -> str:
-    from app.generation import candidate_for_run
+    from app.generation import candidate_for_run, generate_batched, is_large
     from app.models import Feedback
 
     run = db.get(Run, job.run_id)
@@ -198,13 +198,18 @@ def _generate(db, job: Job, report: Callable) -> str:
         rows = list(db.scalars(select(Feedback).where(Feedback.id.in_(feedback_ids))))
         order = {item: index for index, item in enumerate(feedback_ids)}
         rows.sort(key=lambda row: order.get(row.id, 0))
-    bundle = candidate_for_run(db, run.config, project_id=run.project_id, feedback_rows=rows, parent=parent, progress=report)
-    run.candidate = bundle.model_dump(mode="json")
-    run.generation = run.candidate.get("generation")
+    if is_large(run.config):
+        run.generation = generate_batched(db, run, feedback_rows=rows, parent=parent, progress=report)
+        run.candidate = None
+    else:
+        bundle = candidate_for_run(db, run.config, project_id=run.project_id, feedback_rows=rows, parent=parent, progress=report)
+        run.candidate = bundle.model_dump(mode="json")
+        run.generation = run.candidate.get("generation")
     run.status = "generated"
     db.commit()
-    meta = bundle.generation
-    return f"Generated {meta.primary_trajectories} {'groups' if (meta.group_size or 1) > 1 else 'journeys'}." if meta else "Generated."
+    meta = run.generation or {}
+    unit = "groups" if (meta.get("group_size") or 1) > 1 else "journeys"
+    return f"Generated {meta.get('primary_trajectories', 0)} {unit}."
 
 
 HANDLERS: dict[str, Callable] = {"generate": _generate}

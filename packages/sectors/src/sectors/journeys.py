@@ -102,12 +102,15 @@ class Note:
 
 
 class _Ids:
-    def __init__(self) -> None:
+    """Record ids. A batch of a larger run prefixes every id, such as `B0003.E00012`, so batches never collide."""
+
+    def __init__(self, namespace: str = "") -> None:
+        self.namespace = namespace
         self.counts: dict[str, int] = {}
 
     def take(self, prefix: str) -> str:
         self.counts[prefix] = self.counts.get(prefix, 0) + 1
-        return f"{prefix}{self.counts[prefix]:05d}"
+        return f"{self.namespace}{prefix}{self.counts[prefix]:05d}"
 
 
 class _Member:
@@ -157,6 +160,7 @@ def generate_bundle(
     materialization_cap: int = STUDIO_TRAJECTORY_CAP,
     group_size: int = 1,
     progress: Callable[..., None] | None = None,
+    id_prefix: str = "",
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -185,7 +189,7 @@ def generate_bundle(
     if enrich:
         floor = min(floor + 1, cap)
     remaining = None if event_budget is None else max(int(event_budget), 1)
-    ids = _Ids()
+    ids = _Ids(id_prefix)
     built: list[_Journey] = []
     limited_by: str | None = None
     context = _Context(pack, domains, lang, language, steering, cold, revised, notes, revisions, reward_mechanism,
@@ -421,7 +425,7 @@ def _materialize_group(context: _Context, *, path: Path, split: int, rollouts: l
                     snapshots=snapshots, journey=journey)
     root = catalog["party"].object_id
     trajectory_id = context.ids.take("T")
-    group_id = f"G{trajectory_id[1:]}"
+    group_id = _swap_prefix(trajectory_id, "T", "G")
     journey.trajectories.append(
         Trajectory(
             trajectory_id=trajectory_id,
@@ -469,6 +473,12 @@ def _materialize_group(context: _Context, *, path: Path, split: int, rollouts: l
     journey.groups.append(members)
     _relate(pack, catalog, primary[0].event_time, context.ids, journey)
     return journey
+
+
+def _swap_prefix(record_id: str, old: str, new: str) -> str:
+    namespace, _, local = record_id.rpartition(".")
+    swapped = new + local[len(old):] if local.startswith(old) else local
+    return f"{namespace}.{swapped}" if namespace else swapped
 
 
 def _member(context: _Context, types: list[str], trajectory_id: str) -> _Member:
@@ -538,8 +548,8 @@ def _emit(
             direction=amount.direction if amount else None,
             amount_role=amount.role if amount else None,
             channel_id=_channel(pack, event_type, steering.channel),
-            case_id=party.replace("P", "C", 1),
-            session_id=party.replace("P", "S", 1),
+            case_id=_swap_prefix(party, "P", "C"),
+            session_id=_swap_prefix(party, "P", "S"),
             source_system=pack.generator_id,
             observation_status=ObservationStatus.simulated,
         )

@@ -78,3 +78,9 @@ Runs are written in the languages the pack declares, English and Turkish today. 
 - `manifest.json`: the configuration without the credential, counts, the split, judge cycles, the reward summary, the quality report, the steering report, a data card with scope, intended use, reference, jurisdiction, and known limitations, and a SHA-256 checksum for each other part. No secret, ciphertext, or fingerprint reaches it.
 
 The split is assigned from `sha256(run_id|sample_id)`: train below 0.8, validation below 0.9, test above, so a re-export reproduces it. `?held_out=<sub_domain>` moves every sample whose sequences reach a milestone of that sub-domain, such as `loan.disbursed` for consumer credit, into a `heldout` split, to measure generalization rather than fit.
+
+## Large runs
+
+A run of more than 64 sequences is generated in batches of 256 sequences. Each batch has its own seed, derived from the run's, and prefixes every record id with its batch, such as `B0003.E00012`, so batches never collide and any id names its batch. Every batch passes the hard checks before it is written. The quality report and the overview (variants and the process map in `generation.overview`) are accumulated batch by batch, and `generation.storage` records the number of batches. A resumed run reproduces the same batches as an uninterrupted one.
+
+`GET /runs/{run_id}/journeys` lists primary journeys a page at a time (`offset`, `limit` up to 500, and an optional `variant` id from the overview). `GET /runs/{run_id}/journeys/{trajectory_id}` returns one journey as a self-contained bundle: the trajectory, its alternatives or rollouts, and the events, objects, links, state changes, and samples they reference. Both work for small runs too. Notes on a large run are validated against its files, and a re-run resolves each note's target to its event or trajectory type instead of loading the parent.

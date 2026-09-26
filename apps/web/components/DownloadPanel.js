@@ -10,7 +10,7 @@ const PARTS = [
   ["manifest.json", "Manifest", "Configuration, counts, split, judge cycles, quality, data card, and file checksums."],
 ];
 
-export default function DownloadPanel({ run }) {
+export default function DownloadPanel({ run, paged = false }) {
   const [heldOut, setHeldOut] = useState("");
   const [card, setCard] = useState(null);
   const [error, setError] = useState("");
@@ -43,6 +43,17 @@ export default function DownloadPanel({ run }) {
   }
 
   if (!run.generation) return null;
+  if (paged) {
+    return (
+      <div className="download-panel">
+        <div className="panel-head">
+          <h3>Export</h3>
+          <small>This run is stored in {run.generation.storage?.batches} batches.</small>
+        </div>
+        <p className="lede">Exports of runs above 64 sequences are prepared as a background job and saved as files. That arrives in the next update; small runs export here today.</p>
+      </div>
+    );
+  }
   return (
     <div className="download-panel">
       <div className="panel-head">

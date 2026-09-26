@@ -54,6 +54,11 @@ class InsurancePack:
             f"{reference}"
         )
 
+    def classify(self, types: list[str]) -> str:
+        from sectors.insurance.spec import classify
+
+        return classify(types)
+
     def steering(self, text: str):
         from sectors.insurance.corpus import steering_from_text
 

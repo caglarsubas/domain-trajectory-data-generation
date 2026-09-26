@@ -35,6 +35,7 @@ from sectors.registry import get_sector
 from app import export as run_export
 from app import jobs
 from app.serialize import project_out, run_out, run_summary
+from app.store import DbStore, store_for
 from app.service import config_from_body, require_project, require_run, rerun_config
 from app.settings import Settings, load_settings
 from trajectory_contract import TrajectoryBundle, banking_fixture
@@ -427,6 +428,8 @@ def export_run(run_id: str, part: str, account: AccountDep, db: Db, held_out: st
     if part not in run_export.PARTS:
         raise HTTPException(status_code=404, detail=f"unknown export part; choose one of {', '.join(run_export.PARTS)}")
     if not run.candidate:
+        if store_for(run) is not None:
+            raise HTTPException(status_code=409, detail="exports of runs above 64 sequences are prepared as a job; that arrives in the next update")
         raise HTTPException(status_code=409, detail="this run has no generated candidate to export")
     sector = get_sector(run.config.get("sector", "banking"))
     if held_out is not None and held_out not in (run.config.get("sub_domains") or []):
@@ -442,16 +445,39 @@ def export_run(run_id: str, part: str, account: AccountDep, db: Db, held_out: st
     )
 
 
+@router.get("/runs/{run_id}/journeys")
+def list_journeys(run_id: str, account: AccountDep, db: Db, offset: int = 0, limit: int = 50, variant: str | None = None) -> dict:
+    run = require_run(db, run_id, account)
+    _require_generated(run)
+    found = store_for(run)
+    entries = found.entries() if found else []
+    if variant:
+        entries = [entry for entry in entries if entry["variant"] == variant]
+    limit = max(1, min(limit, 500))
+    return {"total": len(entries), "offset": offset, "data": entries[offset : offset + limit], "paged": bool(found and found.paged)}
+
+
+@router.get("/runs/{run_id}/journeys/{trajectory_id}")
+def get_journey(run_id: str, trajectory_id: str, account: AccountDep, db: Db) -> dict:
+    run = require_run(db, run_id, account)
+    _require_generated(run)
+    found = store_for(run)
+    journey = found.journey(trajectory_id) if found else None
+    if journey is None:
+        raise HTTPException(status_code=404, detail="journey not found")
+    return journey
+
+
 @router.post("/runs/{run_id}/feedback")
 def add_feedback(run_id: str, body: FeedbackBody, account: AccountDep, db: Db) -> dict:
     run = require_run(db, run_id, account)
     _require_generated(run)
-    bundle = TrajectoryBundle.model_validate(run.candidate) if run.candidate else banking_fixture()
+    found = store_for(run) or DbStore(banking_fixture().model_dump(mode="json"))
     if body.target_type == "run" and body.target_id != run.id:
         raise HTTPException(status_code=422, detail="run feedback must target this run")
-    if body.target_type == "trajectory" and body.target_id not in {item.trajectory_id for item in bundle.trajectories}:
+    if body.target_type == "trajectory" and found.trajectory_type(body.target_id) is None:
         raise HTTPException(status_code=422, detail="unknown trajectory")
-    if body.target_type == "event" and body.target_id not in {item.event_id for item in bundle.events}:
+    if body.target_type == "event" and found.event_type(body.target_id) is None:
         raise HTTPException(status_code=422, detail="unknown event")
     row = Feedback(
         run_id=run.id,
@@ -476,8 +502,7 @@ def add_feedback(run_id: str, body: FeedbackBody, account: AccountDep, db: Db) -
 @router.post("/runs/{run_id}/rerun")
 def rerun(run_id: str, body: RerunBody, account: AccountDep, db: Db) -> dict:
     parent = require_run(db, run_id, account)
-    if not parent.candidate:
-        raise HTTPException(status_code=409, detail="the parent run has not finished generating")
+    _require_generated(parent)
     config, feedback_ids = rerun_config(parent, body, account, db)
     child = Run(
         project_id=parent.project_id,
@@ -539,6 +564,10 @@ def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: 
         run.candidate = body.candidate
     elif run.candidate:
         bundle = TrajectoryBundle.model_validate(run.candidate)
+    elif (found := store_for(run)) is not None:
+        # A large run is judged on its first journey and that journey's alternative, as a small run is.
+        entries = found.entries()
+        bundle = TrajectoryBundle.model_validate(found.journey(entries[0]["trajectory_id"])) if entries else banking_fixture()
     else:
         bundle = banking_fixture()
     items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id)))

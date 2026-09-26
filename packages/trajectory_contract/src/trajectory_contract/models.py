@@ -145,6 +145,10 @@ class GenerationMeta(BaseModel):
     rewards: dict[str, Any] | None = None
     steering: dict[str, Any] | None = None
     quality: dict[str, Any] | None = None
+    # Variants and the process map, summarised for the studio.
+    overview: dict[str, Any] | None = None
+    # Where a large run's journeys live when they are not stored on the run.
+    storage: dict[str, Any] | None = None
 
 
 class TrajectoryBundle(BaseModel):
