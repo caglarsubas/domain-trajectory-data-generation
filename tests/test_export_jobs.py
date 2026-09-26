@@ -86,8 +86,9 @@ def test_an_accepted_target_draws_until_enough_groups_are_accepted(client):
 
 
 def test_an_unreachable_accepted_target_stops_at_the_ceiling_and_says_so(client):
+    # A one-event journey holds no decision, so no group can mix a pass and a fail.
     headers, created = _setup(client, "ceiling@example.com", target_trajectory_count=3, group_size=2, target_kind="accepted_groups",
-                              sub_domains=["complaints"], min_events=1, max_events=4)
+                              sub_domains=["complaints"], min_events=1, max_events=1)
     assert created.status_code == 200, created.text
     generation = created.json()["generation"]
     assert generation["limited_by"] == "acceptance"

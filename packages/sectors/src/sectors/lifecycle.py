@@ -190,6 +190,10 @@ class Step:
 @dataclass
 class Path:
     steps: list[Step]
+    # True when the walk chose to stop while events were still legal, which is itself a decision.
+    stopped: bool = False
+    state: State = field(default_factory=dict)
+    counts: dict[str, int] = field(default_factory=dict)
 
     @property
     def types(self) -> list[str]:
@@ -252,6 +256,7 @@ class Walker:
         counts = dict(counts or {})
         steps = list(prefix or [])
         forced = first
+        stopped = False
         while len(steps) < cap:
             options = self.options(state, counts, first=not steps)
             if not options:
@@ -270,6 +275,7 @@ class Walker:
                 total = stop + sum(weight for _, weight in options)
                 pick = rng.random() * total
                 if pick < stop:
+                    stopped = True
                     break
                 pick -= stop
                 choice = options[-1][0]
@@ -284,7 +290,7 @@ class Walker:
             counts[choice] = counts.get(choice, 0) + 1
             if spec.ends_journey:
                 break
-        return Path(steps)
+        return Path(steps, stopped=stopped, state=state, counts=counts)
 
     def branch(self, path: Path, rng: random.Random, *, cap: int) -> tuple[Path, int, float] | None:
         """A simulated alternative: a different legal choice at one step, then a fresh walk."""
