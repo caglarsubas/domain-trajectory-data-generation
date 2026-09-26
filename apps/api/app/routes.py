@@ -141,6 +141,13 @@ def sectors() -> dict:
     return {"data": data}
 
 
+def _event_types(run: Run) -> tuple[str, ...]:
+    try:
+        return get_sector((run.config or {}).get("sector", "banking")).event_namespace
+    except ValueError:
+        return ()
+
+
 def _lanes(lifecycle) -> list[dict]:
     kinds: list[str] = []
     for name in lifecycle.namespace:
@@ -580,7 +587,8 @@ def add_feedback(run_id: str, body: FeedbackBody, account: AccountDep, db: Db) -
         raise HTTPException(status_code=422, detail="run feedback must target this run")
     if body.target_type == "trajectory" and found.trajectory_type(body.target_id) is None:
         raise HTTPException(status_code=422, detail="unknown trajectory")
-    if body.target_type == "event" and found.event_type(body.target_id) is None:
+    # An event note names one event, or an event type from the process map; the next run reads both as the type.
+    if body.target_type == "event" and found.event_type(body.target_id) is None and body.target_id not in _event_types(run):
         raise HTTPException(status_code=422, detail="unknown event")
     row = Feedback(
         run_id=run.id,
