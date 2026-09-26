@@ -179,29 +179,37 @@ def build_decisions(pack, bundle: TrajectoryBundle, walker: Walker, *, floor: in
         if trajectory.parent_trajectory_id is not None:
             continue
         journey = [events[item] for item in trajectory.event_ids if item in events]
-        types = [event.event_type for event in journey]
-        state: dict = {}
-        counts: dict[str, int] = {}
-        objects: dict[str, str] = {}
-        decided: set[str] = set()
-        for index, event in enumerate(journey):
-            spec = lifecycle.get(event.event_type)
-            if spec is None:
-                break
-            # The first decision of each group: a repeated one, such as a monthly repayment, differs only in its counts.
-            if index and spec.outcome and spec.outcome not in decided:
-                offered = walker.options(state, counts)
-                if walker.calibration is not None:
-                    offered = walker.calibration.reweight(types[index - 1], offered)
-                rivals = [(name, weight) for name, weight in offered if lifecycle[name].outcome == spec.outcome]
-                if len(rivals) > 1 and event.event_type in dict(rivals):
-                    decided.add(spec.outcome)
-                    points.append(_point(pack, trajectory, journey, index, state, counts, objects, rivals, values, phrases, goal, sample_of, lang))
-            apply(spec, state)
-            counts[event.event_type] = counts.get(event.event_type, 0) + 1
-            for kind, object_id in linked.get(event.event_id, {}).items():
-                objects.setdefault(kind, object_id)
+        for index, state, counts, rivals in decision_steps(lifecycle, walker, [event.event_type for event in journey]):
+            objects: dict[str, str] = {}
+            for event in journey[:index]:
+                for kind, object_id in linked.get(event.event_id, {}).items():
+                    objects.setdefault(kind, object_id)
+            points.append(_point(pack, trajectory, journey, index, state, counts, objects, rivals, values, phrases, goal, sample_of, lang))
     return points
+
+
+def decision_steps(lifecycle, walker: Walker, types: list[str]):
+    """The first outcome decision of each group along a path: where, the state and counts before it, and the rivals with their policy weights.
+
+    A repeated decision, such as a monthly repayment, differs from the first only in its counts.
+    """
+    state: dict = {}
+    counts: dict[str, int] = {}
+    decided: set[str] = set()
+    for index, name in enumerate(types):
+        spec = lifecycle.get(name)
+        if spec is None:
+            return
+        if index and spec.outcome and spec.outcome not in decided:
+            offered = walker.options(state, counts)
+            if walker.calibration is not None:
+                offered = walker.calibration.reweight(types[index - 1], offered)
+            rivals = [(option, weight) for option, weight in offered if lifecycle[option].outcome == spec.outcome]
+            if len(rivals) > 1 and name in dict(rivals):
+                decided.add(spec.outcome)
+                yield index, dict(state), dict(counts), rivals
+        apply(spec, state)
+        counts[name] = counts.get(name, 0) + 1
 
 
 def _point(pack, trajectory, journey, index, state, counts, objects, rivals, values, phrases, goal, sample_of, lang) -> DecisionPoint:

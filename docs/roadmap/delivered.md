@@ -202,3 +202,9 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/31
 
 Slice 6, second part of episodes. A model at OpenAI, Anthropic, Google, or xAI takes each episode's turn on the run owner's key: it calls an operation, the mock bank answers, and it reports. Code checks the call against the skeleton (a known operation, valid arguments, a legal step, the case's own objects, one call) and scores it on the same rubric, so it joins its group's advantages. The composer estimates the calls and takes a cap, failed calls count against it, three failures stop the rollouts, a large run spends one budget across its batches, demo runs make at most 100 calls, and the key never reaches an error or the run.
 
+## 32. Record outcome decisions for decision scoring and Jev-type models, and export them as typed questions
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/32
+
+Slice 6, decision records. Decision-scoring and Jev-type runs record the first decision of each outcome group in a journey. Each record holds the machines' state, facts precomputed from the history, each outcome's policy share and its value from 64 simulated continuations under that policy, and what the journey did. Export writes each decision as choice, true-or-false, and score questions with criteria, an abstain answer, reordered and paraphrased variants, and train, calibration, and held-out splits, validated against a versioned schema that ships with the export. History-prefix records, consumer export parts, and a decision viewer come with it.
+

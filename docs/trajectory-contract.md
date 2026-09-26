@@ -34,7 +34,7 @@ Every sample names the trajectory it narrates in `trajectory_id`, and each seque
 
 Rewards come from `packages/sectors/src/sectors/rewards.py`, shared by every pack and following MiMo-V2.6:
 
-- The verification term R_test is 1 when the journey reaches its goal legally. In banking a journey misses its goal when the application is abandoned or declined, KYC fails, a complaint is not upheld, a limit change is declined, it ends on a declined card purchase, or its loan ends delinquent. S_sol is 0.5 plus half the share of selected sub-domains the journey touches. S_beh is 1, because every generated journey replays legally through the pack's machines; the judge replaces both rubric terms in Slice 4.
+- The verification term R_test is 1 when the sequence passes the run's signal (see Signals and evaluation). Under `outcome`, the default, that is when the journey reaches its goal: in banking a journey misses it when the application is abandoned or declined, KYC fails, a complaint is not upheld, a limit change is declined, it ends on a declined card purchase, or its loan ends delinquent. S_sol is the solution rubric's score and S_beh the behavior rubric's, both checked by code over the journey's events and waits.
 - `binary_outcome` uses R_test. `groupwise_reward_synthesis` uses R = R_test × S_sol × S_beh. Advantages are the reward minus the group mean.
 - `groupwise_advantage_redistribution` gives each passing sequence a quality factor, its S_sol × S_beh over the best in the group, rescales the passing advantages so their sum is conserved (the factor is capped at 2), and re-centres the group.
 - `group_relative_length_penalty` discounts passing sequences longer than the median passing length, by up to 0.5 when a sequence is twice as long, and only when more than half the group passes.
@@ -76,6 +76,7 @@ Runs are written in the languages the pack declares, English and Turkish today. 
 - `prefixes.jsonl`: one line per trainable assistant turn, with the conversation before it (`prefix`), the turn (`target`), the sequence's reward, the turn's advantage, and the sample's `split`.
 - `episodes.jsonl` and `episodes-<harness>.jsonl`: see Episodes.
 - `decisions.jsonl` and `decision-record.schema.json`: see Decision records.
+- `tasks.jsonl` and `evaluation.json`: see Signals and evaluation.
 - `domain.jsonl`: one line per domain record, tagged with `record_type`; trajectory lines carry their sample's `split`.
 - `ocel.json`: the domain layer in OCEL 2.0 JSON. Objects carry their state changes as time-stamped attributes and their relationships by predicate; events carry channel, money, and effective time, and link objects by qualifier or role.
 - `manifest.json`: the configuration without the credential, counts, the split, the parts each consumer uses (`consumer_parts`, `parts_for_this_run`), judge cycles, the reward summary, the quality report, the steering report, a data card with scope, intended use, reference, jurisdiction, and known limitations, and a SHA-256 checksum for each other part. No secret, ciphertext, or fingerprint reaches it.
@@ -112,3 +113,13 @@ A bundle's `decisions` are its outcome decisions: in each primary journey, the f
 
 Export writes each point as `DecisionRecord` lines (`schema_version: decision-record/1`): a `choice` whose `target_distribution` is the policy's shares (`target_basis: generator_policy_share`), a `true_false` for the outcome taken and one for the distractor (`machine_rules`, with a `rationale`), and a `score` per option whose `target_score` is its value (`simulated_goal_share`). Each carries `question`, `criteria`, `options`, an `abstain` answer that is never a target, `state`, `facts`, `history`, `outcome`, and a `prompt` rendering for language models, and appears three times: `original`, `reordered` (keys and options in another order, which the line keeps), and `paraphrase`, the variants naming the original in `variant_of` and sharing its target and split. `split` is the sample's split renamed: train, calibration (validation), or held_out (test or heldout). `decision-record.schema.json` is the JSON Schema of `DecisionRecord`, and the manifest's `decisions` section adds the schema version, the split counts and mapping, and the question types.
 
+## Signals and evaluation
+
+`sectors.scorers.Scorer` scores a path, given its event types and the waits between them, with each signal: `outcome`, `solution_rubric`, `behavior_rubric`, `process_conformance`, and `decision_score`. The last is computed only when the run's signal is `decision_score` or the run records decisions. Each verdict is `{"score", "passed", "items"}`, and a sequence carries all of them in `signals`. The run's `signal_mechanism` sets the sequence's `outcome`, and so its reward, advantage, and the group's acceptance. `solution_score` and `behavior_score` are the solution and behavior rubrics' scores. `generation.rewards` adds `signal` and `signals`: per signal, `mean`, `pass_rate`, `sequences`, and `pass_at_k` over each prompt's group, merged across a large run's batches. `generation.episodes.models` gives each provider model's `pass_at_k` over the episodes it attempted.
+
+`tasks.jsonl` holds one line per prompt (`kind: journey`) and per episode (`kind: agent_episode`):
+- **Journey task:** carries `prompt`, `opening`, `references` (each sequence's events, times, and verdicts), `verifiers`, the run's `primary_verifier`, and `results.generator` per verifier.
+- **Agent task:** carries an `environment` (system text, task, state, tools, objects, legal events, and `responses` to each step a journey took), `verifiers` with their parameters (`legal_events`, `objects`, `passing_events`), the reference rollouts, and `results` per policy.
+- **Results:** each result has `attempts`, `passes`, `mean`, and `pass_at_k`. An agent attempt passes when format, legality, grounding, and decision all hold.
+
+`evaluation.json` gives avg@k and pass@k averaged over tasks with at least k attempts, by verifier and by policy, with the metric definitions, the verifiers, and the pack's environment. The manifest's `evaluation` section repeats the summaries.

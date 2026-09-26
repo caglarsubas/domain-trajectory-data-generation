@@ -398,6 +398,8 @@ label.check input { width: auto; margin: 0; }
 .target-table { width: 100%; border-collapse: collapse; margin: -4px 0 18px; font-size: 14px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
 .target-table th { text-align: left; font-weight: 500; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .target-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.signal-table tr[data-primary="true"] td:first-child { font-weight: 600; }
+.signal-table small { font-weight: 400; color: var(--muted); }
 .target-table tr:last-child td { border-bottom: 0; }
 @media (max-width: 640px) { .target-table { display: block; overflow-x: auto; } }
 .judge-status { display: grid; grid-template-columns: minmax(120px, 280px) 1fr auto; align-items: center; gap: 12px; margin: 0 0 14px; }

@@ -15,11 +15,11 @@ const REWARDS = [
   ["segment_penalty", "Segment penalty", "Format and tool errors reduce the signal on the turn that caused them."],
 ];
 const SIGNALS = [
-  ["outcome", "Outcome", "One score for the finished journey."],
-  ["solution_rubric", "Solution rubric", "Judges the resulting state, not only the final label."],
-  ["behavior_rubric", "Behavior rubric", "Judges how the path was built: evidence, checks, and order."],
-  ["process_conformance", "Process conformance", "Compares the path with the allowed transitions for this sector."],
-  ["decision_score", "Decision score", "Scores the choice at a branch, for later decision evaluation."],
+  ["outcome", "Outcome", "A sequence passes when the journey reaches the pack's goal."],
+  ["solution_rubric", "Solution rubric", "Judges the resulting state: the goal, no decision left open, and every selected sub-domain reached. It passes on the first two."],
+  ["behavior_rubric", "Behavior rubric", "Judges how the path was built: no step undoes an earlier state, and waits in the faster half of each step's range."],
+  ["process_conformance", "Process conformance", "How typical each step is under the reference process, the priors or the calibrated shares. It passes at half the most likely step's share on average."],
+  ["decision_score", "Decision score", "At each outcome decision, the simulated value of the choice against the best choice there. It passes within 90% of the best at every decision."],
 ];
 
 const EMPTY = {
@@ -129,7 +129,7 @@ function Composer() {
   const drawn = accepted ? sequences * 5 : sequences;
   const decisionsOn = form.decisions ?? (form.consumer === "decision_scoring" || form.target_family === "jev");
   // Provider rollouts: two calls each, one episode per prompt at most, capped by the owner and at 4,000.
-  const episodesOn = form.episodes ?? form.consumer === "post_training";
+  const episodesOn = form.episodes ?? ["post_training", "evaluation"].includes(form.consumer);
   const rollouts = Number(form.provider_rollouts) || 0;
   const chosenKey = keys.find((item) => item.id === form.credential_id);
   const callEstimate = form.target_trajectory_count * rollouts * 2;
@@ -146,7 +146,7 @@ function Composer() {
       ? `Demo runs hold at most ${quota.max_sequences.toLocaleString()} sequences; this one may draw ${drawn.toLocaleString()}.`
       : null,
     rollouts && !form.credential_id ? "Provider rollouts run on your own key; choose one on the Signals step, or set rollouts to 0." : null,
-    rollouts && !episodesOn ? "Provider rollouts need episodes; use the post-training consumer, or set rollouts to 0." : null,
+    rollouts && !episodesOn ? "Provider rollouts need episodes; use the post-training or evaluation consumer, or set rollouts to 0." : null,
     rollouts && groupSize < 2 ? "Provider rollouts need at least two sequences per prompt: an episode is the decision where a group's sequences part." : null,
     quota && rollouts && providerCalls > quota.max_provider_calls
       ? `Demo runs make at most ${quota.max_provider_calls} provider calls; this one may make ${providerCalls}.`
@@ -259,7 +259,9 @@ function Composer() {
   // A consumer chooses what the run builds and exports, and presets the signal that fits it.
   function chooseConsumer(consumer) {
     const preset = { decision_scoring: "decision_score" }[consumer];
-    patch({ consumer, signal_mechanism: preset && form.signal_mechanism === "outcome" ? preset : form.signal_mechanism });
+    // pass@k needs k attempts per prompt, so evaluation starts from groups of four.
+    const size = consumer === "evaluation" && groupSize < 2 ? 4 : form.group_size;
+    patch({ consumer, group_size: size, signal_mechanism: preset && form.signal_mechanism === "outcome" ? preset : form.signal_mechanism });
   }
 
   function setGroupSize(value) {
@@ -612,7 +614,7 @@ function Composer() {
               <select value={form.signal_mechanism} onChange={(e) => patch({ signal_mechanism: e.target.value })}>
                 {SIGNALS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
-              <p className="lede">{signal?.[2]}</p>
+              <p className="lede">{signal?.[2]} Every sequence is scored by all five; this one decides pass or fail, and so the rewards and which groups are accepted.</p>
               <div className="row">
                 <div>
                   <label>Consumer</label>
@@ -638,7 +640,7 @@ function Composer() {
                 {{
                   post_training: "Post-training exports samples, history prefixes, and agent episodes in three harness formats.",
                   decision_scoring: "Decision scoring exports each outcome decision as typed questions: a choice among the outcomes, true or false on what the state allows, and a score per outcome.",
-                  evaluation: "Evaluation exports the journeys with their domain records and an OCEL 2.0 log.",
+                  evaluation: "Evaluation exports each prompt and each episode as a task with its environment, verifiers, and reference trajectories, and a report of avg@k and pass@k.",
                 }[form.consumer]}
                 {form.target_family === "jev" ? " Jev-type targets get decision records with derived facts precomputed, since they do no arithmetic or date reasoning." : ""}
               </p>
@@ -685,7 +687,7 @@ function Composer() {
               </div>
               <p className="lede">
                 {!episodesOn
-                  ? "Provider rollouts add a model's own turn to each episode; episodes come with the post-training consumer."
+                  ? "Provider rollouts add a model's own turn to each episode; episodes come with the post-training and evaluation consumers."
                   : groupSize < 2
                     ? "Provider rollouts add a model's own turn to each episode, the decision where a group's sequences part; set at least two sequences per prompt above."
                   : !form.credential_id
@@ -772,7 +774,7 @@ function Composer() {
             <dt>Signal</dt>
             <dd>{signal?.[1]}</dd>
             <dt>Exports</dt>
-            <dd>{[episodesOn ? "episodes" : null, decisionsOn ? "decision records" : null, "samples"].filter(Boolean).join(", ")}</dd>
+            <dd>{[form.consumer === "evaluation" ? "evaluation tasks" : null, episodesOn ? "episodes" : null, decisionsOn ? "decision records" : null, "samples"].filter(Boolean).join(", ")}</dd>
             {rollouts ? (
               <>
                 <dt>Provider</dt>

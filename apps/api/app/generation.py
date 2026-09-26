@@ -27,6 +27,7 @@ from sectors.registry import get_sector
 
 
 # Settings that change no journey stay out of the seed, so turning them on draws the same journeys.
+EPISODE_CONSUMERS = ("post_training", "evaluation")
 SEED_FREE = {"credential_id", "episodes", "decisions", "provider_rollouts", "provider_call_budget", "provider_model"}
 
 
@@ -99,13 +100,43 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
         "jurisdiction": config.get("jurisdiction") or "neutral",
         "corpus_steering": corpus_steering,
         "calibration": calibration,
-        # Episodes by default for post-training, where agent rollouts are the training data.
-        "episodes": config.get("episodes") if config.get("episodes") is not None else config.get("consumer") == "post_training",
+        # Episodes by default for post-training, where agent rollouts are the training data, and for evaluation, whose agent tasks they are.
+        "episodes": config.get("episodes") if config.get("episodes") is not None else config.get("consumer") in EPISODE_CONSUMERS,
         "operations": _operations(items),
         # Decision records by default where decisions are the data: decision scoring and Jev-type targets.
         "decisions": decisions_on(config),
     }
     return sector, kwargs, items
+
+
+def _episode_totals(summed: dict | None, provider: dict | None) -> dict | None:
+    if summed is None and provider is None:
+        return None
+    found = dict(summed or summarize_episodes([]))
+    found["models"] = {
+        policy: {"episodes": row["episodes"], "episodes_at_k": row["episodes_at_k"], "pass_at_k": {k: round(value / row["episodes_at_k"][k], 4) for k, value in row["pass_sum"].items()}}
+        for policy, row in (found.get("models") or {}).items()
+        if "pass_sum" in row
+    }
+    if provider is not None:
+        found["provider"] = provider
+    return found
+
+
+def _signal_totals(summed: dict | None) -> dict | None:
+    if not summed:
+        return None
+    return {
+        name: {
+            "mean": round(found["score"] / found["sequences"], 4),
+            "pass_rate": round(found["passes"] / found["sequences"], 4),
+            "sequences": found["sequences"],
+            "pass_at_k": {k: round(value / found["groups"][k], 4) for k, value in found["pass_at_k"].items()},
+            "groups": max(found["groups"].values(), default=0),
+        }
+        for name, found in summed.items()
+        if found["sequences"]
+    }
 
 
 def _decision_totals(summed: dict | None) -> dict | None:
@@ -267,12 +298,27 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
             totals["passes"] += sum(1 for sample in bundle.samples for sequence in sample.sequences if sequence.outcome == "pass")
             for flag, flagged in (rewards.get("flags") or {}).items():
                 totals["flags"][flag] = totals["flags"].get(flag, 0) + flagged
+            for signal, found in (rewards.get("signals") or {}).items():
+                # Weighted sums, so the run's means and pass@k are over every sequence and group, not every batch.
+                summed = totals.setdefault("signals", {}).setdefault(signal, {"score": 0.0, "passes": 0.0, "sequences": 0, "pass_at_k": {}, "groups": {}})
+                summed["score"] += found["mean"] * found["sequences"]
+                summed["passes"] += found["pass_rate"] * found["sequences"]
+                summed["sequences"] += found["sequences"]
+                for k, value in found.get("pass_at_k", {}).items():
+                    summed["pass_at_k"][k] = summed["pass_at_k"].get(k, 0.0) + value * found["groups"]
+                    summed["groups"][k] = summed["groups"].get(k, 0) + found["groups"]
             if meta.episodes:
                 summed = totals.setdefault("episodes", {"episodes": 0, "rollouts": 0, "accepted_groups": 0, "with_api_operations": 0, "policies": {}})
                 for key in ("episodes", "rollouts", "accepted_groups", "with_api_operations"):
                     summed[key] += meta.episodes.get(key, 0)
                 for policy, count in (meta.episodes.get("policies") or {}).items():
                     summed["policies"][policy] = summed["policies"].get(policy, 0) + count
+                for policy, found in (meta.episodes.get("models") or {}).items():
+                    row = summed.setdefault("models", {}).setdefault(policy, {"episodes": 0, "episodes_at_k": {}, "pass_sum": {}})
+                    row["episodes"] += found["episodes"]
+                    for k, value in found["pass_at_k"].items():
+                        row["pass_sum"][k] = row["pass_sum"].get(k, 0.0) + value * found["episodes_at_k"][k]
+                        row["episodes_at_k"][k] = row["episodes_at_k"].get(k, 0) + found["episodes_at_k"][k]
             if meta.decisions:
                 added = totals.setdefault("decisions", {"points": 0, "groups": {}, "with_distractor": 0, "records": 0, "taken_value_sum": 0.0})
                 for key in ("points", "with_distractor", "records"):
@@ -331,6 +377,8 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "notes": (meta_first or {}).get("notes"),
         "rewards": {
             "mechanism": (meta_first or {}).get("mechanism"),
+            "signal": run.config.get("signal_mechanism"),
+            "signals": _signal_totals(totals.get("signals")),
             "groups": totals["groups"],
             "groups_with_signal": totals["signal"],
             "accepted_groups": totals["accepted"],
@@ -342,7 +390,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "quality": _with_representative(quality.report(), kwargs.get("calibration"), overview.report()),
         "overview": overview.report(),
         "calibration": (meta_first or {}).get("calibration"),
-        "episodes": {**(totals.get("episodes") or summarize_episodes([])), "provider": state.get("provider") or calls.as_dict()} if agent is not None else totals.get("episodes"),
+        "episodes": _episode_totals(totals.get("episodes"), state.get("provider") or calls.as_dict() if agent is not None else None),
         "decisions": _decision_totals(totals.get("decisions")),
         "storage": {"kind": "files", "batches": len(state["done"]), "batch_sequences": BATCH_SEQUENCES},
         "target": target,
