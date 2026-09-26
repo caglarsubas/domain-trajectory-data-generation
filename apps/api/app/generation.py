@@ -77,7 +77,9 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
 
 
 def is_large(config: dict) -> bool:
-    return int(config["target_trajectory_count"]) * int(config.get("group_size") or 1) > SMALL_RUN_SEQUENCES
+    """Batched when the run is bigger than a small run, or when targets or shares need the batch loop."""
+    total = int(config["target_trajectory_count"]) * int(config.get("group_size") or 1)
+    return total > SMALL_RUN_SEQUENCES or config.get("target_kind") == "accepted_groups" or bool(config.get("domain_shares"))
 
 
 def candidate_for_run(db: Session, config: dict, *, project_id: str, feedback_rows: list, parent: Run | None, progress=None):
@@ -93,16 +95,39 @@ def candidate_for_run(db: Session, config: dict, *, project_id: str, feedback_ro
     return bundle
 
 
+# Accepted-group targets: the first batch assumes this acceptance rate, later batches use the observed one,
+# plus a margin, and a bucket stops at five times its target if acceptance stays too low.
+PRIOR_ACCEPTANCE = 0.6
+OVERSAMPLE = 0.1
+ACCEPTANCE_CEILING = 5
+
+
+def buckets_for(config: dict, requested: int) -> list[dict]:
+    """One bucket per share, with targets that add up to the request (largest remainder), or one bucket for all."""
+    shares = config.get("domain_shares") or {}
+    if not shares:
+        return [{"domains": list(config["sub_domains"]), "target": requested}]
+    names = [name for name in config["sub_domains"] if name in shares]
+    total = sum(shares[name] for name in names)
+    exact = {name: requested * shares[name] / total for name in names}
+    targets = {name: int(exact[name]) for name in names}
+    for name in sorted(names, key=lambda item: exact[item] - targets[item], reverse=True)[: requested - sum(targets.values())]:
+        targets[name] += 1
+    return [{"domains": [name], "target": targets[name]} for name in names if targets[name] > 0]
+
+
 def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run | None, progress) -> dict:
     """Generate a large run batch by batch into files. Returns the run's generation metadata."""
     sector, kwargs, items = prepare(db, run.config, project_id=run.project_id, feedback_rows=feedback_rows, parent=parent)
     size = kwargs["group_size"]
     requested = kwargs["target_trajectory_count"]
+    accepted_mode = run.config.get("target_kind") == "accepted_groups"
     per_batch = max(1, BATCH_SEQUENCES // size)
-    total_batches = math.ceil(requested / per_batch)
+    buckets = buckets_for(run.config, requested)
     root = run_dir(run.id)
     checkpoint = root / "state.json"
-    state = json.loads(checkpoint.read_text()) if checkpoint.is_file() else {"done": [], "groups": 0, "budget": kwargs["event_budget"]}
+    state = json.loads(checkpoint.read_text()) if checkpoint.is_file() else {"done": [], "budget": kwargs["event_budget"]}
+    progress_state = state.setdefault("buckets", [{"groups": 0, "accepted": 0, "finished": False, "reason": None} for _ in buckets])
     lifecycle = sector.lifecycle
     quality = QualityAccumulator(lifecycle, sub_domains=_domains(sector, kwargs), allowed=_allowed(sector, kwargs), cold=kwargs["start_mode"] == "cold")
     overview = OverviewAccumulator(sector.classify)
@@ -111,58 +136,93 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
     totals = state.get("totals", {"primary": 0, "alternative": 0, "events": 0, "groups": 0, "signal": 0, "accepted": 0, "passes": 0, "sequences": 0, "flags": {}})
     entries = state.get("journeys", [])
     meta_first = state.get("first")
-    limited_by = None
+    limited_by = state.get("limited_by")
+    goal = sum(bucket["target"] for bucket in buckets)
 
-    for index in range(total_batches):
-        name = batch_name(index)
-        if name in state["done"]:
-            continue
-        groups = min(per_batch, requested - state["groups"])
-        budget = state["budget"]
-        if groups <= 0:
-            break
-        if budget is not None and budget <= 0:
-            limited_by = "event_budget"
-            break
-        done_before = state["groups"]
-        bundle = sector.generate(
-            **{**kwargs, "target_trajectory_count": groups, "event_budget": budget, "seed": f"{kwargs['seed']}|{name}"},
-            materialization_cap=groups * size,
-            id_prefix=f"{name}.",
-            progress=lambda done, _total, message="": progress(done_before + done, requested, f"Batch {index + 1} of {total_batches}: drew {done_before + done} of {requested}."),
-        )
-        errors = sector.hard_checks(bundle)
-        if errors:
-            raise HTTPException(status_code=500, detail=f"generated batch {name} failed {sector.id} checks")
-        quality.add(bundle)
-        overview.add(bundle)
-        meta = bundle.generation
-        dumped = bundle.model_dump(mode="json")
-        write_json(batch_path(root, name), dumped)
-        entries.extend(journey_entries(dumped, name, variant_id))
-        totals["primary"] += meta.primary_trajectories
-        totals["alternative"] += meta.alternative_trajectories
-        totals["events"] += meta.event_count
-        rewards = meta.rewards or {}
-        totals["groups"] += rewards.get("groups", 0)
-        totals["signal"] += rewards.get("groups_with_signal", 0)
-        totals["accepted"] += rewards.get("accepted_groups", 0)
-        totals["sequences"] += sum(len(sample.sequences) for sample in bundle.samples)
-        totals["passes"] += sum(1 for sample in bundle.samples for sequence in sample.sequences if sequence.outcome == "pass")
-        for flag, count in (rewards.get("flags") or {}).items():
-            totals["flags"][flag] = totals["flags"].get(flag, 0) + count
-        if meta_first is None:
-            meta_first = {"generator_id": meta.generator_id, "pack_version": meta.pack_version, "steering": meta.steering, "mechanism": rewards.get("mechanism")}
-        state["done"].append(name)
-        state["groups"] += meta.primary_trajectories
-        if budget is not None:
-            state["budget"] = budget - meta.event_count
-        state.update({"quality": quality.state(), "overview": overview.state(), "totals": totals, "journeys": entries, "first": meta_first})
-        write_json(checkpoint, state)
-        if meta.limited_by == "event_budget":
-            limited_by = "event_budget"
-            break
+    def reached() -> int:
+        return sum(item["accepted"] if accepted_mode else item["groups"] for item in progress_state)
 
+    for number, (bucket, standing) in enumerate(zip(buckets, progress_state)):
+        ceiling = bucket["target"] * ACCEPTANCE_CEILING if accepted_mode else bucket["target"]
+        while not standing["finished"]:
+            count = standing["accepted"] if accepted_mode else standing["groups"]
+            if count >= bucket["target"]:
+                standing["finished"] = True
+                break
+            if standing["groups"] >= ceiling:
+                standing.update({"finished": True, "reason": "acceptance"})
+                limited_by = "acceptance"
+                break
+            budget = state["budget"]
+            if budget is not None and budget <= 0:
+                standing.update({"finished": True, "reason": "event_budget"})
+                limited_by = "event_budget"
+                break
+            if accepted_mode:
+                rate = standing["accepted"] / standing["groups"] if standing["groups"] else PRIOR_ACCEPTANCE
+                wanted = math.ceil((bucket["target"] - standing["accepted"]) / max(rate, 0.05) * (1 + OVERSAMPLE))
+                groups = max(1, min(per_batch, wanted, ceiling - standing["groups"]))
+            else:
+                groups = min(per_batch, bucket["target"] - standing["groups"])
+            name = batch_name(len(state["done"]))
+            before = reached()
+            bundle = sector.generate(
+                **{
+                    **kwargs,
+                    "sub_domains": bucket["domains"],
+                    "target_trajectory_count": groups,
+                    "event_budget": budget,
+                    "seed": f"{kwargs['seed']}|bucket{number}|{name}",
+                },
+                materialization_cap=groups * size,
+                id_prefix=f"{name}.",
+                progress=lambda done, _total, message="": progress(
+                    min(before + (done if not accepted_mode else 0), goal), goal, f"Batch {len(state['done']) + 1}: {before:,} of {goal:,} {'accepted groups' if accepted_mode else 'drawn'}."
+                ),
+            )
+            errors = sector.hard_checks(bundle)
+            if errors:
+                raise HTTPException(status_code=500, detail=f"generated batch {name} failed {sector.id} checks")
+            quality.add(bundle)
+            overview.add(bundle)
+            meta = bundle.generation
+            dumped = bundle.model_dump(mode="json")
+            write_json(batch_path(root, name), dumped)
+            entries.extend(journey_entries(dumped, name, variant_id))
+            rewards = meta.rewards or {}
+            totals["primary"] += meta.primary_trajectories
+            totals["alternative"] += meta.alternative_trajectories
+            totals["events"] += meta.event_count
+            totals["groups"] += rewards.get("groups", 0)
+            totals["signal"] += rewards.get("groups_with_signal", 0)
+            totals["accepted"] += rewards.get("accepted_groups", 0)
+            totals["sequences"] += sum(len(sample.sequences) for sample in bundle.samples)
+            totals["passes"] += sum(1 for sample in bundle.samples for sequence in sample.sequences if sequence.outcome == "pass")
+            for flag, flagged in (rewards.get("flags") or {}).items():
+                totals["flags"][flag] = totals["flags"].get(flag, 0) + flagged
+            if meta_first is None:
+                meta_first = {"generator_id": meta.generator_id, "pack_version": meta.pack_version, "steering": meta.steering, "mechanism": rewards.get("mechanism")}
+            standing["groups"] += meta.primary_trajectories
+            standing["accepted"] += rewards.get("accepted_groups", 0)
+            state["done"].append(name)
+            if budget is not None:
+                state["budget"] = budget - meta.event_count
+            if meta.limited_by == "event_budget":
+                standing.update({"finished": True, "reason": "event_budget"})
+                limited_by = "event_budget"
+            state.update({"quality": quality.state(), "overview": overview.state(), "totals": totals, "journeys": entries, "first": meta_first, "limited_by": limited_by})
+            write_json(checkpoint, state)
+            progress(min(reached(), goal), goal, f"Batch {len(state['done'])} done: {reached():,} of {goal:,} {'accepted groups' if accepted_mode else 'drawn'}.")
+
+    target = {
+        "kind": "accepted_groups" if accepted_mode else "prompts",
+        "requested": requested,
+        "reached": reached(),
+        "buckets": [
+            {"sub_domains": bucket["domains"], "target": bucket["target"], "generated": standing["groups"], "accepted": standing["accepted"], "stopped_by": standing["reason"]}
+            for bucket, standing in zip(buckets, progress_state)
+        ],
+    }
     steering = (meta_first or {}).get("steering")
     if steering is not None:
         steering = {**steering, "documents": [_document_report(sector, item) for item in items]}
@@ -189,6 +249,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "quality": quality.report(),
         "overview": overview.report(),
         "storage": {"kind": "files", "batches": len(state["done"]), "batch_sequences": BATCH_SEQUENCES},
+        "target": target,
     }
     write_json(root / "index.json", {"batches": state["done"], "journeys": entries})
     return generation

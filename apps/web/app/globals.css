@@ -353,6 +353,9 @@ textarea { min-height: 90px; resize: vertical; }
 .part:disabled { opacity: 0.6; cursor: progress; }
 .part code { font-size: 12px; color: var(--copper); }
 .part small { color: var(--muted); line-height: 1.35; }
+.part .size { color: var(--ink); font-variant-numeric: tabular-nums; }
+.export-status { margin-top: 12px; display: grid; gap: 6px; max-width: 420px; }
+.export-status small { color: var(--muted); }
 .data-card { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 12px; }
 .limitations { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.5; }
 
@@ -373,3 +376,15 @@ textarea { min-height: 90px; resize: vertical; }
   .page { padding: 12px 16px 48px; }
   .rail, .steps { position: static; }
 }
+label.check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--ink); margin: 0 0 10px; }
+label.check input { width: auto; margin: 0; }
+.shares { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px 12px; margin-bottom: 8px; }
+.shares label { margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shares small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.shares .lede { grid-column: 1 / -1; margin: 6px 0 0; }
+.chip:disabled { opacity: 0.45; cursor: not-allowed; }
+.target-table { width: 100%; border-collapse: collapse; margin: -4px 0 18px; font-size: 14px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.target-table th { text-align: left; font-weight: 500; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.target-table td { padding: 8px 12px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.target-table tr:last-child td { border-bottom: 0; }
+@media (max-width: 640px) { .target-table { display: block; overflow-x: auto; } }

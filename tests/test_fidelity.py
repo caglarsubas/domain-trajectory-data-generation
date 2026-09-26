@@ -159,7 +159,8 @@ def test_sectors_describe_languages_lanes_and_the_studio_cap(client):
     data = {item["id"]: item for item in client.get("/sectors").json()["data"]}
     banking = data["banking"]
     assert banking["languages"] == ["en", "tr"]
-    assert banking["studio_cap"] == 64
+    assert banking["studio_cap"] == banking["small_run_sequences"] == 64
+    assert banking["max_run_sequences"] == 100_000
     assert banking["event_kinds"]["card.purchase_authorised"] == "card"
     assert banking["event_kinds"]["loan.disbursed"] == "loan"
     assert [lane["kind"] for lane in banking["lanes"]][:3] == ["party", "application", "kyc"]

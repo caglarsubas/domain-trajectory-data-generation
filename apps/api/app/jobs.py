@@ -54,8 +54,8 @@ def enqueue(db, *, kind: str, owner_id: str, run_id: str | None, payload: dict) 
     return job
 
 
-def latest_for(db, run_id: str) -> Job | None:
-    return db.scalars(select(Job).where(Job.run_id == run_id).order_by(Job.created_at.desc())).first()
+def latest_for(db, run_id: str, kind: str = "generate") -> Job | None:
+    return db.scalars(select(Job).where(Job.run_id == run_id, Job.kind == kind).order_by(Job.created_at.desc())).first()
 
 
 def cancel(db, job: Job) -> Job:
@@ -212,7 +212,25 @@ def _generate(db, job: Job, report: Callable) -> str:
     return f"Generated {meta.get('primary_trajectories', 0)} {unit}."
 
 
-HANDLERS: dict[str, Callable] = {"generate": _generate}
+def _export(db, job: Job, report: Callable) -> str:
+    from app import export as run_export
+    from app.serialize import run_out
+    from app.store import run_dir, store_for
+    from sectors.registry import get_sector
+
+    run = db.get(Run, job.run_id)
+    store = store_for(run)
+    if store is None:
+        raise HTTPException(status_code=409, detail="this run has nothing to export")
+    held_out = job.payload.get("held_out")
+    summary = run_export.write_files(
+        run, store, get_sector(run.config.get("sector", "banking")), run_out(run, db)["cycles"], held_out, run_dir(run.id), report
+    )
+    megabytes = sum(summary["sizes"].values()) / 1e6
+    return f"Exported {summary['counts']['samples']:,} samples ({megabytes:.0f} MB before compression)."
+
+
+HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export}
 
 
 class Worker:

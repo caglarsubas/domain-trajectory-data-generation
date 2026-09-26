@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All thirteen are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All sixteen are merged and their branches are deleted.
 
-`main` history: `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -99,3 +99,21 @@ Slice 1, third part, completing the slice. The run page gains the quality scorec
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/13
 
 Slice 2, first part. `group_size` up to 16, rollouts sharing the prefix to the first decision and one intent, and `rewards.py` with the multiplicative reward, group-relative advantage, advantage redistribution, the gated length penalty, segment penalties, and the cascade, each checked against hand-computed values. Penalty rules run in record-only mode.
+
+## 14. Export runs in four parts and show each group's rollouts in the studio
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/14
+
+Slice 2, second part, completing the slice. `GET /runs/{id}/export/{part}` serves `samples.jsonl`, `domain.jsonl`, OCEL 2.0 `ocel.json`, and a `manifest.json` with a data card and SHA-256 checksums. The split comes from `sha256(run_id|sample_id)`, so a re-export reproduces it, and a held-out sub-domain is chosen by its milestone events. The studio gains a group viewer and a download panel, and the composer sets the group size.
+
+## 15. Generate runs as jobs with progress and cancellation
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/15
+
+Slice 3, first part. A `jobs` table on the application database, run inline on SQLite, by a thread in the API on Postgres, or by a `worker` Compose service; progress, cancellation before and during a run, requeueing of jobs whose worker stopped, and a run list that no longer loads bundles. Four concurrent workers on Postgres never claimed a job twice.
+
+## 16. Generate large runs in resumable batches and read them a journey at a time
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/16
+
+Slice 3, second part. Runs up to 100,000 sequences are generated in batches of 256 with their own seeds and batch-prefixed ids, written as gzipped files under `DATA_DIR/runs/<id>/`, and checkpointed so a restarted worker resumes and matches an uninterrupted run. Journeys are served a page at a time, and quality and the overview accumulate batch by batch. A 10,000-journey run completes in about 22 seconds with no rule violations.

@@ -54,6 +54,10 @@ Generating a run is a job. `JOBS_MODE` decides who runs it:
 
 Runs of up to 64 sequences are one generator call stored on the run. Larger runs, up to 100,000 sequences, are generated in batches of 256 and written as compressed files under `DATA_DIR/runs/<run id>/` (default `data/runs`), with a checkpoint after every batch; a restarted worker resumes from the last finished batch. In Docker Compose the API and the worker share these files through the `traj_runs` volume. The studio reads a large run a journey at a time.
 
+A large run is exported by a job too: `POST /runs/{id}/exports` (optionally with a held-out sub-domain) writes the four parts under `DATA_DIR/runs/<run id>/exports/`, the data parts gzipped, and the studio's Export panel prepares them, shows progress, and then offers the downloads. Small runs export directly.
+
+A run's size can be a number of prompts drawn or, with more than one sequence per prompt, a number of accepted groups: the job keeps drawing, sizing each batch from the acceptance rate seen so far, until that many groups survive the dynamic sampler, and stops at five times the target if too few do. Shares per sub-domain split a run into parts with their own targets.
+
 A run is `queued`, then `generating`, then `generated`, `failed`, or `cancelled`. The run page shows progress while it waits and can cancel it. A job whose worker stops sending heartbeats is requeued when a worker next starts.
 
 ## Accounts

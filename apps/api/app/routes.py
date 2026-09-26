@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session, defer
@@ -11,7 +13,7 @@ from sqlalchemy.orm import Session, defer
 from app.db import get_db
 from app.evaluation import evaluate_bundle
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
-from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Project, Run
+from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Job, Project, Run
 from app.providers import PROVIDERS, get_provider
 from app.schemas import (
     CorpusLinkBody,
@@ -19,6 +21,7 @@ from app.schemas import (
     CredentialUpdateBody,
     DeepSearchBody,
     EvaluateBody,
+    ExportBody,
     FeedbackBody,
     LoginBody,
     ProjectBody,
@@ -34,8 +37,8 @@ from sectors.steering import scrub_text
 from sectors.registry import get_sector
 from app import export as run_export
 from app import jobs
-from app.serialize import project_out, run_out, run_summary
-from app.store import DbStore, store_for
+from app.serialize import job_out, project_out, run_out, run_summary
+from app.store import MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, DbStore, run_dir, store_for
 from app.service import config_from_body, require_project, require_run, rerun_config
 from app.settings import Settings, load_settings
 from trajectory_contract import TrajectoryBundle, banking_fixture
@@ -128,6 +131,8 @@ def sectors() -> dict:
                 "state_dimensions": list(pack.state_dimensions),
                 "languages": list(pack.languages),
                 "studio_cap": STUDIO_TRAJECTORY_CAP,
+                "small_run_sequences": SMALL_RUN_SEQUENCES,
+                "max_run_sequences": MAX_RUN_SEQUENCES,
                 "event_kinds": {name: pack.lifecycle.kind_of(name) for name in pack.event_namespace},
                 "lanes": _lanes(pack.lifecycle),
             }
@@ -427,13 +432,21 @@ def export_run(run_id: str, part: str, account: AccountDep, db: Db, held_out: st
     run = require_run(db, run_id, account)
     if part not in run_export.PARTS:
         raise HTTPException(status_code=404, detail=f"unknown export part; choose one of {', '.join(run_export.PARTS)}")
-    if not run.candidate:
-        if store_for(run) is not None:
-            raise HTTPException(status_code=409, detail="exports of runs above 64 sequences are prepared as a job; that arrives in the next update")
-        raise HTTPException(status_code=409, detail="this run has no generated candidate to export")
     sector = get_sector(run.config.get("sector", "banking"))
     if held_out is not None and held_out not in (run.config.get("sub_domains") or []):
         raise HTTPException(status_code=422, detail="the held-out sub-domain must be one of this run's sub-domains")
+    if not run.candidate:
+        if store_for(run) is None:
+            raise HTTPException(status_code=409, detail="this run has no generated candidate to export")
+        path = run_export.part_path(run_dir(run.id), held_out, part)
+        if not run_export.prepared(run_dir(run.id), held_out) or not path.is_file():
+            raise HTTPException(status_code=409, detail="prepare this export first; large runs are exported by a background job")
+        suffix = f"-heldout-{held_out}" if held_out else ""
+        return FileResponse(
+            path,
+            media_type="application/json" if part == "manifest.json" else "application/gzip",
+            filename=f"run-{run.id[:8]}{suffix}-{path.name}",
+        )
     bundle = TrajectoryBundle.model_validate(run.candidate)
     parts = run_export.build(run, bundle, sector, run_out(run, db)["cycles"], held_out)
     media = "application/x-ndjson" if part.endswith(".jsonl") else "application/json"
@@ -443,6 +456,40 @@ def export_run(run_id: str, part: str, account: AccountDep, db: Db, held_out: st
         media_type=media,
         headers={"Content-Disposition": f'attachment; filename="run-{run.id[:8]}{suffix}-{part}"'},
     )
+
+
+@router.post("/runs/{run_id}/exports")
+def prepare_export(run_id: str, body: ExportBody, account: AccountDep, db: Db) -> dict:
+    run = require_run(db, run_id, account)
+    _require_generated(run)
+    if run.candidate:
+        raise HTTPException(status_code=409, detail="small runs export directly; download the parts")
+    if store_for(run) is None:
+        raise HTTPException(status_code=409, detail="this run has nothing to export")
+    if body.held_out is not None and body.held_out not in (run.config.get("sub_domains") or []):
+        raise HTTPException(status_code=422, detail="the held-out sub-domain must be one of this run's sub-domains")
+    current = next((item for item in list_exports(run_id, account, db)["data"] if item["held_out"] == body.held_out), None)
+    if current is None or not (current["ready"] or current["job"]["status"] in {"queued", "running"}):
+        jobs.enqueue(db, kind="export", owner_id=account.id, run_id=run.id, payload={"held_out": body.held_out})
+    return list_exports(run_id, account, db)
+
+
+@router.get("/runs/{run_id}/exports")
+def list_exports(run_id: str, account: AccountDep, db: Db) -> dict:
+    run = require_run(db, run_id, account)
+    root = run_dir(run.id)
+    rows = list(db.scalars(select(Job).where(Job.run_id == run.id, Job.kind == "export").order_by(Job.created_at)))
+    latest: dict[str | None, Job] = {}
+    for row in rows:
+        latest[row.payload.get("held_out")] = row
+    data = []
+    for held_out, job in latest.items():
+        manifest = run_export.part_path(root, held_out, "manifest.json")
+        ready = manifest.is_file()
+        sizes = json.loads(manifest.read_text()).get("file_sizes", {}) if ready else {}
+        downloads = {part: run_export.part_path(root, held_out, part).stat().st_size for part in run_export.PARTS} if ready else {}
+        data.append({"held_out": held_out, "ready": ready, "sizes": sizes, "download_sizes": downloads, "job": job_out(job)})
+    return {"data": data}
 
 
 @router.get("/runs/{run_id}/journeys")

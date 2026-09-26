@@ -42,6 +42,17 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
             status_code=422,
             detail=f"a run holds at most {MAX_RUN_SEQUENCES:,} sequences; {body.target_trajectory_count:,} prompts × {body.group_size} is more",
         )
+    if body.target_kind == "accepted_groups" and body.group_size < 2:
+        raise HTTPException(status_code=422, detail="accepted-group targets need a group size above 1; a group of one is never accepted or rejected")
+    shares = None
+    if body.domain_shares:
+        outside = [name for name in body.domain_shares if name not in body.sub_domains]
+        if outside:
+            raise HTTPException(status_code=422, detail=f"shares name sub-domains outside this run: {', '.join(outside)}")
+        if any(value <= 0 for value in body.domain_shares.values()):
+            raise HTTPException(status_code=422, detail="every share must be above zero")
+        total = sum(body.domain_shares.values())
+        shares = {name: round(value / total, 6) for name, value in body.domain_shares.items()}
     if body.min_events > body.max_events:
         raise HTTPException(status_code=422, detail="min_events cannot exceed max_events")
     project = require_project(db, body.project_id, account)
@@ -80,6 +91,8 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         "thresholds": thresholds,
         "max_cycles": body.max_cycles,
         "group_size": body.group_size,
+        "target_kind": body.target_kind,
+        "domain_shares": shares,
         "credential_id": credential.id,
     }
 

@@ -38,6 +38,8 @@ const EMPTY = {
   target_family: "llm",
   max_cycles: 2,
   group_size: 1,
+  target_kind: "prompts",
+  domain_shares: null,
   credential_id: "",
   thresholds: { helpfulness: 3, correctness: 0.5, safety: 1, pairwise_quality: 0.5 },
 };
@@ -101,16 +103,22 @@ function Composer() {
   const readableCount = existingDocs.filter((doc) => doc.readable !== false).length;
   const unreadable = existingDocs.filter((doc) => doc.readable === false);
   const languages = sector?.languages || ["en", "tr"];
-  const cap = sector?.studio_cap || 64;
+  const smallRun = sector?.small_run_sequences || 64;
+  const maxRun = sector?.max_run_sequences || 100000;
   const groupSize = Math.min(Math.max(Number(form.group_size) || 1, 1), 16);
-  const promptCap = Math.max(1, Math.floor(cap / groupSize));
-  const storedPrompts = Math.min(form.target_trajectory_count, promptCap);
+  const accepted = form.target_kind === "accepted_groups";
+  const sequences = form.target_trajectory_count * groupSize;
+  const shares = form.domain_shares ? form.sub_domains.map((name) => [name, Number(form.domain_shares[name]) || 0]) : [];
+  const shareTotal = shares.reduce((sum, [, value]) => sum + value, 0);
+  const unit = accepted ? "accepted groups" : groupSize > 1 ? `prompts × ${groupSize}` : "journeys";
   const blockers = [
     !form.credential_id ? "Choose a provider key on the Signals step." : null,
     form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
     form.start_mode === "cold" && !form.cold_start_acknowledged ? "Acknowledge the cold start on the Corpus step." : null,
     form.start_mode === "warm" && docCount === 0 ? "Add at least one warm-start document, or switch to a cold start." : null,
     form.min_events > form.max_events ? "Minimum events cannot exceed maximum events." : null,
+    sequences > maxRun ? `This run asks for ${sequences.toLocaleString()} sequences; the limit is ${maxRun.toLocaleString()}.` : null,
+    shares.some(([, value]) => value <= 0) ? "Every sub-domain share must be above zero." : null,
     !languages.includes((form.language || "").split("-")[0]) ? `Choose a language: ${languages.join(" or ")}.` : null,
   ].filter(Boolean);
   const slots = useMemo(() => Array.from({ length: Math.min(form.max_events, 32) }, (_, i) => i < form.min_events), [form.max_events, form.min_events]);
@@ -187,7 +195,17 @@ function Composer() {
   function toggleDomain(name) {
     const has = form.sub_domains.includes(name);
     const next = has ? form.sub_domains.filter((item) => item !== name) : [...form.sub_domains, name];
-    patch({ sub_domains: next });
+    let domainShares = form.domain_shares;
+    if (domainShares) {
+      domainShares = Object.fromEntries(next.map((item) => [item, domainShares[item] ?? 1]));
+      if (next.length < 2) domainShares = null;
+    }
+    patch({ sub_domains: next, domain_shares: domainShares });
+  }
+
+  function setGroupSize(value) {
+    const size = Math.min(16, Math.max(1, Number(value) || 1));
+    patch({ group_size: size, target_kind: size < 2 ? "prompts" : form.target_kind });
   }
 
   async function confirm() {
@@ -389,6 +407,34 @@ function Composer() {
                   </button>
                 ))}
               </div>
+              {form.sub_domains.length > 1 ? (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.domain_shares)}
+                    onChange={(e) => patch({ domain_shares: e.target.checked ? Object.fromEntries(form.sub_domains.map((name) => [name, 1])) : null })}
+                  />
+                  Set a share per sub-domain
+                </label>
+              ) : null}
+              {form.domain_shares ? (
+                <div className="shares">
+                  {shares.map(([name, value]) => (
+                    <div key={name}>
+                      <label title={name.replaceAll("_", " ")}>{name.replaceAll("_", " ")}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={form.domain_shares[name]}
+                        onChange={(e) => patch({ domain_shares: { ...form.domain_shares, [name]: e.target.value === "" ? "" : Number(e.target.value) } })}
+                      />
+                      <small>{shareTotal > 0 ? `${Math.round((value / shareTotal) * 100)}%` : "–"}</small>
+                    </div>
+                  ))}
+                  <p className="lede">Each sub-domain becomes its own part of the run, with its own target: {accepted ? "accepted groups" : "journeys"} are split by these shares. Without shares, one journey can cross several sub-domains.</p>
+                </div>
+              ) : null}
               <div className="row">
                 <div>
                   <label>Language</label>
@@ -399,13 +445,28 @@ function Composer() {
                   </select>
                 </div>
                 <div>
-                  <label>Trajectories</label>
+                  <label>{accepted ? "Accepted groups" : groupSize > 1 ? "Prompts" : "Trajectories"}</label>
                   <input type="number" min="1" value={form.target_trajectory_count} onChange={(e) => patch({ target_trajectory_count: Number(e.target.value) })} />
                 </div>
+                <div>
+                  <label>Event budget</label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="No budget"
+                    value={form.event_budget ?? ""}
+                    onChange={(e) => patch({ event_budget: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </div>
               </div>
-              {form.target_trajectory_count > promptCap ? (
-                <p className="warn">
-                  This run stores {promptCap} {groupSize > 1 ? `prompts of ${groupSize} sequences (${promptCap * groupSize} journeys)` : "journeys"}; {form.target_trajectory_count.toLocaleString()} were asked for. Larger runs arrive with background jobs in Slice 3.
+              {sequences > maxRun ? (
+                <p className="warn">This run asks for {sequences.toLocaleString()} sequences; a run holds at most {maxRun.toLocaleString()}.</p>
+              ) : accepted || sequences > smallRun || form.domain_shares ? (
+                <p className="lede">
+                  {accepted
+                    ? `The run keeps drawing groups until ${form.target_trajectory_count.toLocaleString()} are accepted, and stops at five times that if too few are.`
+                    : `${sequences.toLocaleString()} sequences.`}{" "}
+                  It is generated in batches as a background job; the run page reads its journeys a page at a time, and exports are prepared as files.
                 </p>
               ) : null}
               <div className="row">
@@ -433,11 +494,23 @@ function Composer() {
               </select>
               <p className="lede">{reward?.[2]}</p>
               <label>Sequences per prompt</label>
-              <input type="number" min="1" max="16" value={form.group_size} onChange={(e) => patch({ group_size: Math.min(16, Math.max(1, Number(e.target.value) || 1)) })} />
+              <input type="number" min="1" max="16" value={form.group_size} onChange={(e) => setGroupSize(e.target.value)} />
               <p className="lede">
                 {groupSize > 1
                   ? `Each prompt gets ${groupSize} rollouts that share the start and differ from the first decision, so rewards compare them within the group.`
                   : "One sequence per prompt gives no group-relative signal: every advantage is zero. MiMo trains with 16."}
+              </p>
+              <label>Size the run by</label>
+              <div className="chips">
+                <button type="button" className="chip" data-on={!accepted} onClick={() => patch({ target_kind: "prompts" })}>Prompts drawn</button>
+                <button type="button" className="chip" data-on={accepted} disabled={groupSize < 2} onClick={() => patch({ target_kind: "accepted_groups" })}>Accepted groups</button>
+              </div>
+              <p className="lede">
+                {groupSize < 2
+                  ? "Accepted groups need more than one sequence per prompt: a group of one is never accepted or rejected."
+                  : accepted
+                    ? "The dynamic sampler drops groups where every rollout passes or every rollout fails. The run oversamples until the number you set on the Shape step survive."
+                    : "The run draws the number of prompts you set; some groups may be dropped by the dynamic sampler later."}
               </p>
               <label>Signal</label>
               <select value={form.signal_mechanism} onChange={(e) => patch({ signal_mechanism: e.target.value })}>
@@ -528,7 +601,8 @@ function Composer() {
             <dd>{form.language}</dd>
             <dt>Size</dt>
             <dd>
-              {storedPrompts} {groupSize > 1 ? `prompts × ${groupSize}` : "journeys"} stored{form.target_trajectory_count > promptCap ? ` of ${form.target_trajectory_count.toLocaleString()} asked` : ""}
+              {form.target_trajectory_count.toLocaleString()} {unit}
+              {shares.length && shareTotal > 0 ? ` · ${shares.map(([name, value]) => `${name.replaceAll("_", " ")} ${Math.round((value / shareTotal) * 100)}%`).join(", ")}` : ""}
             </dd>
             <dt>Length</dt>
             <dd>{form.min_events}–{form.max_events} events</dd>
