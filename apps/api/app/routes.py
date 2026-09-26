@@ -38,7 +38,8 @@ from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.registry import get_sector
 from app import export as run_export
 from app import jobs
-from app.serialize import job_out, project_out, run_out, run_summary
+from app.ingest import safe_name
+from app.serialize import corpus_out, job_out, project_out, run_out, run_summary
 from app.store import MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, DbStore, run_dir, store_for
 from app.service import config_from_body, require_project, require_run, rerun_config
 from app.settings import Settings, load_settings
@@ -309,12 +310,13 @@ async def upload_corpus(
         raise HTTPException(status_code=422, detail="file exceeds 20MB")
     digest = hashlib.sha256(payload).hexdigest()
     cfg.upload_dir.mkdir(parents=True, exist_ok=True)
-    path = cfg.upload_dir / f"{digest}-{upload.filename or 'document'}"
+    # The client's file name never becomes a path: a name like ../../x stays inside the upload directory.
+    path = cfg.upload_dir / f"{digest}-{safe_name(upload.filename)}"
     path.write_bytes(payload)
     item = CorpusItem(
         project_id=project.id,
         kind=kind,
-        name=upload.filename or "document",
+        name=(upload.filename or "document")[:300],
         storage_path=str(path),
         content_hash=digest,
         provenance="upload",
@@ -342,18 +344,15 @@ def link_corpus(project_id: str, body: CorpusLinkBody, account: AccountDep, db: 
         uri=body.uri,
         content_hash=digest,
         provenance="link",
+        ingest={"status": "pending"},
     )
     db.add(item)
     db.commit()
     db.refresh(item)
-    return {
-        "id": item.id,
-        "kind": item.kind,
-        "name": item.name,
-        "uri": item.uri,
-        "content_hash": item.content_hash,
-        "provenance": item.provenance,
-    }
+    # The link is fetched by a job; a link that cannot be fetched is kept and says why.
+    job = jobs.enqueue(db, kind="fetch", owner_id=account.id, run_id=None, project_id=project.id, payload={"item_id": item.id})
+    db.refresh(item)
+    return {**corpus_out(item), "job": job_out(job)}
 
 
 @router.post("/projects/{project_id}/deep-search")

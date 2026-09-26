@@ -16,6 +16,9 @@ def corpus_out(item: CorpusItem) -> dict:
         "readable": doc.readable,
         "unreadable_reason": doc.reason,
         "characters": len(doc.text),
+        "parser": (item.ingest or {}).get("source") or doc.parser,
+        "parse_detail": (item.ingest or {}).get("detail") or doc.detail,
+        "ingest": item.ingest,
         "id": item.id,
         "kind": item.kind,
         "name": item.name,
@@ -116,6 +119,7 @@ def run_out(run: Run, db: Session) -> dict:
                 "agreement": cycle.agreement or {},
                 "flags": cycle.flags or [],
                 "canary": cycle.canary,
+                "reference": cycle.reference or [],
                 "headline_score": headline_score(cycle, verdicts),
                 "verdicts": [
                     {

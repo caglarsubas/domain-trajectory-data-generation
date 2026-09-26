@@ -13,7 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import runtime
-from app.evaluation import corpus_excerpt, evaluate_journeys
+from app.evaluation import evaluate_journeys
+from app.retrieval import reference as reference_passages
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Run
 from app.settings import Settings
@@ -74,7 +75,8 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     journeys = [TrajectoryBundle.model_validate(found.journey(entry["trajectory_id"])) for entry in entries]
     items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id)))
     cold = run.config["start_mode"] == "cold"
-    brief = sector.judge_brief(sub_domains=run.config["sub_domains"], language=run.config["language"], corpus_excerpt=corpus_excerpt(items), cold_start=cold)
+    passages, chosen = ("", []) if cold else reference_passages(items, sector, run.config["sub_domains"], budget=cfg.judge_reference_chars)
+    brief = sector.judge_brief(sub_domains=run.config["sub_domains"], language=run.config["language"], corpus_excerpt=passages, cold_start=cold)
     created: list[InferenceEngineClient] = []
 
     class _Lazy:
@@ -129,6 +131,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
         agreement=result["agreement"],
         flags=result["flags"],
         canary=result["canary"],
+        reference=chosen,
     )
     db.add(cycle)
     db.flush()

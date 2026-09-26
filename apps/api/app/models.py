@@ -69,6 +69,8 @@ class CorpusItem(Base):
     content_hash: Mapped[str] = mapped_column(String(64))
     provenance: Mapped[str] = mapped_column(String(64), default="upload")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # How a link was fetched: status, final address, content type, size, and when, or why it failed.
+    ingest: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     project: Mapped[Project] = relationship(back_populates="corpus_items")
 
 
@@ -124,6 +126,8 @@ class EvalCycle(Base):
     agreement: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     flags: Mapped[list | None] = mapped_column(JSON, nullable=True)
     canary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # The warm-start passages the judge read, by source and passage number.
+    reference: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class EvalVerdict(Base):

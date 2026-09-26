@@ -45,7 +45,8 @@ class BankingPack:
             )
         else:
             excerpt = corpus_excerpt.strip() or "Warm-start documents were attached but not extracted."
-            reference = f"Warm-start excerpt:\n{excerpt[:2000]}"
+            # The caller chooses the passages and keeps them within the judge's budget.
+            reference = f"Warm-start reference passages:\n{excerpt}"
         return (
             f"Sector: banking. Language: {language}. Sub-domains: {scope}.\n"
             "A representative trajectory respects object-centric banking order: "

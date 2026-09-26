@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All twenty are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All twenty-one are merged and their branches are deleted.
 
-`main` history: `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -141,3 +141,9 @@ Slice 3, fourth part, completing the slice. Judging and deep search run as jobs 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/20
 
 Slice 4, first part. A cycle judges six journeys drawn from each kind and outcome in turn, rendered with objects, amounts, state changes, and sample text inside a prompt budget. `qwen3.8:27b` and `gemma4:26b` answer every rubric, pairwise runs in both orders, and a control journey with its events out of order tests whether a judge can see a broken journey. Cycles record per-model scores, agreement, order consistency, and audit flags for likely false positives and negatives; acceptance follows the primary judge.
+
+## 21. Regenerate from the judge's notes, show what changed, and gate export on acceptance
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/21
+
+Slice 4, second part; study-specific rubrics wait on the engine's rubric registry. A run the judge has read is regenerated from its revision notes and notes instead of judged again, and the child is judged when it is generated, within `max_cycles` rounds. Each run records what every note did, `GET /runs/{id}/diff` shows what changed from the parent, and export needs an accepted cycle unless asked otherwise, which the manifest records.

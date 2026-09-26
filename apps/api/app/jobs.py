@@ -282,7 +282,19 @@ def _deep_search(db, job: Job, report: Callable) -> str:
     return f"Stored {item['name']} with {len(item['sources'])} sources."
 
 
-HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export, "evaluate": _evaluate, "deep_search": _deep_search}
+def _fetch(db, job: Job, report: Callable) -> str:
+    from app.ingest import fetch_into_corpus
+    from app.models import CorpusItem
+    from app.settings import load_settings
+
+    item = db.get(CorpusItem, job.payload["item_id"])
+    if item is None:
+        raise HTTPException(status_code=404, detail="the link was removed")
+    job.result = fetch_into_corpus(db, item, load_settings(), report)
+    return f"Fetched {item.name}: {job.result['detail']}."
+
+
+HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export, "evaluate": _evaluate, "deep_search": _deep_search, "fetch": _fetch}
 
 
 class Worker:

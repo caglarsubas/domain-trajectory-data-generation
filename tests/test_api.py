@@ -72,6 +72,11 @@ def _link(client, headers, project_id):
         json={"kind": "paper", "name": "BIAN notes", "uri": "https://example.test/bian"},
     )
     assert response.status_code == 200, response.text
+    if response.json()["job"]["status"] == "queued":
+        # In worker mode the link's fetch job waits; run it so a test's own jobs come next.
+        from app import jobs
+
+        jobs.run_job(response.json()["job"]["id"])
 
 
 def _run(client, headers, project_id, credential_id, **overrides):

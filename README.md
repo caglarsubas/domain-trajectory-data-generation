@@ -62,6 +62,14 @@ A run is `queued`, then `generating`, then `generated`, `failed`, or `cancelled`
 
 Asking the judge queues an `evaluate` job; the run's `judge_job` reports its progress, rubric by rubric, and a failure keeps its reason there while the previous cycle stays. A deep search queues a `deep_search` job and answers with it; `GET /jobs/{id}` returns its progress and, when it succeeds, the stored corpus item, and `POST /jobs/{id}/cancel` stops a queued or running job. The account's key is decrypted only inside the job and is never written to it. Inline, both answer when they finish, with the same status codes as before.
 
+## Warm start
+
+Uploaded documents are parsed once and the text is cached beside the file: PDF (with `pypdf`; scanned pages without a text layer are reported, not read), Word, HTML (the page's main content, without scripts, navigation, or forms), Markdown and plain text, and OpenAPI and AsyncAPI definitions in JSON or YAML, whose operations or channels are listed ahead of the raw text. Each document reports which parser read it, what it read, or why it could not.
+
+A link is fetched by a `fetch` job when it is added. Only http and https are fetched, and every address the host resolves to must be public, checked again for each redirect and for the address actually connected to, so a link cannot reach the platform's own network. Bodies stop at 5 MB. A GitHub repository link (`repo` kind) is read through the GitHub API: its README, files under `docs/`, and any `openapi`, `swagger`, or `asyncapi` definitions, summarized, with their raw addresses listed as sources. `GITHUB_TOKEN` raises GitHub's rate limit; `FETCH_USER_AGENT` names the fetcher to the sites it reads. A link that cannot be fetched is kept and says why.
+
+Steering reads every document in full. The judge's brief carries the passages most relevant to the study instead of the first 2,000 characters: documents are cut into passages on paragraph boundaries and ranked with BM25 against the study's sub-domains and event names, within `JUDGE_REFERENCE_CHARS` (6,000). Each cycle records which passages it used.
+
 ## Judge
 
 A cycle judges a sample of the run's journeys, six by default (`JUDGE_SAMPLE_SIZE`), taken from each kind of journey and outcome in turn, largest first, and chosen deterministically from the run and the cycle. The judge reads each journey with its objects, amounts and their direction, state changes, and the sample's text, shortened to fit `JUDGE_PROMPT_TOKENS` (8,000) when it must. Helpfulness, correctness, and safety are asked of the primary judge, `INFERENCE_ENGINE_JUDGE_MODEL` (`qwen3.8:27b`), and of the second opinion, `INFERENCE_ENGINE_SECOND_JUDGE_MODEL` (`gemma4:26b`, or empty for none); pairwise quality against the journey's alternative is asked in both orders. Each judge also gets one control journey, a sampled journey with its events put out of order, which the pack's replay rejects.

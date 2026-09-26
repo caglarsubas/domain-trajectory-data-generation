@@ -374,7 +374,11 @@ function Composer() {
                       <div className="doc" key={doc.id} data-readable={doc.readable === false ? "false" : "true"}>
                         <span>{doc.name}</span>
                         <small>
-                          {doc.kind.replaceAll("_", " ")} · {doc.readable === false ? doc.unreadable_reason || "not readable" : `${(doc.characters || 0).toLocaleString()} characters read`}
+                          {doc.kind.replaceAll("_", " ")}
+                          {doc.parser && doc.readable !== false ? ` · ${doc.parser}${doc.parse_detail ? `, ${doc.parse_detail}` : ""}` : ""}
+                          {" · "}
+                          {doc.readable === false ? doc.unreadable_reason || "not readable" : `${(doc.characters || 0).toLocaleString()} characters read`}
+                          {doc.ingest?.status === "fetched" && doc.ingest.final_url ? ` · fetched from ${new URL(doc.ingest.final_url).host}` : ""}
                         </small>
                       </div>
                     ))}
@@ -396,15 +400,15 @@ function Composer() {
                       </div>
                     ))}
                     {links.map((item) => (
-                      <div className="doc" key={item.uri}><span>{item.name}</span><small>{item.kind}</small></div>
+                      <div className="doc" key={item.uri}><span>{item.name}</span><small>{item.kind} · fetched when the study is saved{item.kind === "repo" ? "; a GitHub repository is read through its README, docs, and API definitions" : ""}</small></div>
                     ))}
                   </div>
                   {unreadable.length ? (
                     <p className="warn">
                       {unreadable.length === existingDocs.length && !files.length && !links.length
-                        ? "None of these documents can be read yet, so the run will steer like a cold start. "
-                        : `${unreadable.length} document${unreadable.length === 1 ? " is" : "s are"} not readable yet and will not steer the run. `}
-                      PDF, Office files, and links are read from Slice 5; plain text and Markdown work now.
+                        ? "None of these documents can be read, so the run will steer like a cold start. "
+                        : `${unreadable.length} document${unreadable.length === 1 ? " was" : "s were"} not read and will not steer the run. `}
+                      Each says why above. PDF, Word, web pages, Markdown, text, and API definitions are read; scanned PDFs are not.
                     </p>
                   ) : null}
                 </div>

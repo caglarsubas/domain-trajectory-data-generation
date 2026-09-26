@@ -19,3 +19,10 @@ class KeyChecker:
 
 
 key_checker: KeyChecker | None = None
+
+
+class Fetcher:
+    def fetch(self, url: str, kind: str): ...
+
+
+fetcher: Fetcher | None = None
