@@ -164,12 +164,27 @@ export default function RunPage() {
     return { events, links, parent, alt, sample, trajectories: detail.trajectories, transitions: detail.state_transitions };
   }, [detail, rollout]);
 
+  async function removeRun() {
+    if (!window.confirm("Delete this run? Its journeys, judge rounds, notes, and exports are removed for good. Runs made from it stay.")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api(`/runs/${run.id}`, { method: "DELETE" });
+      router.push("/studio");
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
   if (run && ["queued", "generating", "failed", "cancelled"].includes(run.status)) {
     return (
       <Shell>
         <JobPanel
           run={run}
           error={error}
+          busy={busy}
+          onDelete={removeRun}
           onCancel={async () => {
             setError("");
             try {
@@ -310,6 +325,7 @@ export default function RunPage() {
           </button>
         ) : null}
         <Link className="ghost" href={rerunHref} style={{ display: "inline-block" }}>Run again</Link>
+        <button className="ghost" type="button" onClick={removeRun} disabled={busy || judging}>Delete run</button>
         {cycle?.accepted ? <span className="accepted-badge">Accepted by the judge</span> : null}
       </div>
       {judgedFully && !cycle.accepted && !canRegenerate ? (
@@ -622,7 +638,7 @@ function TypeContext({ summary, onPick }) {
   );
 }
 
-function JobPanel({ run, error, onCancel }) {
+function JobPanel({ run, error, busy, onCancel, onDelete }) {
   const job = run.job || {};
   const active = ["queued", "generating"].includes(run.status);
   const label = {
@@ -652,6 +668,7 @@ function JobPanel({ run, error, onCancel }) {
           {job.error ? <div className="error">{job.error}</div> : <p className="lede">{job.message}</p>}
           <div className="actions">
             <Link className="primary" href="/studio/compose" style={{ display: "inline-block" }}>Compose again</Link>
+            <button className="ghost" type="button" onClick={onDelete} disabled={busy}>Delete run</button>
           </div>
         </>
       )}

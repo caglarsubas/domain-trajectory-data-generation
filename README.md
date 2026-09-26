@@ -60,6 +60,8 @@ A run's size can be a number of prompts drawn or, with more than one sequence pe
 
 A run is `queued`, then `generating`, then `generated`, `failed`, or `cancelled`. The run page shows progress while it waits and can cancel it. A job whose worker stops sending heartbeats is requeued when a worker next starts.
 
+`DELETE /runs/{id}` removes a run the account owns: its judge cycles and verdicts, its notes, and its files under `DATA_DIR/runs/<run id>/`. A run a job is still working on is refused with 409 until the job is cancelled. Its jobs stay without the run, so a demo account's daily quota still counts them, and runs made from it keep their journeys and lose only the comparison with it.
+
 Asking the judge queues an `evaluate` job; the run's `judge_job` reports its progress, rubric by rubric, and a failure keeps its reason there while the previous cycle stays. A deep search queues a `deep_search` job and answers with it; `GET /jobs/{id}` returns its progress and, when it succeeds, the stored corpus item, and `POST /jobs/{id}/cancel` stops a queued or running job. The account's key is decrypted only inside the job and is never written to it. Inline, both answer when they finish, with the same status codes as before.
 
 ## Warm start

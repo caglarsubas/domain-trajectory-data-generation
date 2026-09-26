@@ -2,19 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, defer
 
 from datetime import datetime, timezone
 
 from app.db import get_db
 from app.generation import ACCEPTANCE_CEILING
-from app.models import Account, CorpusItem, Credential, EvalCycle, Feedback, Job, Project, Run
+from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Job, Project, Run
 from app.providers import PROVIDERS, KeyCheck, check_key, get_provider
 from app import quotas
 from app.schemas import (
@@ -820,6 +821,25 @@ def cancel_run(run_id: str, account: AccountDep, db: Db) -> dict:
     jobs.cancel(db, job)
     db.refresh(run)
     return run_out(run, db)
+
+
+@router.delete("/runs/{run_id}", status_code=204)
+def delete_run(run_id: str, account: AccountDep, db: Db) -> None:
+    run = require_run(db, run_id, account)
+    busy = db.scalars(select(Job).where(Job.run_id == run.id, Job.status.in_(jobs.ACTIVE))).first()
+    if busy is not None:
+        raise HTTPException(status_code=409, detail=f"A {busy.kind} job is still working on this run. Cancel it first.")
+    cycles = select(EvalCycle.id).where(EvalCycle.run_id == run.id)
+    db.execute(delete(EvalVerdict).where(EvalVerdict.cycle_id.in_(cycles)))
+    db.execute(delete(EvalCycle).where(EvalCycle.run_id == run.id))
+    db.execute(delete(Feedback).where(Feedback.run_id == run.id))
+    # Jobs stay, detached, so a demo account's daily quota still counts the runs it started.
+    db.execute(update(Job).where(Job.run_id == run.id).values(run_id=None))
+    # Runs made from this one keep their journeys and lose only the comparison with it.
+    db.execute(update(Run).where(Run.parent_run_id == run.id).values(parent_run_id=None))
+    db.delete(run)
+    db.commit()
+    shutil.rmtree(run_dir(run_id), ignore_errors=True)
 
 
 @router.post("/runs/{run_id}/evaluate")
