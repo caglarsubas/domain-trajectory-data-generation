@@ -209,8 +209,11 @@ class Walker:
         sub_domains: list[str],
         named: tuple[str, ...] = (),
         kept: tuple[str, ...] = (),
+        calibration=None,
     ) -> None:
         self.lifecycle = lifecycle
+        # Observed next-step shares from a data source reweight the legal choices; None keeps the priors.
+        self.calibration = calibration if calibration is not None and not calibration.empty else None
         self.allowed = allowed
         self.kept = tuple(name for name in kept if name in allowed)
         self.weights: dict[str, float] = {}
@@ -261,6 +264,8 @@ class Walker:
             options = self.options(state, counts, first=not steps)
             if not options:
                 break
+            if self.calibration is not None:
+                options = self.calibration.reweight(steps[-1].event_type if steps else None, options)
             if forced is not None:
                 choice = forced
                 forced = None

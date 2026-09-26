@@ -40,7 +40,6 @@ INTENDED_USE = {
     "evaluation": "Evaluating models against synthetic journeys with verifiable outcomes.",
 }
 LIMITATIONS = (
-    "Transition probabilities and dwell times are hand-set priors until data sources calibrate them (Slice 5).",
     "Solution and behavior scores are deterministic measures until the judge supplies rubric scores (Slice 4).",
     "Turn text is built from templates in English or Turkish; it narrates events rather than acting with tools (Slice 6).",
     "Penalty rules run in record-only mode: flags are recorded but change no reward, mask, or advantage.",
@@ -232,6 +231,11 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
     config = {key: value for key, value in (run.config or {}).items() if key != "credential_id"}
     steering = dict(generation.get("steering") or {})
     limitations = list(LIMITATIONS)
+    calibration = generation.get("calibration")
+    if calibration:
+        limitations.insert(0, f"Next-step shares and durations are calibrated from {', '.join(calibration.get('sources') or [])}; steps the data does not cover keep the pack's hand-set priors.")
+    else:
+        limitations.insert(0, "Next-step shares and durations are the pack's hand-set priors; add a data source to calibrate them.")
     latest = cycles[-1] if cycles else None
     accepted = bool(latest and latest["accepted"])
     if not accepted:

@@ -39,7 +39,7 @@ ADDED_COLUMNS = {
     "credentials": {"check_status": "VARCHAR(16)", "check_detail": "TEXT", "checked_at": "TIMESTAMP WITH TIME ZONE"},
     "eval_cycles": {name: "JSON" for name in ("sample", "models", "scores", "agreement", "flags", "canary", "reference")},
     "eval_verdicts": {"trajectory_id": "VARCHAR(64)", "pair_order": "VARCHAR(4)", "canary": "INTEGER DEFAULT 0"},
-    "corpus_items": {"ingest": "JSON"},
+    "corpus_items": {"ingest": "JSON", "calibration": "JSON"},
     "projects": {"fact_reviews": "JSON"},
 }
 

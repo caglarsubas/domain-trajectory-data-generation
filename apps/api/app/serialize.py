@@ -16,6 +16,7 @@ def corpus_out(item: CorpusItem) -> dict:
         "readable": doc.readable,
         "unreadable_reason": doc.reason,
         "characters": len(doc.text),
+        "calibration": _calibration_out(item.calibration) if item.kind == "data_source" else None,
         "parser": (item.ingest or {}).get("source") or doc.parser,
         "parse_detail": (item.ingest or {}).get("detail") or doc.detail,
         "ingest": item.ingest,
@@ -27,6 +28,17 @@ def corpus_out(item: CorpusItem) -> dict:
         "provenance": item.provenance,
         "created_at": item.created_at.isoformat(),
     }
+
+
+def _calibration_out(calibration: dict | None) -> dict | None:
+    """A data source's calibration without its raw counts: status, size, mapping, and what it covers."""
+    if not calibration:
+        return None
+    from sectors.calibration import Calibration
+
+    summary = Calibration.from_dict(calibration.get("calibration")).summary() if calibration.get("calibration") else None
+    keep = ("status", "reason", "format", "cases", "events", "activities", "mapping", "mapped_share", "channels", "outcomes")
+    return {**{key: calibration.get(key) for key in keep if key in calibration}, "summary": summary}
 
 
 def project_out(project: Project, db: Session) -> dict:

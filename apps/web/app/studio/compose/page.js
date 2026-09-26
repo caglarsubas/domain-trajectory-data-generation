@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Shell from "../../../components/Shell";
 import { api } from "../../../lib/api";
+import DataSources from "../../../components/DataSources";
 import FactsPanel from "../../../components/FactsPanel";
 
 const REWARDS = [
@@ -42,6 +43,7 @@ const EMPTY = {
   target_kind: "prompts",
   domain_shares: null,
   jurisdiction: "neutral",
+  calibrate: true,
   credential_id: "",
   thresholds: { helpfulness: 3, correctness: 0.5, safety: 1, pairwise_quality: 0.5 },
 };
@@ -109,6 +111,7 @@ function Composer() {
   const signal = SIGNALS.find((item) => item[0] === form.signal_mechanism);
   const docCount = existingDocs.length + files.length + links.length;
   const readableCount = existingDocs.filter((doc) => doc.readable !== false).length;
+  const calibrated = existingDocs.filter((doc) => doc.kind === "data_source" && doc.calibration?.status === "ready");
   const unreadable = existingDocs.filter((doc) => doc.readable === false);
   const languages = sector?.languages || ["en", "tr"];
   const smallRun = sector?.small_run_sequences || 64;
@@ -177,6 +180,13 @@ function Composer() {
       api("/quota").then((data) => setQuota(data.demo)).catch(() => {});
     }
   }
+
+  const reloadDocs = useCallback(async () => {
+    if (!projectId) return;
+    const data = await api("/projects");
+    const project = data.data.find((item) => item.id === projectId);
+    if (project) setExistingDocs(project.corpus || []);
+  }, [projectId]);
 
   function patch(partial) {
     setForm((current) => ({ ...current, ...partial }));
@@ -413,6 +423,7 @@ function Composer() {
                       Each says why above. PDF, Word, web pages, Markdown, text, and API definitions are read; scanned PDFs are not.
                     </p>
                   ) : null}
+                  <DataSources projectId={projectId} sector={form.sector} docs={existingDocs} events={sector?.event_namespace || []} onChange={reloadDocs} />
                   {existingDocs.length ? (
                     <FactsPanel
                       projectId={projectId}
@@ -644,6 +655,12 @@ function Composer() {
               ) : null}
               {form.start_mode === "warm" && docCount > 0 && readableCount === 0 && !files.length && !links.length ? (
                 <p className="warn">No document can be read yet, so warm-start text will not steer this run.</p>
+              ) : null}
+              {form.start_mode === "warm" && calibrated.length ? (
+                <label className="check">
+                  <input type="checkbox" checked={form.calibrate !== false} onChange={(e) => patch({ calibrate: e.target.checked })} />
+                  Calibrate next steps and durations from {calibrated.map((doc) => doc.name).join(", ")}
+                </label>
               ) : null}
               <div className="actions">
                 <button className="primary" type="button" disabled={busy || blockers.length > 0} onClick={confirm}>

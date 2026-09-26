@@ -73,6 +73,8 @@ class CorpusItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     # How a link was fetched: status, final address, content type, size, and when, or why it failed.
     ingest: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # For a data source: its format, cases, activity mapping, and the calibration drawn from it.
+    calibration: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     project: Mapped[Project] = relationship(back_populates="corpus_items")
 
 
