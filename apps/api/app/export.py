@@ -262,8 +262,21 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
                 "reference_quality": cycle["reference_quality"],
                 "accepted": cycle["accepted"],
                 "hard_check_passed": cycle["hard_check_passed"],
+                "models": cycle.get("models", []),
+                "sample": [entry["trajectory_id"] for entry in cycle.get("sample", [])],
+                "scores": cycle.get("scores", {}),
+                "agreement": cycle.get("agreement", {}),
+                "flags": cycle.get("flags", []),
+                "canary": cycle.get("canary"),
                 "verdicts": [
-                    {"rubric": verdict["rubric"], "score": verdict["score"], "judge_model": verdict["judge_model"]}
+                    {
+                        "rubric": verdict["rubric"],
+                        "score": verdict["score"],
+                        "judge_model": verdict["judge_model"],
+                        "trajectory_id": verdict.get("trajectory_id"),
+                        "order": verdict.get("order"),
+                        "canary": verdict.get("canary", False),
+                    }
                     for verdict in cycle["verdicts"]
                 ],
             }

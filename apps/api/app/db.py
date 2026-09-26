@@ -37,6 +37,8 @@ ADDED_COLUMNS = {
     "runs": {"generation": "JSON"},
     "jobs": {"project_id": "VARCHAR(36)", "result": "JSON"},
     "credentials": {"check_status": "VARCHAR(16)", "check_detail": "TEXT", "checked_at": "TIMESTAMP WITH TIME ZONE"},
+    "eval_cycles": {name: "JSON" for name in ("sample", "models", "scores", "agreement", "flags", "canary")},
+    "eval_verdicts": {"trajectory_id": "VARCHAR(64)", "pair_order": "VARCHAR(4)", "canary": "INTEGER DEFAULT 0"},
 }
 
 

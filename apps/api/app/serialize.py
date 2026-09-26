@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.corpus_text import ordered, read_document
-from app.evaluation import UNREADABLE
+from app.evaluation import UNREADABLE, normalized
 from app.jobs import latest_for
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Feedback, Project, Run
 from trajectory_contract import banking_fixture
@@ -76,8 +76,7 @@ def run_summary(run: Run, db: Session) -> dict:
     headline = None
     if cycle is not None:
         verdicts = list(db.scalars(select(EvalVerdict).where(EvalVerdict.cycle_id == cycle.id)))
-        scores = [row.score for row in verdicts if not (row.parsed or {}).get(UNREADABLE)]
-        headline = round(sum(scores) / len(scores), 2) if scores else None
+        headline = headline_score(cycle, verdicts)
     return {
         "id": run.id,
         "project_id": run.project_id,
@@ -111,6 +110,13 @@ def run_out(run: Run, db: Session) -> dict:
                 "judge_tenant": cycle.judge_tenant,
                 "judge_org_id": cycle.judge_org_id,
                 "judge_key_id": cycle.judge_key_id,
+                "sample": cycle.sample or [],
+                "models": cycle.models or [],
+                "scores": cycle.scores or {},
+                "agreement": cycle.agreement or {},
+                "flags": cycle.flags or [],
+                "canary": cycle.canary,
+                "headline_score": headline_score(cycle, verdicts),
                 "verdicts": [
                     {
                         "rubric": row.rubric,
@@ -120,6 +126,9 @@ def run_out(run: Run, db: Session) -> dict:
                         "raw": row.raw,
                         "judge_model": row.judge_model,
                         "duration_ms": row.duration_ms,
+                        "trajectory_id": row.trajectory_id,
+                        "order": row.pair_order,
+                        "canary": bool(row.canary),
                     }
                     for row in verdicts
                 ],
@@ -150,10 +159,7 @@ def run_out(run: Run, db: Session) -> dict:
     else:
         bundle = banking_fixture().model_dump(mode="json")
         source = "fixture"
-    headline = None
-    if cycle_payload and cycle_payload[-1]["verdicts"]:
-        scores = [item["score"] for item in cycle_payload[-1]["verdicts"] if item["score"] is not None]
-        headline = round(sum(scores) / len(scores), 2) if scores else None
+    headline = cycle_payload[-1]["headline_score"] if cycle_payload else None
     return {
         "id": run.id,
         "project_id": run.project_id,
@@ -196,3 +202,14 @@ def _generation(run: Run) -> dict | None:
         "event_count": len(candidate.get("events") or []),
         "limited_by": None,
     }
+
+
+def headline_score(cycle: EvalCycle, verdicts: list) -> float | None:
+    """The primary judge's rubric scores, each normalized to 0-1, averaged. Older cycles average their verdicts."""
+    if cycle.scores and cycle.models:
+        primary = cycle.models[0]
+        values = [normalized(rubric, by_model.get(primary)) for rubric, by_model in cycle.scores.items()]
+        values = [value for value in values if value is not None]
+        return round(sum(values) / len(values), 2) if values else None
+    scores = [row.score for row in verdicts if not (row.parsed or {}).get(UNREADABLE)]
+    return round(sum(scores) / len(scores), 2) if scores else None

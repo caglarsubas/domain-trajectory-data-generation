@@ -63,7 +63,7 @@ def test_the_judge_runs_as_a_job_and_records_its_cycle(client, worker_mode):
     assert len(done["cycles"]) == 1
     assert done["judge_job"]["status"] == "succeeded"
     assert done["judge_job"]["result"] == {"cycle_index": 1, "accepted": done["cycles"][0]["accepted"]}
-    assert len(runtime.judge.calls) == 4
+    assert len(runtime.judge.calls) == len(done["cycles"][0]["verdicts"]) > 4
 
 
 def test_a_queued_judge_job_can_be_cancelled_and_a_failure_is_kept_on_the_job(client, worker_mode):

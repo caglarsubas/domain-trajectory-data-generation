@@ -395,3 +395,12 @@ label.check input { width: auto; margin: 0; }
 .key-check { flex-basis: 100%; }
 .key-check[data-state="valid"] { color: var(--ok, #2f6b3a); }
 .key-check[data-state="rejected"], .key-check[data-state="unreachable"] { color: #8a4b12; }
+.meter .second { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.judge-panel { background: var(--paper-2); border: 1px solid var(--line); border-radius: 24px; padding: 16px; margin: 18px 0; }
+.judge-panel .target-table { margin: 10px 0 12px; background: white; }
+.judge-flags { margin: 0 0 12px; padding-left: 18px; line-height: 1.5; }
+.judge-flags li[data-kind="likely_false_positive"], .judge-flags li[data-kind="likely_false_negative"] { color: #8a4b12; }
+.judge-journeys details { background: white; border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px; margin-top: 8px; }
+.judge-journeys summary { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.judge-journeys summary small { color: var(--muted); flex: 1; }
+.judge-journeys .target-table td:last-child { color: var(--muted); }

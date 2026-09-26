@@ -76,10 +76,12 @@ def extract(bundle: dict, trajectory_id: str) -> dict | None:
 def journey_entries(bundle: dict, batch: str | None, variant_of) -> list[dict]:
     events = {event["event_id"]: event["event_type"] for event in bundle["events"]}
     sizes = {}
+    outcomes = {}
     for sample in bundle["samples"]:
         for sequence in sample["sequences"]:
             if sequence.get("trajectory_id"):
                 sizes[sequence["trajectory_id"]] = len(sample["sequences"])
+                outcomes[sequence["trajectory_id"]] = sequence.get("outcome")
     entries = []
     for item in bundle["trajectories"]:
         if item.get("parent_trajectory_id"):
@@ -92,6 +94,7 @@ def journey_entries(bundle: dict, batch: str | None, variant_of) -> list[dict]:
                 "events": len(types),
                 "variant": variant_of(types),
                 "sequences": sizes.get(item["trajectory_id"], 1),
+                "outcome": outcomes.get(item["trajectory_id"]),
                 "batch": batch,
             }
         )

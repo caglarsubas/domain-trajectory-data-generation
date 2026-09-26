@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All seventeen are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All nineteen are merged and their branches are deleted.
 
-`main` history: `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -123,3 +123,15 @@ Slice 3, second part. Runs up to 100,000 sequences are generated in batches of 2
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/17
 
 Slice 3, third part. Large runs export through a job that streams batch by batch into gzipped parts, staged and renamed when complete, with manifest checksums of the uncompressed content. `target_kind: "accepted_groups"` oversamples from the observed acceptance rate until the target survives the dynamic sampler, stopping at five times the target; `domain_shares` split a run into parts with their own targets and seeds. The work showed that five of the seven banking sub-domains had no failing rollouts, so their groups carried no signal.
+
+## 18. Give every banking sub-domain failing rollouts so its groups can be accepted
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/18
+
+Follow-up to #17. Rollouts in deposits, cards and payments, servicing, and complaints could not fail, so the dynamic sampler rejected all their groups. Abandoned and declined applications, failed KYC, complaints not upheld, declined limit changes, declined card purchases, and delinquent loans are now reachable where the domain allows them, and every banking sub-domain yields accepted groups.
+
+## 19. Judge and deep search as jobs, check keys with the provider, and add demo quotas
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/19
+
+Slice 3, fourth part, completing the slice. Judging and deep search run as jobs with progress and cancellation, and inline they answer with their old status codes. A saved key is checked with a free authenticated call to its provider: a rejected key is refused and an unreachable provider leaves it saved but not ready. Demo accounts get daily limits on runs, judge cycles, and deep searches and a run size limit. Oversampling is capped at the run limit.

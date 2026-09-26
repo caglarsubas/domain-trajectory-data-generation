@@ -39,6 +39,7 @@ class Judge(Protocol):
         response: str,
         expected: str | None = None,
         response_b: str | None = None,
+        judge_model: str | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -99,10 +100,11 @@ class InferenceEngineClient:
         response: str,
         expected: str | None = None,
         response_b: str | None = None,
+        judge_model: str | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {"rubric": rubric, "prompt": prompt, "response": response, "seed": 0}
-        if self.judge_model:
-            body["judge_model"] = self.judge_model
+        if judge_model or self.judge_model:
+            body["judge_model"] = judge_model or self.judge_model
         if expected is not None:
             body["expected"] = expected
         if response_b is not None:

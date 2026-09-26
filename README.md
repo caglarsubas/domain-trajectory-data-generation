@@ -62,6 +62,14 @@ A run is `queued`, then `generating`, then `generated`, `failed`, or `cancelled`
 
 Asking the judge queues an `evaluate` job; the run's `judge_job` reports its progress, rubric by rubric, and a failure keeps its reason there while the previous cycle stays. A deep search queues a `deep_search` job and answers with it; `GET /jobs/{id}` returns its progress and, when it succeeds, the stored corpus item, and `POST /jobs/{id}/cancel` stops a queued or running job. The account's key is decrypted only inside the job and is never written to it. Inline, both answer when they finish, with the same status codes as before.
 
+## Judge
+
+A cycle judges a sample of the run's journeys, six by default (`JUDGE_SAMPLE_SIZE`), taken from each kind of journey and outcome in turn, largest first, and chosen deterministically from the run and the cycle. The judge reads each journey with its objects, amounts and their direction, state changes, and the sample's text, shortened to fit `JUDGE_PROMPT_TOKENS` (8,000) when it must. Helpfulness, correctness, and safety are asked of the primary judge, `INFERENCE_ENGINE_JUDGE_MODEL` (`qwen3.8:27b`), and of the second opinion, `INFERENCE_ENGINE_SECOND_JUDGE_MODEL` (`gemma4:26b`, or empty for none); pairwise quality against the journey's alternative is asked in both orders. Each judge also gets one control journey, a sampled journey with its events put out of order, which the pack's replay rejects.
+
+The cycle records each model's score per rubric, how often the two agree on pass or fail, whether each model kept its pairwise choice when the order was swapped, and audit flags in the spirit of MiMo's rollout auditing: a likely false positive when a judge passes the control journey, a likely false negative when it calls a legally replaying journey incorrect, a disagreement between the models, an order flip, and an unreadable verdict. Acceptance and revision notes follow the primary judge. The run page shows the scores with the second opinion, the agreement, the flags, and each sampled journey's verdicts with their reasons, and opens a journey from there.
+
+The engine judges at temperature 0, so asking one model the same question twice returns the same verdict; repeats wait on the engine, as do study-specific rubrics.
+
 ## Accounts
 
 Register as `user` or `demo`. Both must bring their own provider key. The admin account is created from `ADMIN_EMAIL` and `ADMIN_PASSWORD` and is the only account that can store platform keys. The judge uses `INFERENCE_ENGINE_API_KEY` from the environment, not a user key.
