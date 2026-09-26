@@ -59,6 +59,27 @@ def test_quality_report_measures_complete_and_comprehensive():
     assert bundle.generation.pack_version == "banking-pack-3"
 
 
+def test_the_process_map_places_each_event_type_in_time_and_in_sequence():
+    from sectors.overview import OverviewAccumulator, overview_of
+    from sectors.registry import get_sector
+
+    bundle = _bundle()
+    overview = overview_of(bundle, get_sector("banking").classify)
+    nodes = {node["type"]: node for node in overview["nodes"]}
+    assert all(node["hours"] >= 0 and node["step"] >= 1 for node in nodes.values())
+    assert nodes["product.viewed"]["hours"] == 0 and nodes["product.viewed"]["step"] == 1
+    assert nodes["account.opened"]["hours"] > nodes["kyc.passed"]["hours"]
+    assert all(edge["hours"] >= 0 for edge in overview["edges"])
+
+    # A checkpoint from before timing was measured still restores, and only new journeys are timed.
+    old = OverviewAccumulator(get_sector("banking").classify)
+    old.restore({"journeys": 1, "variants": {}, "nodes": {"product.viewed": [1, 0.0]}, "edges": {"product.viewed|application.started": 1}})
+    old.add(bundle)
+    restored = {node["type"]: node for node in old.report()["nodes"]}
+    assert restored["product.viewed"]["count"] == nodes["product.viewed"]["count"] + 1
+    assert restored["product.viewed"]["hours"] == 0
+
+
 def test_money_moves_in_a_direction_and_posts_after_authorisation():
     bundle = _bundle(sub_domains=["cards_and_payments", "consumer_credit", "deposits", "onboarding_and_kyc"])
     purchases = [event for event in bundle.events if event.event_type == "card.purchase_authorised"]

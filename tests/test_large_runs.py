@@ -60,6 +60,11 @@ def test_a_large_run_is_written_in_batches_and_read_a_journey_at_a_time(client):
     assert note.status_code == 200, note.text
     assert client.post(f"/runs/{run['id']}/feedback", headers=headers,
                        json={"target_type": "event", "target_id": "B0009.E99999", "stance": "drop", "comment": "No."}).status_code == 422
+    # A note can sit on an event type from the process map, and only on a type the sector knows.
+    assert client.post(f"/runs/{run['id']}/feedback", headers=headers,
+                       json={"target_type": "event", "target_id": "kyc.failed", "stance": "revise", "comment": "Rarer."}).status_code == 200
+    assert client.post(f"/runs/{run['id']}/feedback", headers=headers,
+                       json={"target_type": "event", "target_id": "policy.bound", "stance": "drop", "comment": "No."}).status_code == 422
     assert client.get(f"/runs/{run['id']}/export/samples.jsonl", headers=headers).status_code == 409
 
 

@@ -89,6 +89,7 @@ function Composer() {
       setForm((current) => ({
         ...current,
         ...run.config,
+        credential_id: run.config.credential_id || "",
         thresholds: { ...EMPTY.thresholds, ...(run.config.thresholds || {}) },
       }));
       const projects = await api("/projects");
@@ -119,7 +120,6 @@ function Composer() {
   // An accepted-group target may draw up to five times its size; demo limits count that.
   const drawn = accepted ? sequences * 5 : sequences;
   const blockers = [
-    !form.credential_id ? "Choose a provider key on the Signals step." : null,
     form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
     form.start_mode === "cold" && !form.cold_start_acknowledged ? "Acknowledge the cold start on the Corpus step." : null,
     form.start_mode === "warm" && docCount === 0 ? "Add at least one warm-start document, or switch to a cold start." : null,
@@ -567,14 +567,14 @@ function Composer() {
                   <input type="number" min="1" max="8" value={form.max_cycles} onChange={(e) => patch({ max_cycles: Number(e.target.value) })} />
                 </div>
               </div>
-              <label>Provider key</label>
+              <label>Provider key (optional)</label>
               <select value={form.credential_id} onChange={(e) => patch({ credential_id: e.target.value })}>
-                <option value="">Select a key</option>
+                <option value="">No key</option>
                 {keys.map((item) => (
                   <option key={item.id} value={item.id}>{item.label} · {item.provider} · {item.fingerprint}</option>
                 ))}
               </select>
-              {keys.length === 0 ? <p className="lede">Add a bring-your-own key under Keys before confirming.</p> : null}
+              {keys.length === 0 ? <p className="lede">A key is only needed for the provider deep search. Add one under Keys to use it.</p> : null}
               {unchecked ? (
                 <p className="lede">
                   {unchecked} saved {unchecked === 1 ? "key has" : "keys have"} not been accepted by {unchecked === 1 ? "its" : "their"} provider yet; check {unchecked === 1 ? "it" : "them"} under Keys.

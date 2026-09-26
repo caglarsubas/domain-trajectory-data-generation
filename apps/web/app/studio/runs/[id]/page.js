@@ -8,7 +8,7 @@ import { api } from "../../../../lib/api";
 import DownloadPanel from "../../../../components/DownloadPanel";
 import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
 import RunDiff from "../../../../components/RunDiff";
-import { GroupViewer, ProcessMap, QualityCard, TimeAxis, VariantList } from "../../../../components/RunViews";
+import { GroupViewer, ProcessMap, QualityCard, VariantList, formatHours, journeyOverview, laneLabel, shortLabel, typeSummary } from "../../../../components/RunViews";
 
 const PAGE = 100;
 
@@ -29,7 +29,8 @@ export default function RunPage() {
   const params = useParams();
   const [run, setRun] = useState(null);
   const [family, setFamily] = useState([]);
-  const [selected, setSelected] = useState(null);
+  // What the map and inspector have in hand: an event type, and one of this journey's events of that type if it has one.
+  const [selection, setSelection] = useState(null);
   const [stance, setStance] = useState("revise");
   const [comment, setComment] = useState("");
   const [journeyStance, setJourneyStance] = useState("keep");
@@ -69,7 +70,7 @@ export default function RunPage() {
 
   useEffect(() => {
     setFocus("");
-    setSelected(null);
+    setSelection(null);
     setVariant("");
     setRollout("");
     load(params.id).catch((err) => setError(err.message));
@@ -115,7 +116,6 @@ export default function RunPage() {
   }
 
   const overview = run?.generation?.overview || null;
-  const chosen = overview?.variants.find((item) => item.id === variant);
 
   const layout = useMemo(() => {
     if (!detail) return null;
@@ -131,10 +131,7 @@ export default function RunPage() {
     const sample = detail.samples.find((item) => item.sequences.some((sequence) => sequence.trajectory_id === parent.trajectory_id));
     const children = detail.trajectories.filter((item) => item.parent_trajectory_id === parent.trajectory_id);
     const alt = children.find((item) => item.trajectory_id === rollout) || children[0];
-    const altOnly = alt ? alt.event_ids.filter((id) => !parent.event_ids.includes(id)) : [];
-    const branchAt = alt ? parent.event_ids.indexOf(alt.branch_event_id) : -1;
-    const columns = Math.max(parent.event_ids.length, branchAt + 1 + altOnly.length, 1);
-    return { events, links, parent, alt, altOnly, branchAt, columns, sample, trajectories: detail.trajectories, transitions: detail.state_transitions };
+    return { events, links, parent, alt, sample, trajectories: detail.trajectories, transitions: detail.state_transitions };
   }, [detail, rollout]);
 
   if (run && ["queued", "generating", "failed", "cancelled"].includes(run.status)) {
@@ -160,7 +157,7 @@ export default function RunPage() {
     return <Shell>{error ? <div className="error">{error}</div> : <p>Opening the journey.</p>}</Shell>;
   }
 
-  const event = selected ? layout.events[selected] : null;
+  const event = selection?.event ? layout.events[selection.event] : null;
   const transitions = event ? layout.transitions.filter((item) => item.event_id === event.event_id) : [];
   const cycle = run.cycles.at(-1);
   // The primary judge's unreadable rubrics; older cycles held one verdict per rubric.
@@ -176,6 +173,26 @@ export default function RunPage() {
   const pack = sectors.find((item) => item.id === (run.config.sector || "banking"));
   const eventKinds = pack?.event_kinds || {};
   const lanes = pack?.lanes || [{ kind: "party", object_type: "party" }];
+  const mapOverview = overview?.nodes?.length ? overview : journeyOverview(layout);
+  // Overviews stored before times were measured can only be laid out by step.
+  const timed = mapOverview?.nodes?.[0]?.hours != null;
+  const mode = timed ? view : "sequence";
+  // A node counts notes on its type and on this journey's events of that type.
+  const notesByType = {};
+  for (const note of run.feedback || []) {
+    if (note.target_type !== "event") continue;
+    const type = layout.events[note.target_id]?.event_type || (note.target_id in eventKinds ? note.target_id : null);
+    if (type) notesByType[type] = (notesByType[type] || 0) + 1;
+  }
+  const summary = selection ? typeSummary(mapOverview, selection.type) : null;
+  const laneOf = (type) => lanes.find((lane) => lane.kind === (eventKinds[type] || "party")) || { kind: eventKinds[type] || "party" };
+  const ownIds = [...layout.parent.event_ids, ...(layout.alt ? layout.alt.event_ids.filter((id) => !layout.parent.event_ids.includes(id)) : [])];
+  const selectType = (type) => setSelection({ type, event: ownIds.find((id) => layout.events[id]?.event_type === type) || null });
+  const stepOf = (id) => {
+    const index = layout.parent.event_ids.indexOf(id);
+    if (index >= 0) return `Step ${index + 1} of ${layout.parent.event_ids.length}`;
+    return `Simulated alternative · step ${layout.alt.event_ids.indexOf(id) + 1}`;
+  };
 
   async function saveFeedback(targetType, targetId, note = { stance, comment, reset: () => setComment("") }) {
     setError("");
@@ -328,7 +345,7 @@ export default function RunPage() {
         cycle={cycle}
         onPick={(trajectoryId) => {
           setVariant("");
-          setSelected(null);
+          setSelection(null);
           setFocus(trajectoryId);
           document.querySelector(".stage")?.scrollIntoView({ behavior: "smooth", block: "start" });
         }}
@@ -336,7 +353,6 @@ export default function RunPage() {
       <QualityCard quality={run.generation?.quality} />
       {pack && overview && overview.journeys > 1 ? (
         <div className="overview">
-          <ProcessMap overview={overview} highlight={chosen?.types} eventKinds={eventKinds} lanes={lanes} />
           <VariantList
             variants={overview.variants}
             total={overview.journeys}
@@ -345,52 +361,56 @@ export default function RunPage() {
             onPick={(key) => {
               setVariant(key);
               setFocus("");
-              setSelected(null);
+              setSelection(null);
             }}
           />
         </div>
       ) : null}
-      <DownloadPanel run={run} paged={run.bundle_source === "paged"} />
       <div className="stage">
         <div className="canvas-wrap">
-          {total > 1 ? (
-            <div className="journey-picker">
-              <label htmlFor="journey">Journey {variant ? `· ${total} in this variant` : `· ${total.toLocaleString()} in the run`}</label>
-              <div className="row">
-                <select
-                  id="journey"
-                  value={layout.parent.trajectory_id}
-                  onChange={(e) => {
-                    setFocus(e.target.value);
-                    setSelected(null);
-                    setRollout("");
-                  }}
-                >
-                  {entries.map((item, index) => (
-                    <option key={item.trajectory_id} value={item.trajectory_id}>
-                      {index + 1}. {item.trajectory_type.replaceAll("_", " ")} · {item.events} events{item.sequences > 1 ? ` · group of ${item.sequences}` : ""}
-                    </option>
-                  ))}
-                </select>
-                {entries.length < total ? (
-                  <button className="ghost" type="button" style={{ flex: "0 0 auto" }} onClick={() => loadMore().catch((err) => setError(err.message))}>
-                    Load {Math.min(PAGE, total - entries.length)} more
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : null}
-          <div className="tabs" role="tablist">
-            {[["time", "Time axis"], ["sequence", "Sequence"]].map(([id, label]) => (
-              <button key={id} type="button" role="tab" aria-selected={view === id} data-on={view === id} onClick={() => setView(id)}>{label}</button>
-            ))}
+          <div className="panel-head">
+            <h3>Process map</h3>
+            <small>
+              {mapOverview?.journeys > 1 ? "Every journey's transitions, thicker where more common. " : ""}
+              {mode === "time" ? "Event types sit at their typical time from the start." : "Event types sit at their typical step."}
+            </small>
           </div>
-          {layout.alt ? (
-            <p className="lede">
-              {view === "time" ? "Hollow marks and the dashed line are" : "The lower row is"} a simulated alternative branch
-              {layout.alt.probability != null ? `, chosen with probability ${layout.alt.probability} at the branch point` : ""}, not a causal counterfactual.
-            </p>
-          ) : null}
+          <div className="map-controls">
+            {total > 1 ? (
+              <div className="journey-picker">
+                <label htmlFor="journey">Traced journey {variant ? `· ${total} in this variant` : `· ${total.toLocaleString()} in the run`}</label>
+                <div className="row">
+                  <select
+                    id="journey"
+                    value={layout.parent.trajectory_id}
+                    onChange={(e) => {
+                      setFocus(e.target.value);
+                      setSelection(null);
+                      setRollout("");
+                    }}
+                  >
+                    {entries.map((item, index) => (
+                      <option key={item.trajectory_id} value={item.trajectory_id}>
+                        {index + 1}. {item.trajectory_type.replaceAll("_", " ")} · {item.events} events{item.sequences > 1 ? ` · group of ${item.sequences}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {entries.length < total ? (
+                    <button className="ghost" type="button" style={{ flex: "0 0 auto" }} onClick={() => loadMore().catch((err) => setError(err.message))}>
+                      Load {Math.min(PAGE, total - entries.length)} more
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            <div className="tabs" role="tablist" aria-label="Place event types by">
+              {[["time", "Time axis"], ["sequence", "Sequence"]].map(([id, label]) => (
+                <button key={id} type="button" role="tab" aria-selected={mode === id} data-on={mode === id} disabled={id === "time" && !timed}
+                  title={id === "time" && !timed ? "This run was summarised before event times were measured." : undefined}
+                  onClick={() => setView(id)}>{label}</button>
+              ))}
+            </div>
+          </div>
           <GroupViewer
             sample={layout.sample}
             trajectories={layout.trajectories}
@@ -398,44 +418,35 @@ export default function RunPage() {
             active={layout.alt?.trajectory_id}
             onPick={(id) => {
               if (id !== layout.parent.trajectory_id) setRollout(id);
-              setSelected(null);
+              setSelection(null);
             }}
           />
-          {view === "time" ? (
-            <TimeAxis parent={layout.parent} alt={layout.alt} events={layout.events} eventKinds={eventKinds} lanes={lanes} selected={selected} onSelect={setSelected} />
-          ) : (
-          <div className="canvas" style={{ gridTemplateColumns: `repeat(${layout.columns}, minmax(108px, 1fr))` }}>
-            {layout.parent.event_ids.map((id, index) => (
-              <EventNode
-                key={id}
-                event={layout.events[id]}
-                links={layout.links[id] || []}
-                selected={selected === id}
-                alt={false}
-                column={index + 1}
-                notes={notesFor(id)}
-                onSelect={() => setSelected(id)}
-              />
-            ))}
-            {layout.altOnly.map((id, index) => (
-              <EventNode
-                key={id}
-                event={layout.events[id]}
-                links={layout.links[id] || []}
-                selected={selected === id}
-                alt
-                column={layout.branchAt + 1 + index + 1}
-                notes={notesFor(id)}
-                onSelect={() => setSelected(id)}
-              />
-            ))}
-          </div>
-          )}
+          <p className="lede map-lede">
+            Copper is the traced journey; numbers are its steps{mode === "time" ? " and labels its waits" : ""}.
+            {layout.alt
+              ? ` Hollow steps and the dashed line are a simulated alternative branch${layout.alt.probability != null ? `, chosen with probability ${layout.alt.probability} at the branch point` : ""}, not a causal counterfactual.`
+              : ""}
+            {" "}Select a node or a step to inspect it and leave a note.
+          </p>
+          <ProcessMap
+            overview={mapOverview}
+            eventKinds={eventKinds}
+            lanes={lanes}
+            journey={layout}
+            mode={mode}
+            selection={selection}
+            onSelect={setSelection}
+            notesByType={notesByType}
+          />
         </div>
         <aside className="inspector">
+          {selection ? (
+            <button type="button" className="text-btn back" onClick={() => setSelection(null)}>← This journey</button>
+          ) : null}
           {event ? (
             <>
               <h2 className="word" style={{ marginTop: 0 }}>{event.event_type}</h2>
+              <p className="lede tight">{stepOf(event.event_id)} · {formatHours(Math.max(0, (new Date(event.event_time) - new Date(layout.events[layout.parent.event_ids[0]].event_time)) / 3600000))} from the start</p>
               <div className="kvs">
                 <span>Event</span><b>{event.event_id}</b>
                 <span>When</span><b>{new Date(event.event_time).toLocaleString()}</b>
@@ -448,10 +459,41 @@ export default function RunPage() {
               {transitions.map((item) => (
                 <p key={item.state_dimension}>{item.state_dimension}: {item.state_before || "none"} → {item.state_after}</p>
               ))}
+              {(layout.links[event.event_id] || []).length ? (
+                <ul className="objects">
+                  {layout.links[event.event_id].map((link) => (
+                    <li key={link.object_id + link.object_role}>
+                      <i className={`mark ${markClass(link.object_type)}`} />
+                      <span>{link.object_type.replaceAll("_", " ")}</span>
+                      <small>{link.object_role ? `${link.object_role.replaceAll("_", " ")} · ` : ""}{link.object_id}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <TypeContext summary={summary} onPick={selectType} />
               <ul className="feedback-list">
                 {notesFor(event.event_id).map((note) => <li key={note.id}><strong>{note.stance}</strong> {note.comment}</li>)}
+                {notesFor(event.event_type).map((note) => <li key={note.id}><strong>{note.stance}</strong> every {shortLabel(event.event_type)}: {note.comment}</li>)}
               </ul>
               <FeedbackBox stance={stance} setStance={setStance} comment={comment} setComment={setComment} onSave={() => saveFeedback("event", event.event_id)} />
+            </>
+          ) : selection ? (
+            <>
+              <h2 className="word" style={{ marginTop: 0 }}>{selection.type}</h2>
+              <p className="lede tight">Not in this journey</p>
+              <div className="kvs">
+                <span>Lane</span><b>{laneLabel(laneOf(selection.type))}</b>
+                <span>Across the run</span><b>{summary.node ? `${summary.node.count.toLocaleString()} times` : "—"}</b>
+                <span>Typically at</span><b>{summary.node?.hours != null ? `${formatHours(summary.node.hours)} from the start` : "—"}</b>
+                <span>Typical step</span><b>{summary.node?.step ?? "—"}</b>
+                <span>Repeats</span><b>{summary.repeats ? summary.repeats.toLocaleString() : "—"}</b>
+              </div>
+              <TypeContext summary={summary} onPick={selectType} />
+              <ul className="feedback-list">
+                {notesFor(selection.type).map((note) => <li key={note.id}><strong>{note.stance}</strong> {note.comment}</li>)}
+              </ul>
+              <p className="lede">The next run reads a note here for every {shortLabel(selection.type)}: drop leaves it out, keep favours it, revise asks for a change.</p>
+              <FeedbackBox stance={stance} setStance={setStance} comment={comment} setComment={setComment} onSave={() => saveFeedback("event", selection.type)} />
             </>
           ) : (
             <>
@@ -470,7 +512,7 @@ export default function RunPage() {
                 onSave={() => saveFeedback("trajectory", layout.parent.trajectory_id, { stance: journeyStance, comment: journeyComment, reset: () => setJourneyComment("") })}
               />
               <h2 className="word">Whole run</h2>
-              <p className="lede">Select an event to see its objects and state change. Notes can also sit on the run itself.</p>
+              <p className="lede">Select a node or a numbered step on the map to see its objects, state change, and typical flow. Notes can also sit on the run itself.</p>
               <ul className="feedback-list">
                 {(run.feedback || []).filter((note) => note.target_type === "run").map((note) => (
                   <li key={note.id}>
@@ -505,7 +547,30 @@ export default function RunPage() {
           </div>
         </aside>
       </div>
+      <DownloadPanel run={run} paged={run.bundle_source === "paged"} />
     </Shell>
+  );
+}
+
+// Where an event type sits across the run: what usually comes before and after it. Each neighbour opens in the inspector.
+function TypeContext({ summary, onPick }) {
+  if (!summary?.node) return <p className="lede">No primary journey in this run reaches it; only a simulated alternative does.</p>;
+  const list = (title, items, side, wait) => (items.length ? (
+    <div className="flows">
+      <span>{title}</span>
+      {items.map((edge) => (
+        <button key={edge[side]} type="button" onClick={() => onPick(edge[side])} title={`${edge.count.toLocaleString()} transitions across the run`}>
+          <b>{edge[side]}</b>
+          <small>{edge.count.toLocaleString()}×{edge.hours != null ? ` · ${wait(formatHours(edge.hours))}` : ""}</small>
+        </button>
+      ))}
+    </div>
+  ) : null);
+  return (
+    <div className="type-context">
+      {list("Usually after", summary.prev, "from", (time) => `${time} before`)}
+      {list("Usually followed by", summary.next, "to", (time) => `${time} later`)}
+    </div>
   );
 }
 
@@ -544,18 +609,6 @@ function JobPanel({ run, error, onCancel }) {
       )}
       {error ? <div className="error">{error}</div> : null}
     </div>
-  );
-}
-
-function EventNode({ event, links, selected, alt, column, notes, onSelect }) {
-  return (
-    <button type="button" className="node" data-on={selected} data-alt={alt} style={{ gridColumn: column, gridRow: alt ? 2 : 1 }} onClick={onSelect}>
-      <div className="marks">
-        {links.map((link) => <i key={link.object_id + link.object_role} className={`mark ${markClass(link.object_type)}`} title={link.object_type} />)}
-      </div>
-      <b>{event.event_type}</b>
-      <small>{alt ? "branch · " : ""}{event.event_id}{notes.length ? ` · ${notes.length} note` : ""}</small>
-    </button>
   );
 }
 

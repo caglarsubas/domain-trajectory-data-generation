@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All twenty-one are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All twenty-three are merged and their branches are deleted.
 
-`main` history: `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `911840f`, `04cf306`, `f8a8199`, `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -146,4 +146,16 @@ Slice 4, first part. A cycle judges six journeys drawn from each kind and outcom
 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/21
 
-Slice 4, second part; study-specific rubrics wait on the engine's rubric registry. A run the judge has read is regenerated from its revision notes and notes instead of judged again, and the child is judged when it is generated, within `max_cycles` rounds. Each run records what every note did, `GET /runs/{id}/diff` shows what changed from the parent, and export needs an accepted cycle unless asked otherwise, which the manifest records.
+Slice 4, second part; the study-specific rubrics planned before it wait on the engine's rubric registry. A run the judge has read is not judged again unless its primary verdict was unreadable. `POST /runs/{id}/regenerate` makes a child run from the latest cycle's revision notes and the parent's notes, within `max_cycles` rounds, and judges it once it is generated. `generation.notes` records what every note did, `GET /runs/{id}/diff` compares a run with its parent, and the run page shows it as What changed. Export needs an accepted cycle unless `allow_unaccepted=true` is passed, which the manifest's `review` records. The diff showed that a helpfulness note removed every declined application and failed KYC from a regenerated run.
+
+## 22. Merge the process map and the journey views into one interactive map
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/22
+
+Follow-up to #12. The run page's process map and its time axis and sequence views of one journey become one map: event types sit on a shared axis at their typical time or step, and the chosen journey, its rollouts, and its simulated alternative are traced over it. Clicking a step or node opens the event, its objects, and the transitions around it, and a node takes keep, revise, or drop notes for every event of its type. The overview gains each type's typical hours and step and each transition's typical dwell, accumulated batch by batch; a large run stored without them keeps the sequence layout. Event feedback accepts an event type the sector knows.
+
+## 23. Keep journeys the domain ends early when a helpfulness note asks for longer ones
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/23
+
+Follow-up to #21. A helpfulness note raised the minimum length for every primary journey, so a banking run over onboarding, deposits, and consumer credit went from 16.7 declined applications and failed KYC checks per 100 journeys to none. The raised minimum now applies only to journeys that can go on, and one the domain ends is held to the requested minimum. Runs without the note are unchanged, and a test checks that the note keeps at least half the failure share it had without it.

@@ -133,6 +133,21 @@ def test_user_cannot_store_platform_key_and_demo_needs_byok(client):
     assert created.json()["generation"]["generator_id"] == "banking-semi-markov-v2"
 
 
+def test_runs_do_not_need_a_provider_key(client):
+    headers = _auth(client, "nokey@example.com", "password-123")
+    project_id = _project(client, headers)
+    _link(client, headers, project_id)
+    created = _run(client, headers, project_id, None)
+    assert created.status_code == 200, created.text
+    assert created.json()["status"] == "generated"
+    blank = _run(client, headers, project_id, "")
+    assert blank.status_code == 200, blank.text
+    rerun = client.post(f"/runs/{created.json()['id']}/rerun", headers=headers, json={})
+    assert rerun.status_code == 200, rerun.text
+    unknown = _run(client, headers, project_id, "missing-key")
+    assert unknown.status_code == 404
+
+
 def test_warm_start_and_cold_start_rules(client):
     headers = _auth(client, "warm@example.com", "password-123")
     project_id = _project(client, headers)

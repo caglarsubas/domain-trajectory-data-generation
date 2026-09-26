@@ -43,7 +43,7 @@ def test_a_rejected_run_regenerates_from_its_notes_and_the_child_is_judged(clien
 
     applied = child["generation"]["notes"]
     effects = " ".join(item["effect"] for item in applied["revisions"])
-    assert "Leaves out loan.delinquent." in effects and "Raises the minimum length by one event." in effects
+    assert "Leaves out loan.delinquent." in effects and "Raises the minimum length by one event for journeys that can go on" in effects
     assert applied["feedback"][0]["effect"].startswith("Rewrites the sample text at ")
 
 

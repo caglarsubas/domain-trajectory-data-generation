@@ -145,7 +145,10 @@ def run_out(run: Run, db: Session) -> dict:
         if run.generation is None and isinstance(run.candidate.get("generation"), dict):
             run.generation = run.candidate["generation"]
             db.commit()
-        if run.generation is not None and not run.generation.get("overview"):
+        overview = (run.generation or {}).get("overview")
+        # An overview stored before the process map had a time axis is rebuilt once from the bundle.
+        untimed = bool(overview and overview.get("nodes")) and "hours" not in overview["nodes"][0]
+        if run.generation is not None and (not overview or untimed):
             from sectors.overview import overview_of
             from sectors.registry import get_sector
             from trajectory_contract import TrajectoryBundle
