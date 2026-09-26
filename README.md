@@ -76,7 +76,7 @@ The engine judges at temperature 0, so asking one model the same question twice 
 
 ## Accounts
 
-Register as `user` or `demo`. Both must bring their own provider key. The admin account is created from `ADMIN_EMAIL` and `ADMIN_PASSWORD` and is the only account that can store platform keys. The judge uses `INFERENCE_ENGINE_API_KEY` from the environment, not a user key.
+Register as `user` or `demo`. Both bring their own provider key for deep search; generating a run needs no key. The admin account is created from `ADMIN_EMAIL` and `ADMIN_PASSWORD` and is the only account that can store platform keys. The judge uses `INFERENCE_ENGINE_API_KEY` from the environment, not a user key.
 
 Saving or replacing a key checks it with a free authenticated call to the provider, listing its models. A key the provider rejects is refused and not stored, and a replacement it rejects leaves the old key in place. When the provider cannot be reached, the key is saved but not ready until `POST /credentials/{id}/check` succeeds; the Keys page shows each key's last check and can run it again.
 

@@ -63,15 +63,17 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         raise HTTPException(status_code=422, detail="warm start requires at least one corpus document")
     if body.start_mode == "cold" and not body.cold_start_acknowledged:
         raise HTTPException(status_code=422, detail="cold start requires acknowledgment")
-    credential = db.get(Credential, body.credential_id)
-    if credential is None or credential.account_id != account.id:
-        raise HTTPException(status_code=404, detail="credential not found")
-    if credential.scope == "platform" and account.kind != "admin":
-        raise HTTPException(status_code=403, detail="platform credentials are only available to admin")
-    if account.kind in {"user", "demo"} and credential.scope != "byok":
-        raise HTTPException(status_code=403, detail="user and demo runs require your own key")
-    if not credential.ready:
-        raise HTTPException(status_code=422, detail="credential is not ready for deep search")
+    credential = None
+    if body.credential_id:
+        credential = db.get(Credential, body.credential_id)
+        if credential is None or credential.account_id != account.id:
+            raise HTTPException(status_code=404, detail="credential not found")
+        if credential.scope == "platform" and account.kind != "admin":
+            raise HTTPException(status_code=403, detail="platform credentials are only available to admin")
+        if account.kind in {"user", "demo"} and credential.scope != "byok":
+            raise HTTPException(status_code=403, detail="user and demo runs require your own key")
+        if not credential.ready:
+            raise HTTPException(status_code=422, detail="credential is not ready for deep search")
     thresholds = {**DEFAULT_THRESHOLDS, **(body.thresholds or {})}
     return {
         "sector": sector.id,
@@ -93,7 +95,7 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         "group_size": body.group_size,
         "target_kind": body.target_kind,
         "domain_shares": shares,
-        "credential_id": credential.id,
+        "credential_id": credential.id if credential else None,
     }
 
 

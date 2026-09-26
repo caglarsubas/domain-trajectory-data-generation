@@ -107,7 +107,8 @@ class RunBody(BaseModel):
     target_kind: Literal["prompts", "accepted_groups"] = "prompts"
     # Relative shares per selected sub-domain; each share becomes its own bucket with its own target.
     domain_shares: dict[str, float] | None = None
-    credential_id: str
+    # Generation does not call a provider; a key is only needed for deep search.
+    credential_id: str | None = None
 
 
 class FeedbackBody(BaseModel):
