@@ -171,7 +171,7 @@ Progress, 26 September 2026: Slice 7 ships a pack per pull request. The first ad
 - **Jurisdictions:** profiles carry rules per sector.
 - **API and composer:** the API accepts any registered sector, and the composer takes default sub-domains from the pack.
 
-The second adds the airline pack in IATA's NDC and ONE Order vocabulary. It covers booking, ancillaries and changes, check-in and boarding with denied boarding and no-shows, disruption with rebooking or refund, compensation under UK261 and SHY-Yolcu, baggage, loyalty, and complaints, and passes the same gates. The hotel pack follows.
+The second adds the airline pack in IATA's NDC and ONE Order vocabulary. It covers booking, ancillaries and changes, check-in and boarding with denied boarding and no-shows, disruption with rebooking or refund, compensation under UK261 and SHY-Yolcu, baggage, loyalty, and complaints, and passes the same gates. The third, completing the slice, adds the hotel pack in HTNG and OpenTravel vocabulary. It covers reservations and guarantees, changes and cancellations before arrival, check-in with no-shows and guests walked from an oversold house, in-stay services and room issues, folio settlement and disputes, loyalty and reviews, and complaints. It brings guest registration rules for the UK and Turkey and passes the same gates. Five sector packs are now registered.
 
 ## UX track
 

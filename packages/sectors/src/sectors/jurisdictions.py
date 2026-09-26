@@ -67,8 +67,16 @@ PROFILES: dict[str, Jurisdiction] = {
             "economy": "economy fare",
             "premium_economy": "premium economy fare",
             "business": "business class fare",
+            "flexible": "flexible rate",
+            "non_refundable": "non-refundable rate",
+            "bed_and_breakfast": "bed and breakfast",
+            "all_inclusive": "all-inclusive",
         },
         rules={
+            "hotel": (
+                "Guests are identified at check-in and their stay is recorded.",
+                "A reservation's cancellation terms, and any fee, are shown before it is confirmed.",
+            ),
             "telecom": (
                 "Identity is checked before a contract starts or a SIM is activated.",
                 "A customer who switches provider can keep their number.",
@@ -108,8 +116,16 @@ PROFILES: dict[str, Jurisdiction] = {
             "economy": "economy fare",
             "premium_economy": "premium economy fare",
             "business": "business class fare",
+            "flexible": "flexible rate",
+            "non_refundable": "non-refundable rate",
+            "bed_and_breakfast": "bed and breakfast",
+            "all_inclusive": "all-inclusive",
         },
         rules={
+            "hotel": (
+                "Hotels keep a record of every guest aged 16 or over, with passport details for guests who are not British, Irish, or Commonwealth citizens.",
+                "The total price, including any mandatory charges, is shown before booking.",
+            ),
             "telecom": (
                 "A mobile customer can switch provider by text and keep their number, and the code to do so is free.",
                 "A complaint not resolved within eight weeks can go to an Ofcom-approved dispute resolution scheme.",
@@ -151,8 +167,16 @@ PROFILES: dict[str, Jurisdiction] = {
             "economy": "ekonomi sınıfı bilet",
             "premium_economy": "premium ekonomi bilet",
             "business": "business sınıfı bilet",
+            "flexible": "esnek fiyat",
+            "non_refundable": "iade edilmez fiyat",
+            "bed_and_breakfast": "oda kahvaltı",
+            "all_inclusive": "her şey dahil",
         },
         rules={
+            "hotel": (
+                "Konaklama tesisleri, misafirlerin kimlik bilgilerini Kimlik Bildirim Sistemi (KBS) ile emniyete veya jandarmaya bildirir.",
+                "Rezervasyonun iptal koşulları ve varsa iptal ücreti onaydan önce misafire bildirilir.",
+            ),
             "telecom": (
                 "Aboneler, BTK düzenlemelerine göre hat açılmadan önce kimlik doğrulamasından geçer.",
                 "Müşteri, numara taşıma ile numarasını koruyarak operatör değiştirebilir.",
