@@ -1,7 +1,9 @@
 "use client";
 
-// Views of one run: quality scorecard, variant explorer, process map, and a time axis for one journey.
+// Views of one run: quality scorecard, variant explorer, and a process map with one journey traced on it.
 // Plain SVG on the studio's design tokens; the pack's /sectors entry supplies event kinds and lanes.
+
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export function shortLabel(eventType) {
   const [, rest] = eventType.split(".");
@@ -83,107 +85,16 @@ export function VariantList({ variants, total, distinct, active, onPick }) {
 }
 
 const NODE_H = 30;
-const LANE_H = 58;
-const LEFT = 96;
-const nodeWidth = (type, count = 0) => 30 + shortLabel(type).length * 6.8 + String(count).length * 7.5;
-
-export function ProcessMap({ overview, highlight, eventKinds, lanes }) {
-  if (!overview || !overview.nodes.length) return null;
-  const counts = new Map(overview.nodes.map((node) => [node.type, node.count]));
-  const position = new Map(overview.nodes.map((node) => [node.type, { sum: node.position, n: 1 }]));
-  const edges = new Map(overview.edges.map((edge) => [`${edge.from}|${edge.to}`, edge.count]));
-  const kindOf = (type) => eventKinds[type] || "party";
-  const laneKinds = lanes.map((lane) => lane.kind).filter((kind) => [...counts.keys()].some((type) => kindOf(type) === kind));
-  // Place each event by its average position in the journeys, then push it right until it clears its lane neighbour.
-  const width = 1180;
-  const span = width - LEFT - 170;
-  const nodes = new Map();
-  laneKinds.forEach((kind, laneIndex) => {
-    const inLane = [...counts.keys()]
-      .filter((type) => kindOf(type) === kind)
-      .map((type) => ({ type, x: LEFT + span * (position.get(type).sum / position.get(type).n) }))
-      .sort((a, b) => a.x - b.x);
-    let edge = -Infinity;
-    for (const node of inLane) {
-      const x = Math.max(node.x, edge + 14);
-      const w = nodeWidth(node.type, counts.get(node.type));
-      edge = x + w;
-      nodes.set(node.type, { x, y: 16 + laneIndex * LANE_H, w });
-    }
-  });
-  const right = Math.max(width, ...[...nodes.values()].map((node) => node.x + node.w + 24));
-  const height = 22 + laneKinds.length * LANE_H;
-  const most = Math.max(...edges.values(), 1);
-  const path = new Set();
-  if (highlight) {
-    highlight.forEach((type, index) => {
-      if (index > 0) path.add(`${highlight[index - 1]}|${type}`);
-    });
-  }
-  const onPath = (type) => !highlight || highlight.includes(type);
-  return (
-    <div className="process-map">
-      <div className="panel-head">
-        <h3>Process map</h3>
-        <small>Directly-follows transitions across every journey; thicker is more common, loops are repeats{highlight ? " · the chosen variant is highlighted" : ""}</small>
-      </div>
-      <div className="scroll-x">
-        <svg width={right} height={height} role="img" aria-label="Process map of the run">
-          {laneKinds.map((kind, laneIndex) => {
-            const lane = lanes.find((item) => item.kind === kind);
-            return (
-              <g key={kind}>
-                <line x1={0} x2={right} y1={laneIndex * LANE_H + 8} y2={laneIndex * LANE_H + 8} className="lane-rule" />
-                <text x={4} y={16 + laneIndex * LANE_H + NODE_H / 2 + 4} className="lane-name">{laneLabel(lane || { kind })}</text>
-              </g>
-            );
-          })}
-          {[...edges.entries()].map(([key, count]) => {
-            const [from, to] = key.split("|");
-            const a = nodes.get(from);
-            const b = nodes.get(to);
-            if (!a || !b) return null;
-            const lit = !highlight || path.has(key);
-            const style = { strokeWidth: 1 + (5 * count) / most, opacity: lit ? 0.3 + (0.6 * count) / most : 0.06 };
-            if (from === to) {
-              const cx = a.x + a.w - 14;
-              return (
-                <path key={key} d={`M${cx - 8},${a.y} C${cx - 10},${a.y - 18} ${cx + 10},${a.y - 18} ${cx + 8},${a.y}`} className="flow" data-on={highlight ? lit : undefined} style={style}>
-                  <title>{`${from} repeated: ${count}`}</title>
-                </path>
-              );
-            }
-            const forward = b.x > a.x + a.w / 2;
-            const x1 = forward ? a.x + a.w : a.x + a.w / 2;
-            const y1 = forward ? a.y + NODE_H / 2 : a.y + NODE_H;
-            const x2 = forward ? b.x : b.x + b.w / 2;
-            const y2 = forward ? b.y + NODE_H / 2 : b.y + NODE_H;
-            const bend = forward ? Math.max(24, (x2 - x1) / 2) : 0;
-            const d = forward
-              ? `M${x1},${y1} C${x1 + bend},${y1} ${x2 - bend},${y2} ${x2},${y2}`
-              : `M${x1},${y1} C${x1},${y1 + 22} ${x2},${y2 + 22} ${x2},${y2}`;
-            return (
-              <path key={key} d={d} className="flow" data-on={highlight ? lit : undefined} style={style}>
-                <title>{`${from} → ${to}: ${count}`}</title>
-              </path>
-            );
-          })}
-          {[...nodes.entries()].map(([type, node]) => (
-            <g key={type} className="pm-node" data-on={highlight ? onPath(type) : undefined} transform={`translate(${node.x},${node.y})`}>
-              <title>{`${type}: in ${counts.get(type)} journeys`}</title>
-              <rect width={node.w} height={NODE_H} rx={9} />
-              <text x={9} y={19}>{shortLabel(type)}</text>
-              <text x={node.w - 8} y={19} textAnchor="end" className="pm-count">{counts.get(type)}</text>
-            </g>
-          ))}
-        </svg>
-      </div>
-    </div>
-  );
-}
+const ROW_H = 58;
+const LEFT = 104;
+const TOP = 34;
+// A node may slide this far right of its axis position before it takes a new row in its lane.
+const SLIDE = 48;
+const nodeWidth = (type, count) => 30 + shortLabel(type).length * 6.8 + (count ? String(count).length * 7.5 : 0);
 
 const TICKS = [
   [0, "start"],
+  [1 / 6, "10 min"],
   [1, "1 h"],
   [24, "1 d"],
   [24 * 7, "1 wk"],
@@ -192,73 +103,329 @@ const TICKS = [
   [24 * 365, "1 yr"],
 ];
 
-export function TimeAxis({ parent, alt, events, eventKinds, lanes, selected, onSelect }) {
-  const altOnly = alt ? alt.event_ids.filter((id) => !parent.event_ids.includes(id)) : [];
-  const ids = [...parent.event_ids, ...altOnly];
+const tenths = (value) => String(Number(value.toFixed(1)));
+
+export function formatHours(hours) {
+  if (hours == null) return "—";
+  if (hours < 1) return `${Math.round(hours * 60)} min`;
+  if (hours < 24) return `${hours < 10 ? tenths(hours) : Math.round(hours)} h`;
+  const days = hours / 24;
+  if (days < 14) return `${days < 10 ? tenths(days) : Math.round(days)} d`;
+  if (days < 60) return `${Math.round(days / 7)} wk`;
+  if (days < 730) return `${Math.round(days / 30)} mo`;
+  return `${tenths(days / 365)} yr`;
+}
+
+// The focused journey as steps: its own events in order, then the alternative branch's, each with its elapsed time.
+export function traceOf(journey) {
+  if (!journey) return null;
+  const { parent, alt, events } = journey;
   const start = new Date(events[parent.event_ids[0]].event_time).getTime();
-  const hours = (id) => Math.max(0, (new Date(events[id].event_time).getTime() - start) / 3600000);
-  const total = Math.max(1, ...ids.map(hours));
-  const used = lanes.filter((lane) => ids.some((id) => (eventKinds[events[id].event_type] || "party") === lane.kind));
-  const width = 900;
-  const plot = width - LEFT - 40;
-  const laneH = 64;
-  const top = 34;
-  const x = (h) => LEFT + (plot * Math.log1p(h)) / Math.log1p(total);
-  const y = (id) => top + used.findIndex((lane) => lane.kind === (eventKinds[events[id].event_type] || "party")) * laneH + laneH / 2;
-  const line = (list) => list.map((id) => `${x(hours(id))},${y(id)}`).join(" ");
+  const step = (id, index, isAlt) => ({
+    id,
+    type: events[id].event_type,
+    step: index + 1,
+    hours: Math.max(0, (new Date(events[id].event_time).getTime() - start) / 3600000),
+    alt: isAlt,
+  });
+  const steps = parent.event_ids.map((id, index) => step(id, index, false));
+  const altSteps = alt ? alt.event_ids.filter((id) => !parent.event_ids.includes(id)).map((id) => step(id, alt.event_ids.indexOf(id), true)) : [];
   const branchAt = alt ? parent.event_ids.indexOf(alt.branch_event_id) : -1;
-  // Greedy labels per lane: above if it clears the previous label above, else below, else only on hover.
+  const pairs = (list) => list.slice(1).map((item, index) => [list[index], item]);
+  return { steps, altSteps, main: pairs(steps), branch: pairs(branchAt >= 0 ? [steps[branchAt], ...altSteps] : altSteps) };
+}
+
+// A run without a stored overview, such as the banking sample, gets one from the journey on screen.
+export function journeyOverview(journey) {
+  const trace = traceOf(journey);
+  if (!trace) return null;
+  const nodes = new Map();
+  for (const item of trace.steps) {
+    const node = nodes.get(item.type) || { type: item.type, count: 0, hours: item.hours, step: item.step, position: 0 };
+    node.count += 1;
+    nodes.set(item.type, node);
+  }
+  const edges = new Map();
+  for (const [a, b] of trace.main) {
+    const key = `${a.type}|${b.type}`;
+    const edge = edges.get(key) || { from: a.type, to: b.type, count: 0, hours: b.hours - a.hours };
+    edge.count += 1;
+    edges.set(key, edge);
+  }
+  return { journeys: 1, distinct_variants: 1, variants: [], nodes: [...nodes.values()], edges: [...edges.values()] };
+}
+
+export function typeSummary(overview, type) {
+  const node = overview?.nodes.find((item) => item.type === type) || null;
+  const edges = (overview?.edges || []).filter((edge) => edge.from !== edge.to);
+  const top = (list) => list.sort((a, b) => b.count - a.count).slice(0, 3);
+  return {
+    node,
+    repeats: (overview?.edges || []).find((edge) => edge.from === type && edge.to === type)?.count || 0,
+    next: top(edges.filter((edge) => edge.from === type)),
+    prev: top(edges.filter((edge) => edge.to === type)),
+  };
+}
+
+function stepTicks(max) {
+  const every = max <= 12 ? 1 : max <= 30 ? 5 : 10;
+  const ticks = [1];
+  for (let s = every === 1 ? 2 : every; s <= max; s += every) ticks.push(s);
+  return ticks;
+}
+
+function layoutMap({ overview, eventKinds, lanes, trace, mode, width }) {
+  const kindOf = (type) => eventKinds[type] || "party";
+  const nodes = new Map((overview?.nodes || []).map((node) => [node.type, { ...node, ghost: false }]));
+  // A type only the simulated branch reaches, such as a declined application, joins the map as a hollow node.
+  for (const item of [...(trace?.steps || []), ...(trace?.altSteps || [])]) {
+    if (!nodes.has(item.type)) nodes.set(item.type, { type: item.type, count: 0, hours: item.hours, step: item.step, position: null, ghost: true });
+  }
+  if (!nodes.size) return null;
+  const timed = mode === "time";
+  const variants = overview?.variants || [];
+  const weight = variants.reduce((sum, item) => sum + item.count, 0);
+  const typical = weight ? variants.reduce((sum, item) => sum + item.count * item.types.length, 0) / weight : 8;
+  const at = (node) => (timed ? node.hours ?? 0 : node.step ?? 1 + (node.position || 0) * (typical - 1));
+  const widest = Math.max(...[...nodes.values()].map((node) => nodeWidth(node.type, node.count)));
+  const plotLeft = LEFT + 6;
+  const plotRight = Math.max(plotLeft + 240, width - 16 - widest);
+  const max = Math.max(timed ? 1 : 2, ...[...nodes.values()].map(at));
+  // Log time in five-minute units, so the first hour of an onboarding is not squeezed against the start.
+  const scale = (hours) => Math.log1p(hours * 12);
+  const x = timed
+    ? (hours) => plotLeft + ((plotRight - plotLeft) * scale(hours)) / scale(max)
+    : (step) => plotLeft + ((plotRight - plotLeft) * (step - 1)) / (max - 1);
+  const ticks = timed
+    ? TICKS.filter(([hours]) => hours <= max).map(([hours, label]) => ({ x: x(hours), label }))
+    : stepTicks(max).map((step) => ({ x: x(step), label: step === 1 ? "step 1" : String(step) }));
+  // Close the axis with the latest typical time when the fixed ticks stop well short of it.
+  if (timed && plotRight - ticks.at(-1).x > 80) ticks.push({ x: plotRight, label: formatHours(max) });
+
+  const kinds = lanes.map((lane) => lane.kind);
+  for (const type of nodes.keys()) if (!kinds.includes(kindOf(type))) kinds.push(kindOf(type));
   const placed = new Map();
-  const ends = new Map();
-  [...ids]
-    .sort((a, b) => hours(a) - hours(b))
-    .forEach((id) => {
-      const lane = eventKinds[events[id].event_type] || "party";
-      const cx = x(hours(id));
-      const half = (shortLabel(events[id].event_type).length * 6.2) / 2;
-      const slot = ends.get(lane) || { above: -Infinity, below: -Infinity };
-      if (cx - half > slot.above + 6) {
-        placed.set(id, -12);
-        slot.above = cx + half;
-      } else if (cx - half > slot.below + 6) {
-        placed.set(id, 21);
-        slot.below = cx + half;
+  const bands = [];
+  let cursor = TOP;
+  for (const kind of kinds) {
+    const inLane = [...nodes.values()]
+      .filter((node) => kindOf(node.type) === kind)
+      .map((node) => ({ node, x: x(at(node)), w: nodeWidth(node.type, node.count) }))
+      .sort((a, b) => a.x - b.x);
+    if (!inLane.length) continue;
+    // Keep each node on its axis position: slide it a little past its lane neighbour, or give it a row of its own.
+    const ends = [];
+    for (const item of inLane) {
+      let row = ends.findIndex((end) => Math.max(item.x, end + 10) - item.x <= SLIDE);
+      if (row < 0) {
+        row = ends.length;
+        ends.push(-Infinity);
       }
-      ends.set(lane, slot);
-    });
-  const height = top + used.length * laneH + 12;
+      const left = Math.max(item.x, ends[row] + 10);
+      ends[row] = left + item.w;
+      placed.set(item.node.type, { ...item.node, x: left, w: item.w, y: cursor + 10 + row * ROW_H });
+    }
+    const lane = lanes.find((entry) => entry.kind === kind) || { kind };
+    bands.push({ kind, label: laneLabel(lane), y: cursor, height: 10 + ends.length * ROW_H });
+    cursor += 10 + ends.length * ROW_H + 6;
+  }
+  const right = Math.max(width, ...[...placed.values()].map((node) => node.x + node.w + 16));
+  return { nodes: placed, bands, ticks, right, height: cursor + 6, timed };
+}
+
+// Where a flow runs between two nodes, and the midpoint its label sits on.
+// A forward flow that would run through other nodes on its row arcs over them instead.
+function route(a, b, nodes) {
+  if (a === b) {
+    const cx = a.x + a.w - 16;
+    return { d: `M${cx - 8},${a.y} C${cx - 10},${a.y - 18} ${cx + 10},${a.y - 18} ${cx + 8},${a.y}`, loop: true };
+  }
+  let p0;
+  let p1;
+  let p2;
+  let p3;
+  const over = a.y === b.y && b.x > a.x + a.w && [...nodes.values()].some((node) => node !== a && node !== b && node.y === a.y && node.x < b.x && node.x + node.w > a.x + a.w);
+  if (over) {
+    p0 = [a.x + a.w - 12, a.y];
+    p3 = [b.x + 12, b.y];
+    p1 = [p0[0] + 20, a.y - 30];
+    p2 = [p3[0] - 20, b.y - 30];
+  } else if (b.x >= a.x + a.w - 6) {
+    p0 = [a.x + a.w, a.y + NODE_H / 2];
+    p3 = [b.x, b.y + NODE_H / 2];
+    const bend = Math.max(24, (p3[0] - p0[0]) / 2);
+    p1 = [p0[0] + bend, p0[1]];
+    p2 = [p3[0] - bend, p3[1]];
+  } else if (a.y !== b.y) {
+    const down = b.y > a.y;
+    p0 = [a.x + a.w * 0.6, down ? a.y + NODE_H : a.y];
+    p3 = [b.x + b.w * 0.4, down ? b.y : b.y + NODE_H];
+    const bend = Math.max(18, Math.abs(p3[1] - p0[1]) / 2) * (down ? 1 : -1);
+    p1 = [p0[0], p0[1] + bend];
+    p2 = [p3[0], p3[1] - bend];
+  } else {
+    p0 = [a.x + a.w / 2, a.y + NODE_H];
+    p3 = [b.x + b.w / 2, b.y + NODE_H];
+    p1 = [p0[0], p0[1] + 24];
+    p2 = [p3[0], p3[1] + 24];
+  }
+  const mid = [0, 1].map((i) => (p0[i] + 3 * p1[i] + 3 * p2[i] + p3[i]) / 8);
+  return { d: `M${p0} C${p1} ${p2} ${p3}`, mid, loop: false };
+}
+
+function activate(handler) {
+  return {
+    role: "button",
+    tabIndex: 0,
+    onClick: (e) => {
+      e.stopPropagation();
+      handler();
+    },
+    onKeyDown: (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      handler();
+    },
+  };
+}
+
+// The run's process map with one journey traced on it. Nodes are event types placed by typical time or step;
+// the journey's own events are the numbered steps under them, and clicking either selects it for the inspector.
+export function ProcessMap({ overview, eventKinds, lanes, journey, mode, selection, onSelect, notesByType = {} }) {
+  const wrap = useRef(null);
+  const [width, setWidth] = useState(900);
+  useEffect(() => {
+    const element = wrap.current;
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(720, Math.floor(entry.contentRect.width))));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const trace = useMemo(() => traceOf(journey), [journey]);
+  const map = useMemo(() => layoutMap({ overview, eventKinds, lanes, trace, mode, width }), [overview, eventKinds, lanes, trace, mode, width]);
+
+  const stepsOf = new Map();
+  for (const item of [...(trace?.steps || []), ...(trace?.altSteps || [])]) {
+    stepsOf.set(item.type, [...(stepsOf.get(item.type) || []), item]);
+  }
+  // This journey's own wait on each transition it takes, the first time it takes it.
+  const waits = new Map();
+  for (const [a, b] of trace?.main || []) {
+    const key = `${a.type}|${b.type}`;
+    if (!waits.has(key)) waits.set(key, b.hours - a.hours);
+  }
+  const edges = (overview?.edges || []).map((edge) => ({ ...edge, key: `${edge.from}|${edge.to}` }));
+  const known = new Set(edges.map((edge) => edge.key));
+  // Transitions this journey takes that the overview has not counted, for example on a sample run.
+  for (const [key, hours] of waits) {
+    if (!known.has(key)) edges.push({ from: key.split("|")[0], to: key.split("|")[1], count: 0, key, hours });
+  }
+  const most = Math.max(1, ...edges.map((edge) => edge.count));
+  const pick = (type) => {
+    const own = stepsOf.get(type) || [];
+    if (!own.length) return onSelect({ type, event: null });
+    // Clicking a node again moves through its repeats in this journey.
+    const current = own.findIndex((item) => item.id === selection?.event);
+    return onSelect({ type, event: own[(current + 1) % own.length].id });
+  };
+  const between = (from, to) => {
+    const a = map.nodes.get(from);
+    const b = map.nodes.get(to);
+    return a && b ? route(a, b, map.nodes) : null;
+  };
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="axis" role="img" aria-label="Journey on a time axis">
-      {TICKS.filter(([h]) => h <= total).map(([h, label]) => (
-        <g key={label}>
-          <line x1={x(h)} x2={x(h)} y1={top - 8} y2={top + used.length * laneH} className="tick" />
-          <text x={x(h)} y={top - 14} textAnchor="middle" className="tick-label">{label}</text>
-        </g>
-      ))}
-      {used.map((lane, index) => (
-        <g key={lane.kind}>
-          <rect x={LEFT - 6} y={top + index * laneH + 6} width={plot + 12} height={laneH - 12} rx={10} className="lane-band" />
-          <text x={4} y={top + index * laneH + laneH / 2 + 4} className="lane-name">{laneLabel(lane)}</text>
-        </g>
-      ))}
-      <polyline points={line(parent.event_ids)} className="axis-path" />
-      {alt && branchAt >= 0 ? <polyline points={line([parent.event_ids[branchAt], ...altOnly])} className="axis-path alt" /> : null}
-      {ids.map((id, index) => {
-        const isAlt = index >= parent.event_ids.length;
-        const cx = x(hours(id));
-        const cy = y(id);
-        const offset = selected === id ? (placed.get(id) ?? -12) : placed.get(id);
-        return (
-          <g key={id} className="axis-mark" data-on={selected === id} data-alt={isAlt} onClick={() => onSelect(id)} role="button" tabIndex={0}
-            aria-label={`${events[id].event_type}${isAlt ? ", simulated alternative" : ""}`}
-            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onSelect(id)}>
-            <title>{`${events[id].event_type} · ${new Date(events[id].event_time).toLocaleString()}${isAlt ? " · simulated alternative" : ""}`}</title>
-            <circle cx={cx} cy={cy} r={selected === id ? 8 : 6} />
-            {offset != null ? <text x={cx} y={cy + offset} textAnchor="middle">{shortLabel(events[id].event_type)}</text> : null}
-          </g>
-        );
-      })}
-    </svg>
+    <div className="map-wrap" ref={wrap}>
+      {map ? (
+        <svg width={map.right} height={map.height} className="map" role="group" aria-label={`Process map by ${map.timed ? "time from the journey's start" : "step"}`}>
+          {map.ticks.map((tick) => (
+            <g key={tick.label}>
+              <line x1={tick.x} x2={tick.x} y1={TOP - 8} y2={map.height - 6} className="tick" />
+              <text x={tick.x} y={TOP - 14} textAnchor="middle" className="tick-label">{tick.label}</text>
+            </g>
+          ))}
+          {map.bands.map((band) => (
+            <g key={band.kind}>
+              <rect x={LEFT - 6} y={band.y} width={map.right - LEFT} height={band.height} rx={12} className="lane-band" />
+              <text x={4} y={band.y + 10 + NODE_H / 2 + 4} className="lane-name">{band.label}</text>
+            </g>
+          ))}
+          {edges.map((edge) => {
+            const path = between(edge.from, edge.to);
+            if (!path) return null;
+            const wait = waits.get(edge.key);
+            const lit = wait !== undefined;
+            return (
+              <path key={edge.key} d={path.d} className="flow" data-lit={lit}
+                style={{ strokeWidth: Math.max(lit ? 2 : 1, 1 + (5 * edge.count) / most), opacity: lit ? 0.85 : 0.1 + (0.3 * edge.count) / most }}>
+                <title>
+                  {`${edge.from} → ${edge.to}${edge.count ? `: ${edge.count} across the run` : ""}${edge.count && edge.hours != null ? `, typically ${formatHours(edge.hours)}` : ""}${lit ? ` · this journey waited ${formatHours(wait)}` : ""}`}
+                </title>
+              </path>
+            );
+          })}
+          {(trace?.branch || []).map(([a, b], index) => {
+            const path = between(a.type, b.type);
+            return path ? (
+              <path key={`branch-${index}`} d={path.d} className="flow branch">
+                <title>{`${a.type} → ${b.type} in the simulated alternative, after ${formatHours(b.hours - a.hours)}`}</title>
+              </path>
+            ) : null;
+          })}
+          {map.timed
+            ? [...waits].map(([key, hours]) => {
+                const path = between(...key.split("|"));
+                return path && !path.loop ? (
+                  <text key={`wait-${key}`} x={path.mid[0]} y={path.mid[1] - 5} textAnchor="middle" className="wait">+{formatHours(hours)}</text>
+                ) : null;
+              })
+            : null}
+          {[...map.nodes.values()].map((node) => {
+            const own = stepsOf.get(node.type) || [];
+            const notes = notesByType[node.type] || 0;
+            return (
+              <g key={node.type}>
+                <g
+                  className="pm-node"
+                  data-on={own.some((item) => !item.alt)}
+                  data-ghost={node.ghost}
+                  data-picked={selection?.type === node.type}
+                  transform={`translate(${node.x},${node.y})`}
+                  aria-label={`${node.type}${node.count ? `, ${node.count} across the run` : ", only in the simulated alternative"}${own.length ? `, ${own.length} in this journey` : ""}`}
+                  {...activate(() => pick(node.type))}
+                >
+                  <title>{`${node.type}${node.count ? ` · ${node.count} across the run` : " · simulated alternative only"}${node.hours != null ? ` · typically ${formatHours(node.hours)} from the start` : ""}${notes ? ` · ${notes} note${notes === 1 ? "" : "s"}` : ""}`}</title>
+                  <rect width={node.w} height={NODE_H} rx={9} />
+                  <text x={9} y={19}>{shortLabel(node.type)}</text>
+                  {node.count ? <text x={node.w - 8} y={19} textAnchor="end" className="pm-count">{node.count}</text> : null}
+                  {notes ? (
+                  <g className="pm-note" transform={`translate(${node.w - 2},1)`}>
+                    <circle r={7} />
+                    <text y={3} textAnchor="middle">{notes}</text>
+                  </g>
+                ) : null}
+                </g>
+                {own.map((item, index) => (
+                  <g
+                    key={item.id}
+                    className="pm-step"
+                    data-alt={item.alt}
+                    data-on={selection?.event === item.id}
+                    transform={`translate(${node.x + 9 + index * 17},${node.y + NODE_H + 11})`}
+                    aria-label={`${item.type}, ${item.alt ? "simulated alternative " : ""}step ${item.step}`}
+                    {...activate(() => onSelect({ type: item.type, event: item.id }))}
+                  >
+                    <title>{`${item.alt ? "Simulated alternative, " : ""}step ${item.step} · ${item.type} · ${formatHours(item.hours)} from the start`}</title>
+                    <circle r={7.5} />
+                    <text y={3.5} textAnchor="middle">{item.step}</text>
+                  </g>
+                ))}
+              </g>
+            );
+          })}
+        </svg>
+      ) : null}
+    </div>
   );
 }
 
