@@ -22,6 +22,7 @@ services:
     environment: &api-environment
       DATABASE_URL: postgresql+psycopg://traj:traj@postgres:5432/traj
       JOBS_MODE: worker
+      DATA_DIR: /app/data
       CREDENTIAL_MASTER_KEY: ${CREDENTIAL_MASTER_KEY:-local-compose-master-key-32b}
       JWT_SECRET: ${JWT_SECRET:-local-compose-jwt-secret-32-characters}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
@@ -37,6 +38,7 @@ services:
       - "${API_HOST_PORT:-18000}:8000"
     volumes:
       - traj_uploads:/app/data/uploads
+      - traj_runs:/app/data/runs
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,6 +51,7 @@ services:
     environment: *api-environment
     volumes:
       - traj_uploads:/app/data/uploads
+      - traj_runs:/app/data/runs
     depends_on:
       postgres:
         condition: service_healthy
@@ -69,3 +72,4 @@ services:
 volumes:
   traj_pg:
   traj_uploads:
+  traj_runs:

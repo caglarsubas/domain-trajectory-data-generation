@@ -129,9 +129,21 @@ def run_out(run: Run, db: Session) -> dict:
         if run.generation is None and isinstance(run.candidate.get("generation"), dict):
             run.generation = run.candidate["generation"]
             db.commit()
+        if run.generation is not None and not run.generation.get("overview"):
+            from sectors.overview import overview_of
+            from sectors.registry import get_sector
+            from trajectory_contract import TrajectoryBundle
+
+            sector = get_sector((run.config or {}).get("sector", "banking"))
+            run.generation = {**run.generation, "overview": overview_of(TrajectoryBundle.model_validate(run.candidate), sector.classify)}
+            db.commit()
     elif run.status in {"queued", "generating", "failed", "cancelled"}:
         bundle = None
         source = "pending"
+    elif (run.generation or {}).get("storage"):
+        # A large run is read a journey at a time through /runs/{id}/journeys.
+        bundle = None
+        source = "paged"
     else:
         bundle = banking_fixture().model_dump(mode="json")
         source = "fixture"
@@ -162,7 +174,7 @@ def run_out(run: Run, db: Session) -> dict:
 def _generation(run: Run) -> dict | None:
     candidate = run.candidate if isinstance(run.candidate, dict) else None
     if not candidate:
-        return None
+        return run.generation if run.status == "generated" else None
     trajectories = candidate.get("trajectories") or []
     meta = candidate.get("generation")
     generated = isinstance(meta, dict) or any(item.get("generator_id") for item in trajectories)

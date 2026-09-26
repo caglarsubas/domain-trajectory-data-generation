@@ -55,6 +55,11 @@ class BankingPack:
             f"{reference}"
         )
 
+    def classify(self, types: list[str]) -> str:
+        from sectors.banking.spec import classify
+
+        return classify(types)
+
     def steering(self, text: str):
         from sectors.banking.corpus import steering_from_text
 

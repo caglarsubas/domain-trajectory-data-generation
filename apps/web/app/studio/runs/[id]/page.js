@@ -6,7 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import Shell from "../../../../components/Shell";
 import { api } from "../../../../lib/api";
 import DownloadPanel from "../../../../components/DownloadPanel";
-import { GroupViewer, ProcessMap, QualityCard, TimeAxis, VariantList, journeysOf, variantsOf } from "../../../../components/RunViews";
+import { GroupViewer, ProcessMap, QualityCard, TimeAxis, VariantList } from "../../../../components/RunViews";
+
+const PAGE = 100;
 
 function markClass(type) {
   if (type === "party") return "party";
@@ -38,6 +40,9 @@ export default function RunPage() {
   const [variant, setVariant] = useState("");
   const [view, setView] = useState("time");
   const [rollout, setRollout] = useState("");
+  const [entries, setEntries] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [detail, setDetail] = useState(null);
 
   async function load(id) {
     const [current, all] = await Promise.all([api(`/runs/${id}`), api("/runs")]);
@@ -78,32 +83,57 @@ export default function RunPage() {
     return () => clearTimeout(timer);
   }, [pending, run, params.id]);
 
+  const ready = run?.status === "generated";
+
+  // Journeys come a page at a time, for small and large runs alike; a variant narrows the list.
+  useEffect(() => {
+    if (!ready) return;
+    const query = `limit=${PAGE}${variant ? `&variant=${variant}` : ""}`;
+    api(`/runs/${run.id}/journeys?${query}`)
+      .then((page) => {
+        setEntries(page.data);
+        setTotal(page.total);
+        setFocus((current) => (page.data.some((entry) => entry.trajectory_id === current) ? current : page.data[0]?.trajectory_id || ""));
+      })
+      .catch((err) => setError(err.message));
+  }, [ready, run?.id, variant]);
+
+  useEffect(() => {
+    if (!ready || !focus) return;
+    setDetail(null);
+    api(`/runs/${run.id}/journeys/${focus}`).then(setDetail).catch((err) => setError(err.message));
+  }, [ready, run?.id, focus]);
+
+  async function loadMore() {
+    const query = `offset=${entries.length}&limit=${PAGE}${variant ? `&variant=${variant}` : ""}`;
+    const page = await api(`/runs/${run.id}/journeys?${query}`);
+    setEntries((current) => [...current, ...page.data]);
+  }
+
+  const overview = run?.generation?.overview || null;
+  const chosen = overview?.variants.find((item) => item.id === variant);
+
   const layout = useMemo(() => {
-    if (!run || !run.bundle) return null;
-    const events = Object.fromEntries(run.bundle.events.map((event) => [event.event_id, event]));
+    if (!detail) return null;
+    const events = Object.fromEntries(detail.events.map((event) => [event.event_id, event]));
+    const objects = Object.fromEntries(detail.objects.map((item) => [item.object_id, item]));
     const links = {};
-    for (const link of run.bundle.event_objects) {
+    for (const link of detail.event_objects) {
       links[link.event_id] = links[link.event_id] || [];
-      const object = run.bundle.objects.find((item) => item.object_id === link.object_id);
-      links[link.event_id].push({ ...link, object_type: object?.object_type || "party" });
+      links[link.event_id].push({ ...link, object_type: objects[link.object_id]?.object_type || "party" });
     }
-    const journeys = journeysOf(run.bundle);
-    const variants = variantsOf(journeys);
-    const chosen = variants.find((item) => item.key === variant);
-    const members = chosen ? new Set(chosen.members.map((item) => item.trajectory_id)) : null;
-    const primaries = run.bundle.trajectories.filter((item) => !item.parent_trajectory_id && (!members || members.has(item.trajectory_id)));
-    const parent = primaries.find((item) => item.trajectory_id === focus) || primaries[0];
+    const parent = detail.trajectories.find((item) => !item.parent_trajectory_id);
     if (!parent) return null;
-    const sample = run.bundle.samples.find((item) => item.sequences.some((sequence) => sequence.trajectory_id === parent.trajectory_id));
-    const children = run.bundle.trajectories.filter((item) => item.parent_trajectory_id === parent.trajectory_id);
+    const sample = detail.samples.find((item) => item.sequences.some((sequence) => sequence.trajectory_id === parent.trajectory_id));
+    const children = detail.trajectories.filter((item) => item.parent_trajectory_id === parent.trajectory_id);
     const alt = children.find((item) => item.trajectory_id === rollout) || children[0];
     const altOnly = alt ? alt.event_ids.filter((id) => !parent.event_ids.includes(id)) : [];
     const branchAt = alt ? parent.event_ids.indexOf(alt.branch_event_id) : -1;
     const columns = Math.max(parent.event_ids.length, branchAt + 1 + altOnly.length, 1);
-    return { events, links, parent, alt, altOnly, branchAt, columns, primaries, journeys, variants, chosen, sample };
-  }, [run, focus, variant, rollout]);
+    return { events, links, parent, alt, altOnly, branchAt, columns, sample, trajectories: detail.trajectories, transitions: detail.state_transitions };
+  }, [detail, rollout]);
 
-  if (run && !run.bundle) {
+  if (run && ["queued", "generating", "failed", "cancelled"].includes(run.status)) {
     return (
       <Shell>
         <JobPanel
@@ -127,7 +157,7 @@ export default function RunPage() {
   }
 
   const event = selected ? layout.events[selected] : null;
-  const transitions = event ? run.bundle.state_transitions.filter((item) => item.event_id === event.event_id) : [];
+  const transitions = event ? layout.transitions.filter((item) => item.event_id === event.event_id) : [];
   const cycle = run.cycles.at(-1);
   const notesFor = (id) => (run.feedback || []).filter((note) => note.target_id === id);
   const pack = sectors.find((item) => item.id === (run.config.sector || "banking"));
@@ -220,12 +250,13 @@ export default function RunPage() {
       ) : null}
       {cycle?.revision_notes?.length ? <p className="warn">{cycle.revision_notes.join(" ")}</p> : null}
       <QualityCard quality={run.generation?.quality} />
-      {pack && layout.journeys.length > 1 ? (
+      {pack && overview && overview.journeys > 1 ? (
         <div className="overview">
-          <ProcessMap journeys={layout.journeys} highlight={layout.chosen?.types} eventKinds={eventKinds} lanes={lanes} />
+          <ProcessMap overview={overview} highlight={chosen?.types} eventKinds={eventKinds} lanes={lanes} />
           <VariantList
-            variants={layout.variants}
-            total={layout.journeys.length}
+            variants={overview.variants}
+            total={overview.journeys}
+            distinct={overview.distinct_variants}
             active={variant}
             onPick={(key) => {
               setVariant(key);
@@ -235,27 +266,34 @@ export default function RunPage() {
           />
         </div>
       ) : null}
-      <DownloadPanel run={run} />
+      <DownloadPanel run={run} paged={run.bundle_source === "paged"} />
       <div className="stage">
         <div className="canvas-wrap">
-          {layout.primaries.length > 1 ? (
+          {total > 1 ? (
             <div className="journey-picker">
-              <label htmlFor="journey">Journey</label>
-              <select
-                id="journey"
-                value={layout.parent.trajectory_id}
-                onChange={(e) => {
-                  setFocus(e.target.value);
-                  setSelected(null);
-                  setRollout("");
-                }}
-              >
-                {layout.primaries.map((item, index) => (
-                  <option key={item.trajectory_id} value={item.trajectory_id}>
-                    {index + 1}. {item.trajectory_type.replaceAll("_", " ")}
-                  </option>
-                ))}
-              </select>
+              <label htmlFor="journey">Journey {variant ? `· ${total} in this variant` : `· ${total.toLocaleString()} in the run`}</label>
+              <div className="row">
+                <select
+                  id="journey"
+                  value={layout.parent.trajectory_id}
+                  onChange={(e) => {
+                    setFocus(e.target.value);
+                    setSelected(null);
+                    setRollout("");
+                  }}
+                >
+                  {entries.map((item, index) => (
+                    <option key={item.trajectory_id} value={item.trajectory_id}>
+                      {index + 1}. {item.trajectory_type.replaceAll("_", " ")} · {item.events} events{item.sequences > 1 ? ` · group of ${item.sequences}` : ""}
+                    </option>
+                  ))}
+                </select>
+                {entries.length < total ? (
+                  <button className="ghost" type="button" style={{ flex: "0 0 auto" }} onClick={() => loadMore().catch((err) => setError(err.message))}>
+                    Load {Math.min(PAGE, total - entries.length)} more
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : null}
           <div className="tabs" role="tablist">
@@ -271,7 +309,7 @@ export default function RunPage() {
           ) : null}
           <GroupViewer
             sample={layout.sample}
-            trajectories={run.bundle.trajectories}
+            trajectories={layout.trajectories}
             events={layout.events}
             active={layout.alt?.trajectory_id}
             onPick={(id) => {

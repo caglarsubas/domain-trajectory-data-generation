@@ -12,23 +12,6 @@ export function laneLabel(lane) {
   return (lane.object_type || lane.kind).replaceAll("_", " ");
 }
 
-export function journeysOf(bundle) {
-  const events = Object.fromEntries(bundle.events.map((event) => [event.event_id, event]));
-  return bundle.trajectories
-    .filter((item) => !item.parent_trajectory_id)
-    .map((item) => ({ trajectory: item, types: item.event_ids.map((id) => events[id]?.event_type).filter(Boolean) }));
-}
-
-export function variantsOf(journeys) {
-  const groups = new Map();
-  journeys.forEach((journey, index) => {
-    const key = journey.types.join(">");
-    if (!groups.has(key)) groups.set(key, { key, types: journey.types, members: [], first: index });
-    groups.get(key).members.push(journey.trajectory);
-  });
-  return [...groups.values()].sort((a, b) => b.members.length - a.members.length || a.first - b.first);
-}
-
 const pct = (value) => `${Math.round(value * 100)}%`;
 
 export function QualityCard({ quality }) {
@@ -71,30 +54,30 @@ export function QualityCard({ quality }) {
   );
 }
 
-export function VariantList({ variants, total, active, onPick }) {
+export function VariantList({ variants, total, distinct, active, onPick }) {
   const top = variants.slice(0, 12);
-  const most = top[0]?.members.length || 1;
+  const most = top[0]?.count || 1;
   return (
     <div className="variants">
       <div className="panel-head">
         <h3>Variants</h3>
-        <small>{variants.length} distinct in {total} journeys{active ? " · filtered" : ""}</small>
+        <small>{distinct} distinct in {total.toLocaleString()} journeys{active ? " · filtered" : ""}</small>
       </div>
       <ol>
         {top.map((variant) => (
-          <li key={variant.key}>
-            <button type="button" data-on={active === variant.key} onClick={() => onPick(active === variant.key ? "" : variant.key)}>
-              <span className="variant-count">{variant.members.length}</span>
+          <li key={variant.id}>
+            <button type="button" data-on={active === variant.id} onClick={() => onPick(active === variant.id ? "" : variant.id)}>
+              <span className="variant-count">{variant.count}</span>
               <span className="variant-body">
-                <b>{variant.members[0].trajectory_type.replaceAll("_", " ")} · {variant.types.length} events</b>
-                <span className="variant-bar"><i style={{ width: `${(100 * variant.members.length) / most}%` }} /></span>
+                <b>{variant.kind.replaceAll("_", " ")} · {variant.types.length} events</b>
+                <span className="variant-bar"><i style={{ width: `${(100 * variant.count) / most}%` }} /></span>
                 <small>{variant.types.map(shortLabel).join(" → ")}</small>
               </span>
             </button>
           </li>
         ))}
       </ol>
-      {variants.length > top.length ? <small className="muted">{variants.length - top.length} more variants appear once or twice.</small> : null}
+      {distinct > top.length ? <small className="muted">{distinct - top.length} more variants are less common.</small> : null}
     </div>
   );
 }
@@ -102,25 +85,13 @@ export function VariantList({ variants, total, active, onPick }) {
 const NODE_H = 30;
 const LANE_H = 58;
 const LEFT = 96;
-const nodeWidth = (type) => 40 + shortLabel(type).length * 6.8;
+const nodeWidth = (type, count = 0) => 30 + shortLabel(type).length * 6.8 + String(count).length * 7.5;
 
-export function ProcessMap({ journeys, highlight, eventKinds, lanes }) {
-  if (!journeys.length) return null;
-  const counts = new Map();
-  const position = new Map();
-  const edges = new Map();
-  for (const { types } of journeys) {
-    types.forEach((type, index) => {
-      counts.set(type, (counts.get(type) || 0) + 1);
-      const at = types.length > 1 ? index / (types.length - 1) : 0;
-      const entry = position.get(type) || { sum: 0, n: 0 };
-      position.set(type, { sum: entry.sum + at, n: entry.n + 1 });
-      if (index > 0) {
-        const key = `${types[index - 1]}|${type}`;
-        edges.set(key, (edges.get(key) || 0) + 1);
-      }
-    });
-  }
+export function ProcessMap({ overview, highlight, eventKinds, lanes }) {
+  if (!overview || !overview.nodes.length) return null;
+  const counts = new Map(overview.nodes.map((node) => [node.type, node.count]));
+  const position = new Map(overview.nodes.map((node) => [node.type, { sum: node.position, n: 1 }]));
+  const edges = new Map(overview.edges.map((edge) => [`${edge.from}|${edge.to}`, edge.count]));
   const kindOf = (type) => eventKinds[type] || "party";
   const laneKinds = lanes.map((lane) => lane.kind).filter((kind) => [...counts.keys()].some((type) => kindOf(type) === kind));
   // Place each event by its average position in the journeys, then push it right until it clears its lane neighbour.
@@ -135,8 +106,9 @@ export function ProcessMap({ journeys, highlight, eventKinds, lanes }) {
     let edge = -Infinity;
     for (const node of inLane) {
       const x = Math.max(node.x, edge + 14);
-      edge = x + nodeWidth(node.type);
-      nodes.set(node.type, { x, y: 16 + laneIndex * LANE_H, w: nodeWidth(node.type) });
+      const w = nodeWidth(node.type, counts.get(node.type));
+      edge = x + w;
+      nodes.set(node.type, { x, y: 16 + laneIndex * LANE_H, w });
     }
   });
   const right = Math.max(width, ...[...nodes.values()].map((node) => node.x + node.w + 24));

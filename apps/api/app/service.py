@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.evaluation import DEFAULT_THRESHOLDS
+from app.store import MAX_RUN_SEQUENCES
 from app.models import Account, CorpusItem, Credential, Feedback, Project, Run
 from app.schemas import RerunBody, RunBody
 from sectors.registry import get_sector
@@ -36,6 +37,11 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
     unknown = [name for name in body.sub_domains if name not in sector.sub_domains]
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown sub-domains: {', '.join(unknown)}")
+    if body.target_trajectory_count * body.group_size > MAX_RUN_SEQUENCES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"a run holds at most {MAX_RUN_SEQUENCES:,} sequences; {body.target_trajectory_count:,} prompts × {body.group_size} is more",
+        )
     if body.min_events > body.max_events:
         raise HTTPException(status_code=422, detail="min_events cannot exceed max_events")
     project = require_project(db, body.project_id, account)
