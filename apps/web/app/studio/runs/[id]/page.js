@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Shell from "../../../../components/Shell";
 import { api } from "../../../../lib/api";
 import DownloadPanel from "../../../../components/DownloadPanel";
 import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
+import RunDiff from "../../../../components/RunDiff";
 import { GroupViewer, ProcessMap, QualityCard, TimeAxis, VariantList } from "../../../../components/RunViews";
 
 const PAGE = 100;
@@ -36,6 +37,7 @@ export default function RunPage() {
   const [picked, setPicked] = useState([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const router = useRouter();
   const [focus, setFocus] = useState("");
   const [sectors, setSectors] = useState([]);
   const [variant, setVariant] = useState("");
@@ -213,6 +215,25 @@ export default function RunPage() {
     }
   }
 
+  async function regenerate() {
+    setBusy(true);
+    setError("");
+    try {
+      // The child is generated from this cycle's revision notes and this run's notes, then judged.
+      const child = await api(`/runs/${run.id}/regenerate`, { method: "POST", body: JSON.stringify({}) });
+      router.push(`/studio/runs/${child.id}`);
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
+  const round = run.config.regeneration?.round || 1;
+  // A cycle is final once the hard checks failed or the primary judge read every rubric; only an unread one is judged again.
+  const judgedFully = Boolean(
+    cycle && (!cycle.hard_check_passed || !(cycle.models?.length && (cycle.flags || []).some((flag) => flag.kind === "unreadable" && flag.model === cycle.models[0])))
+  );
+  const canRegenerate = judgedFully && !cycle.accepted && round < run.config.max_cycles;
   const judgeJob = run.judge_job;
   // judge_job is the latest attempt, so a failure there is the last word until the judge is asked again.
   const judgeFailed = judgeJob?.status === "failed";
@@ -232,11 +253,28 @@ export default function RunPage() {
         ))}
       </div>
       <div className="actions">
-        <button className="primary" type="button" onClick={evaluate} disabled={busy || judging || run.cycle_count >= run.config.max_cycles}>
-          {busy ? "Asking" : judging ? "Judging" : "Ask the judge"}
-        </button>
+        {!judgedFully ? (
+          <button className="primary" type="button" onClick={evaluate} disabled={busy || judging || run.cycle_count >= run.config.max_cycles}>
+            {busy ? "Asking" : judging ? "Judging" : cycle ? "Judge again" : "Ask the judge"}
+          </button>
+        ) : canRegenerate ? (
+          <button className="primary" type="button" onClick={regenerate} disabled={busy}>
+            {busy ? "Regenerating" : "Regenerate from notes"}
+          </button>
+        ) : null}
         <Link className="ghost" href={rerunHref} style={{ display: "inline-block" }}>Run again</Link>
+        {cycle?.accepted ? <span className="accepted-badge">Accepted by the judge</span> : null}
       </div>
+      {judgedFully && !cycle.accepted && !canRegenerate ? (
+        <p className="note">This study has been judged {round} {round === 1 ? "time" : "times"}, its limit. Change the configuration and run it again.</p>
+      ) : null}
+      {canRegenerate ? (
+        <p className="note">
+          The judge did not accept this run. Regenerating makes round {round + 1} of {run.config.max_cycles}: a new run drawn with this cycle&apos;s
+          {" "}{cycle.revision_notes?.length || 0} revision {cycle.revision_notes?.length === 1 ? "note" : "notes"}
+          {run.feedback?.length ? ` and your ${run.feedback.length} ${run.feedback.length === 1 ? "note" : "notes"}` : ""}, judged as soon as it is ready.
+        </p>
+      ) : null}
       {judging ? (
         <div className="judge-status">
           <div className="bar"><i style={{ width: `${Math.round((judgeJob.progress || 0) * 100)}%` }} /></div>
@@ -285,6 +323,7 @@ export default function RunPage() {
         </p>
       ) : null}
       {cycle?.revision_notes?.length ? <p className="warn">{cycle.revision_notes.join(" ")}</p> : null}
+      {run.parent_run_id ? <RunDiff run={run} /> : null}
       <JudgePanel
         cycle={cycle}
         onPick={(trajectoryId) => {

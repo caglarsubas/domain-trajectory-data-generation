@@ -280,7 +280,8 @@ def test_demo_judge_cycles_and_deep_searches_have_daily_limits(client, monkeypat
     assert client.get("/quota", headers=headers).json()["demo"]["daily"]["judge_cycles"]["used"] == 0
     runtime.judge = RecordingJudge()
     assert client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).status_code == 200
-    judged = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={})
+    other = _run(client, headers, project_id, credential_id, target_trajectory_count=4).json()
+    judged = client.post(f"/runs/{other['id']}/evaluate", headers=headers, json={})
     assert judged.status_code == 429 and "1 judge cycle a day" in judged.json()["detail"]
     search = {"credential_id": credential_id, "sub_domains": ["deposits"], "language": "en"}
     assert client.post(f"/projects/{project_id}/deep-search", headers=headers, json=search).status_code == 200

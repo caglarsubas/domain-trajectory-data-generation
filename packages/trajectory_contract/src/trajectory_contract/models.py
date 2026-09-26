@@ -151,6 +151,8 @@ class GenerationMeta(BaseModel):
     overview: dict[str, Any] | None = None
     # Where a large run's journeys live when they are not stored on the run.
     storage: dict[str, Any] | None = None
+    # The notes and revision notes this run was generated from, and what each did.
+    notes: dict[str, Any] | None = None
 
 
 class TrajectoryBundle(BaseModel):

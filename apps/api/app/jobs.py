@@ -162,6 +162,24 @@ def run_job(job_id: str) -> None:
         _finish(db, job_id, "succeeded", message or "Done.")
     finally:
         db.close()
+    _then(job_id)
+
+
+def _then(job_id: str) -> None:
+    """A regenerated run is judged as soon as it has been generated."""
+    db = SessionLocal()
+    try:
+        job = db.get(Job, job_id)
+        follow = job is not None and job.status == "succeeded" and job.kind == "generate" and (job.payload or {}).get("judge_after")
+        owner, run_id = (job.owner_id, job.run_id) if follow else (None, None)
+    finally:
+        db.close()
+    if follow:
+        db = SessionLocal()
+        try:
+            enqueue(db, kind="evaluate", owner_id=owner, run_id=run_id, payload={})
+        finally:
+            db.close()
 
 
 def _finish(db, job_id: str, status: str, message: str, *, error: str | None = None, result: dict | None = None) -> None:
@@ -227,7 +245,14 @@ def _export(db, job: Job, report: Callable) -> str:
         raise HTTPException(status_code=409, detail="this run has nothing to export")
     held_out = job.payload.get("held_out")
     summary = run_export.write_files(
-        run, store, get_sector(run.config.get("sector", "banking")), run_out(run, db)["cycles"], held_out, run_dir(run.id), report
+        run,
+        store,
+        get_sector(run.config.get("sector", "banking")),
+        run_out(run, db)["cycles"],
+        held_out,
+        run_dir(run.id),
+        report,
+        unaccepted=bool(job.payload.get("unaccepted")),
     )
     megabytes = sum(summary["sizes"].values()) / 1e6
     return f"Exported {summary['counts']['samples']:,} samples ({megabytes:.0f} MB before compression)."

@@ -176,6 +176,7 @@ def generate_bundle(
     if any("correctness" in item.lower() for item in revisions):
         dropped.update(pack.correctness_drops)
     enrich = any("helpfulness" in item.lower() for item in revisions)
+    notes_report = _notes_report(pack, notes, event_index, trajectory_index, revisions, dropped, kept)
     allowed = allowed_events(lifecycle, domains, dropped, extra=tuple(kept))
     named = tuple(name for name in steering.events if name in allowed)
     walker = Walker(lifecycle, allowed=allowed, sub_domains=domains, named=named, kept=tuple(kept))
@@ -256,6 +257,7 @@ def generate_bundle(
                 "weighted_events": list(named),
                 "outside_scope_events": [name for name in steering.events if name not in allowed],
             },
+            notes=notes_report,
         ),
     )
     assert bundle.generation is not None
@@ -862,6 +864,54 @@ def _interpret(
                 kept_kinds.add(kind)
     dropped -= set(kept)
     return dropped, kept, revised, dropped_kinds, kept_kinds
+
+
+def _notes_report(
+    pack: PackSpec,
+    notes: list[Note],
+    event_index: dict[str, str],
+    trajectory_index: dict[str, str],
+    revisions: list[str],
+    dropped: set[str],
+    kept: list[str],
+) -> dict[str, Any] | None:
+    """What each note and revision note did to this run, in words the studio can show."""
+    if not notes and not revisions:
+        return None
+    known = set(pack.lifecycle.namespace)
+    applied = []
+    for note in notes:
+        effect = "Added to the sample prompts."
+        if note.target_type == "event":
+            event_type = event_index.get(note.target_id) or (note.target_id if note.target_id in known else None)
+            if event_type is None:
+                effect = "Added to the sample prompts; the event is not in this pack."
+            elif note.stance == "drop":
+                effect = f"Leaves out {event_type}." if event_type in dropped else f"Overruled: a keep note weights {event_type} in."
+            elif note.stance == "keep":
+                effect = f"Weights {event_type} in."
+            else:
+                effect = f"Rewrites the sample text at {event_type}."
+        elif note.target_type == "trajectory":
+            kind = trajectory_index.get(note.target_id, note.target_id)
+            if kind not in pack.trajectory_types:
+                effect = "Added to the sample prompts; the journey kind is not in this pack."
+            elif note.stance == "drop":
+                effect = f"Draws fewer {kind} journeys."
+            elif note.stance == "keep":
+                effect = f"Draws more {kind} journeys."
+        applied.append({"target_type": note.target_type, "target_id": note.target_id, "stance": note.stance, "comment": note.comment, "effect": effect})
+    revision_effects = []
+    for text in revisions:
+        lowered = text.lower()
+        effects = []
+        if "correctness" in lowered and pack.correctness_drops:
+            effects.append(f"Leaves out {', '.join(pack.correctness_drops)}.")
+        if "helpfulness" in lowered:
+            effects.append("Raises the minimum length by one event.")
+        effects.append("Added to the sample prompts.")
+        revision_effects.append({"note": text, "effect": " ".join(effects)})
+    return {"feedback": applied, "revisions": revision_effects, "kept_events": list(kept)}
 
 
 def _parent_index(parent: TrajectoryBundle | dict[str, Any] | None) -> tuple[dict[str, str], dict[str, str]]:

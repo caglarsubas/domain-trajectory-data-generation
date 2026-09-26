@@ -404,3 +404,25 @@ label.check input { width: auto; margin: 0; }
 .judge-journeys summary { display: flex; align-items: center; gap: 10px; cursor: pointer; }
 .judge-journeys summary small { color: var(--muted); flex: 1; }
 .judge-journeys .target-table td:last-child { color: var(--muted); }
+.accepted-badge { align-self: center; font-size: 13px; color: #2f6b3a; border: 1px solid #b9d6bf; background: #eef6ef; border-radius: 99px; padding: 4px 10px; }
+.run-diff { background: var(--paper-2); border: 1px solid var(--line); border-radius: 24px; padding: 16px; margin: 18px 0; }
+.run-diff summary { display: flex; align-items: baseline; gap: 12px; cursor: pointer; list-style: none; }
+.run-diff summary h3 { margin: 0; }
+.run-diff summary small { color: var(--muted); }
+.run-diff h4 { margin: 16px 0 6px; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.run-diff .target-table { background: white; margin: 0; }
+.diff-notes { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
+.diff-notes li { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.diff-notes .who { font-size: 12px; color: var(--copper); margin-right: 6px; }
+.diff-notes small { display: block; color: var(--muted); margin-top: 2px; }
+.shifts { display: grid; gap: 6px; }
+.shift { display: grid; grid-template-columns: minmax(120px, 220px) 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+.shift .pair { display: grid; gap: 2px; }
+.shift .pair i { display: block; height: 6px; border-radius: 99px; min-width: 2px; }
+.shift .pair .before { background: var(--line); }
+.shift .pair .after { background: var(--copper); }
+.shift small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.variant-changes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.variant-changes ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.variant-changes small { color: var(--muted); }
+@media (max-width: 640px) { .shift { grid-template-columns: 1fr auto; } .shift .pair { grid-column: 1 / -1; } .variant-changes { grid-template-columns: 1fr; } }

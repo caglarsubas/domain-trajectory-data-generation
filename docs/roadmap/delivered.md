@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All nineteen are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All twenty are merged and their branches are deleted.
 
-`main` history: `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `d580d52`, `4bddbcc`, `d0fb3ea`, `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -135,3 +135,9 @@ Follow-up to #17. Rollouts in deposits, cards and payments, servicing, and compl
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/19
 
 Slice 3, fourth part, completing the slice. Judging and deep search run as jobs with progress and cancellation, and inline they answer with their old status codes. A saved key is checked with a free authenticated call to its provider: a rejected key is refused and an unreachable provider leaves it saved but not ready. Demo accounts get daily limits on runs, judge cycles, and deep searches and a run size limit. Oversampling is capped at the run limit.
+
+## 20. Judge a stratified sample with two models and report agreement
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/20
+
+Slice 4, first part. A cycle judges six journeys drawn from each kind and outcome in turn, rendered with objects, amounts, state changes, and sample text inside a prompt budget. `qwen3.8:27b` and `gemma4:26b` answer every rubric, pairwise runs in both orders, and a control journey with its events out of order tests whether a judge can see a broken journey. Cycles record per-model scores, agreement, order consistency, and audit flags for likely false positives and negatives; acceptance follows the primary judge.

@@ -559,7 +559,7 @@ function Composer() {
                   </select>
                 </div>
                 <div>
-                  <label>Judge cycles</label>
+                  <label title="How many times the judge may send the study back to be regenerated from its notes">Judge rounds</label>
                   <input type="number" min="1" max="8" value={form.max_cycles} onChange={(e) => patch({ max_cycles: Number(e.target.value) })} />
                 </div>
               </div>

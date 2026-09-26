@@ -205,7 +205,13 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
             for flag, flagged in (rewards.get("flags") or {}).items():
                 totals["flags"][flag] = totals["flags"].get(flag, 0) + flagged
             if meta_first is None:
-                meta_first = {"generator_id": meta.generator_id, "pack_version": meta.pack_version, "steering": meta.steering, "mechanism": rewards.get("mechanism")}
+                meta_first = {
+                    "generator_id": meta.generator_id,
+                    "pack_version": meta.pack_version,
+                    "steering": meta.steering,
+                    "mechanism": rewards.get("mechanism"),
+                    "notes": meta.notes,
+                }
             standing["groups"] += meta.primary_trajectories
             standing["accepted"] += rewards.get("accepted_groups", 0)
             state["done"].append(name)
@@ -240,6 +246,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "event_count": totals["events"],
         "limited_by": limited_by,
         "steering": steering,
+        "notes": (meta_first or {}).get("notes"),
         "rewards": {
             "mechanism": (meta_first or {}).get("mechanism"),
             "groups": totals["groups"],

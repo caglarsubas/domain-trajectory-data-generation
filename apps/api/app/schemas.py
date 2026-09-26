@@ -142,6 +142,13 @@ class RerunBody(BaseModel):
 
 class ExportBody(BaseModel):
     held_out: str | None = None
+    # Export a run the judge has not accepted; the manifest says so.
+    allow_unaccepted: bool = False
+
+
+class RegenerateBody(BaseModel):
+    # The parent's notes to carry into the regenerated run; all of them when omitted.
+    feedback_ids: list[str] | None = None
 
 
 class DeepSearchBody(BaseModel):
