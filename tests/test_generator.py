@@ -167,9 +167,8 @@ def test_same_seed_is_stable_and_later_sectors_stay_unregistered():
     first = _bundle(seed="same").model_dump(mode="json")
     second = _bundle(seed="same").model_dump(mode="json")
     assert first == second
-    # A pack is registered once it passes the gates; the hotel pack follows.
-    assert known_sectors() == ["airline", "banking", "insurance", "telecom"]
-    assert "hotel" not in known_sectors()
+    # A pack is registered once it passes the gates.
+    assert known_sectors() == ["airline", "banking", "hotel", "insurance", "telecom"]
 
 
 def _primaries(bundle):

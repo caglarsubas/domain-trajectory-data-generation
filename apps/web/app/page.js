@@ -38,7 +38,7 @@ export default function Gate() {
         </p>
         <h1 className="word">Journeys you can inspect, mark, and run again.</h1>
         <p>
-          Compose a banking, insurance, telecommunications, or airline study, look at the path event by event, leave a note on the step that feels wrong, and start the next iteration from that note.
+          Compose a banking, insurance, telecommunications, airline, or hotel study, look at the path event by event, leave a note on the step that feels wrong, and start the next iteration from that note.
         </p>
       </section>
       <form className="gate-form" onSubmit={submit}>

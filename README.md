@@ -1,13 +1,13 @@
 # Domain trajectory studio
 
-A studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Banking, insurance, telecommunications, and airlines each have a constrained generator on the same run schema. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
+A studio for configuring trajectory runs, inspecting generated journeys, leaving feedback, and running again. Banking, insurance, telecommunications, airlines, and hotels each have a constrained generator on the same run schema. A warm study can run web search with the account's own provider key; the report is scrubbed before it is stored. The evaluation cycle judges a candidate through `llm_inference_engine`.
 
 ## Layout
 
 - `apps/api` — FastAPI accounts, encrypted keys, runs, and the judge client
 - `apps/web` — the studio interface
 - `packages/trajectory_contract` — object-centric records and the Sample / Sequence / Context / Segment hierarchy
-- `packages/sectors` — sector packs; `banking`, `insurance`, `telecom`, and `airline` are registered, each after passing the gates in `sectors.gates`
+- `packages/sectors` — sector packs; `banking`, `insurance`, `telecom`, `airline`, and `hotel` are registered, each after passing the gates in `sectors.gates`
 - `docs/banking` — the warm-start research reports
 - `docs/roadmap` — the purpose, the standing constraints, what shipped, and the next slice
 
@@ -124,7 +124,7 @@ Evaluation runs build episodes by default, and choosing the evaluation consumer 
 
 ## Sector packs
 
-A sector pack is a set of state machines and priors on the shared lifecycle engine, with its own objects, phrases in English and Turkish, prompts and openings, a goal, a map from events to its industry's operations for episodes, and the episode agent's wording. Rewards, the quality report, calibration, episodes, decision records, and the five scorers work on every pack unchanged. Banking names its operations after BIAN, insurance after insurance capability domains, telecommunications after TM Forum Open API domains, and airlines after IATA's NDC and ONE Order service areas.
+A sector pack is a set of state machines and priors on the shared lifecycle engine, with its own objects, phrases in English and Turkish, prompts and openings, a goal, a map from events to its industry's operations for episodes, and the episode agent's wording. Rewards, the quality report, calibration, episodes, decision records, and the five scorers work on every pack unchanged. Banking names its operations after BIAN, insurance after insurance capability domains, telecommunications after TM Forum Open API domains, airlines after IATA's NDC and ONE Order service areas, and hotels after HTNG and OpenTravel service areas.
 
 A pack is registered, and so offered in the composer, only once it passes the gates in `sectors.gates` that banking passes, which the test suite runs for every registered pack:
 - **complete_spec:** every event has roles, phrases, and an operation.
@@ -153,7 +153,16 @@ Airlines (`airline-semi-markov-v1`) cover:
 - **Loyalty:** enrolment and miles credited after the flight.
 - **Complaints:** complaints resolved or escalated.
 
-Jurisdiction profiles carry rules per sector: telecom runs are told about number porting and dispute schemes, and airline runs about UK261 or SHY-Yolcu passenger rights, rather than KYC. The hotel pack follows.
+Hotels (`hotel-semi-markov-v1`) cover:
+- **Booking and reservations:** a reservation guaranteed and confirmed, declined, or lapsed.
+- **Modifications and cancellations:** changes that may be declined before arrival, and cancellations refunded or charged a late fee.
+- **Arrival and check-in:** a room assigned, then check-in, a no-show, or an oversold house walking the guest to another hotel with compensation.
+- **In-stay services:** requests fulfilled or delayed, room issues fixed or solved by a move, and charges posted to the folio.
+- **Check-out and billing:** the folio settled or disputed after check-out, and a dispute adjusted or rejected.
+- **Loyalty and reviews:** enrolment, points after settlement, and reviews only once the stay has ended.
+- **Complaints:** complaints resolved or escalated.
+
+Jurisdiction profiles carry rules per sector in place of KYC: telecom runs are told about number porting and dispute schemes, airline runs about UK261 or SHY-Yolcu passenger rights, and hotel runs about guest registration (UK hotel records, Turkey's Kimlik Bildirim Sistemi) and price and cancellation disclosure.
 
 ## Judge
 
