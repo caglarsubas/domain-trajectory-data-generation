@@ -1,170 +1,112 @@
-# Next slice: trustworthy journeys
+# Next slice: honest data at every scope
 
-Status: approved on 25 September 2026, together with the slice order in the overview. It replaces the export, groups, and rewards slice approved on 24 September, which stays below as the queued Slice 2 with revisions. Slice 0 is a short prerequisite. The six decisions it depended on were settled the same day, all as recommended; see [Decisions](overview.md#decisions).
+Status: approved on 26 September 2026, together with the queued Slices 9 and 10 and decisions 7 to 12 in the [overview](overview.md#decisions), all as recommended. Slices 0 to 7, the order approved on 25 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
-Branch off `main` at `3c46d4c`.
+Branch off `main` at `234ba5b`.
 
-## Why the order changed
+## Why this comes next
 
-The earlier plan assumed the generated journeys were worth exporting and needed only groups and real rewards. Running the generators on `main` shows they are not ready, and the judge that would score them cannot be reached. Every item below was reproduced in memory against `3c46d4c`.
+The review re-ran every pack against `234ba5b`. Every pack passes its gates:
 
-- **Eight journeys, repeated.** Variants are assigned in rotation (`packages/sectors/src/sectors/banking/generate.py:332`). A request for 1,000 journeys across all seven banking sub-domains returns 64, the studio cap, holding 8 distinct event sequences.
-- **Length by repetition.** `_pad` fills a short journey by repeating events (`generate.py:999-1024`). With `min_events=20` in consumer credit, the journey ends in nine consecutive `loan.disbursed` events.
-- **Contradictions pass the checks.** Warm-start text reading "the kyc failed and the application declined" forces those events into journeys that already hold the opposite outcome. The result is `kyc.passed, kyc.failed, application.approved, application.declined, account.opened, account.funded`, and `banking_hard_checks` returns no errors. Banking checks two lifecycle rules (`banking/checks.py:75-81`). Insurance has the same forced-insertion path.
-- **Substring steering.** Terms are matched with `in` on lowercased text (`banking/corpus.py:63-70`), so "industry" sets the currency to TRY, "discard" names a card, and "branching" names the branch channel.
-- **Reviewer text becomes training text.** Revision comments are appended to the narrative (`generate.py:750-751`), and the narrative is split into trainable assistant segments.
-- **Two unlinked layers.** A `Sample` has no trajectory id (`packages/trajectory_contract/src/trajectory_contract/models.py:107-110`), and alternative trajectories get no sample. The contract promises two linked layers.
-- **One language.** Only `tr` produces non-English text (`generate.py:748`). German, French, Spanish, and Japanese requests produce English.
-- **Settings that change only text.** `signal_mechanism`, `consumer`, and `target_family` appear only in the system segment ("Reward X. Signal Y."). With the same seed the output is otherwise identical.
-- **A judge that cannot answer.** The configured engine address ends in `/v1.`, and the client appends `/v1/evals/run` (`apps/api/app/judge.py:46, 66`). The client never sends `judge_model`, so the engine's default `llama3.2:3b` would judge. It gives up after 60 seconds, well before the engine's 240, and an engine error becomes a 500 (`apps/api/app/routes.py:474-487`). Only the first primary journey is judged (`apps/api/app/evaluation.py:67-69`), and a second cycle re-judges the same candidate.
+| Pack | Distinct sequences in 64 journeys | Events drawn |
+|---|---|---|
+| Airline | 55 | all 35 |
+| Banking | 49 | all 28 |
+| Hotel | 57 | all 37 |
+| Insurance | 41 | all 18 |
+| Telecommunications | 46 | all 34 |
 
-Exporting now would ship eight sequences with repeated events and contradictions, under a placeholder reward. Group rewards need variance within a group, and the reward terms need a judge that answers. So the credential and judge wiring come first, then journeys a trainer could accept, then groups, rewards, and export.
+The gates check each journey alone. They do not check whether a group of journeys carries a training signal, whether a narrow scope distorts outcomes, or whether an export copies what a user uploaded. Each finding below was reproduced in memory.
 
-## Slice 0: rotate credentials and fix the judge wiring
+- **Narrow scopes favour failures.** `_choose` and `_rollouts` in `packages/sectors/src/sectors/journeys.py` (lines 360 and 471) accept a journey once it reaches the minimum length or ends on a journey-ending event. A journey that runs out of legal events in its scope before the minimum is redrawn, so the only short journeys that qualify end on a failure.
+  - Airline booking alone runs `offer.viewed, order.created, payment.captured, order.confirmed` and stops, four events short of six. With a minimum of six events, it passed none of 400 sequences: every journey expired or failed payment.
+  - Hotel booking alone passed 2%.
+  - This is the mirror image of the success bias fixed in #34.
+- **Some sub-domains carry no group signal.** Each sub-domain was run alone with 100 prompts in groups of four:
 
-1. Rotate the engine credential. Issue a new key for `domain-trajectory-data-generation-primary` in the engine's key file, replace the public tunnel address, and update the local `.env`. This is an operator step.
-2. Normalize `INFERENCE_ENGINE_BASE_URL`: strip a trailing `/`, `/v1`, or `/v1.`, and refuse to start with a clear message when it still does not parse.
-3. Add `INFERENCE_ENGINE_JUDGE_MODEL`, default `qwen3.8:27b`, and send it as `judge_model` on every call.
-4. Wait longer than the engine's 240-second completion timeout. Retry once on 429 and 503, honouring `Retry-After`. Map engine failures to 502, 503, or 504 with the engine's `x-request-id`, instead of letting them surface as 500.
-5. Fix the Compose default for `INFERENCE_ENGINE_KEY_ID`, which is currently the literal `[REDACTED]` (`docker-compose.yml:33`), and align the variable names between `.env.example` and `apps/api/app/settings.py`.
-6. Refuse to start with the default `JWT_SECRET` unless a development flag is set.
-7. Add `DELETE /credentials/{id}` and key replacement that keeps the label. Today stored keys cannot be removed or rotated.
-8. Tests: base-address normalization, judge error mapping, key deletion and replacement, and owner checks.
+  | Sub-domain | Accepted groups | Why |
+  |---|---|---|
+  | Insurance quoting, billing, servicing, complaints | none | every rollout passes, so no failure is reachable in scope |
+  | Telecom fault management | none | both repair paths succeed |
+  | Airline loyalty | none | every rollout passes |
+  | Airline booking | none | every rollout fails, because of the scope bias above |
+  | Hotel check-out and billing | 4 in 100 | failures are rare |
+  | Airline baggage | 8 in 100 | failures are rare |
+  | Hotel booking | 8 in 100 | the scope bias above |
 
-Exit: a live evaluation succeeds from the Compose stack with the new key.
+  Banking's lowest are cards and payments (22) and servicing (32). A group with no accepted signal gets zero advantage for every sequence, so these scopes teach nothing under group-relative rewards.
+- **Exports are not checked for copies.** The standing constraints say exported data is checked for verbatim copies of uploaded records. Nothing in `apps/api/app/export.py` does so. Templated text makes a copy unlikely today; provider-written text (Slice 10) would not.
+- **No CI.** The repository has no `.github/workflows`, and every pull request so far merged with no checks. The suite (272 tests) and the studio build run only where someone runs them.
+- **Cost at scale is unmeasured.** For banking with groups of four, one 256-sequence batch takes:
 
-Result, 25 September 2026: done. The key was rotated, and the old key now gets 401 from the engine. A live evaluation through the studio API reached the engine through the configured address, which still ends in `/v1.`, and got verdicts from `qwen3.8:27b` in about a minute. The same run exposed empty verdicts from the engine, so Slice 0 also stops treating an unreadable verdict as a score of 0. It leaves the rubric unscored, adds no revision note, and says so on the run page.
+  | Batch | Time | Estimate for 10,000 sequences |
+  |---|---|---|
+  | Plain | 0.18 s | about 7 s |
+  | With episodes | 0.30 s | about 12 s |
+  | With episodes, decision records, and the decision-score signal | 1.22 s | about 49 s |
 
-## Slice 1: trustworthy journeys
+  Most of the last figure is the decision score simulating values for every member of every group, although the members share their prefix up to the first decision.
 
-Slice 1 ships in three pull requests: the lifecycle engine and its hard checks; warm-start steering, the domain and training layers, and quality report v1; then the studio views.
+## Slice 8: honest data at every scope
 
-Progress, 25 September 2026: the first pull request replaces both generators with the shared engine (tasks 1 to 5) and also moves reviewer notes out of trainable text (task 9). On all seven banking sub-domains, 64 journeys now hold 57 to 62 distinct event sequences across ten seeds, against 8 before (insurance: 41 to 58), and a property-based sweep of 500 random configurations across both packs finds no rule violations. The second pull request covers the steering, domain-layer, training-layer, and quality-report sections below (tasks 6 to 8, 10, 11, and the documentation part of 14). Journey starts move to a weekday and hour profile. Each run's metadata carries the steering report, per document, and quality report v1. The event inspector shows money direction; the remaining studio work (tasks 12 and 13) is the third pull request.
-
-The third pull request completes Slice 1. The run page gains the quality scorecard, a process map of the run with transition counts, a variant explorer whose selection highlights its path on the map and filters the journey picker, and a time-axis view with swimlanes per object and the alternative branch drawn dashed. Journeys take their own keep, revise, or drop notes. The composer reuses an existing study, shows whether each document is readable, offers the pack's languages, shows the 64-journey cap before generating, lists what blocks generation, and keeps files and links added during a re-run. `/sectors` now carries each pack's languages, cap, lanes, and event kinds, so the views follow the pack rather than a hard-coded list.
-
-### A shared lifecycle engine
-
-A new `packages/sectors/src/sectors/lifecycle.py` replaces the variant templates, `_repair`, and `_pad` in both packs.
-
-- **State machines.** Each pack declares orthogonal state machines per object type. Banking: relationship, KYC, application, account, card, credit, and complaint, following the GPT report's state model. Each transition names its event type, its guards (preconditions on other machines), and whether it is terminal.
-- **Exclusive outcomes.** An application is approved or declined, never both. KYC passes or fails. A closed account emits nothing further.
-- **Semi-Markov sampling.** At each step the sampler lists the legal next events, weights them with transition priors per sub-domain, and samples a dwell time from a per-transition distribution, log-normal by default. Priors are set by hand in this slice and calibrated from data sources in Slice 5.
-- **Length is a constraint on sampling.** A journey that ends too early is resampled or extended with legal events. Nothing repeats unless the domain repeats it, such as card purchases, payments, or document resubmissions within a cap.
-- **Branch points.** A branch point is any step where the machines offer more than one legal outcome. Alternatives keep the most likely continuation, stochastic samples, and a rare but valid path when requested. The branch probability comes from the sampler instead of a uniform draw between 0.18 and 0.42, and each alternative records `causal_claim=false`.
-- **Journey starts.** Start times follow a weekday and hour profile instead of a grid of one journey every three days.
-
-### Hard checks from the same machines
-
-The checks are generated from the pack's state machines and run independently on the output, so every rule the sampler obeys is verified twice. Banking gains, among others: an application precedes account opening, KYC passes before an account opens or a card activates, no event follows closure, the loan itself is approved before disbursement, and a payment needs an active account. Insurance moves its six rules onto the same machines. A property-based sweep over thousands of random configurations asserts zero violations for both packs.
-
-### Warm-start steering that cannot contradict
-
-- Terms are matched on word boundaries and phrases, not substrings.
-- Event mentions are negation-aware, so "no KYC failure" does not name `kyc.failed`.
-- Named events weight the sampler's choices at branch points instead of being forced into a sequence. A corpus naming both outcomes of a decision produces journeys of both kinds, and no journey holds both.
-- Each run stores a steering report: which terms matched, in which document, and what they changed.
-- The composer warns when warm documents yield no readable text, which is true of every PDF until Slice 5.
-
-### Domain-layer fidelity
-
-- Money carries amount, currency, direction, and role. Today every amount is positive and there is no direction field.
-- Event-object links carry qualifiers, such as the source and destination account of a transfer.
-- `effective_time` differs from `event_time` where the domain says so, such as payment posting, and the `recorded_at` lag is sampled rather than fixed at two seconds.
-- Every run records the generator and pack versions.
-
-### Training layer
-
-- `Sample.trajectory_id` links each sample to its journey, and alternative trajectories get samples too.
-- Reviewer notes are kept in generation metadata and never enter trainable text.
-- Segments split at sentence boundaries, and user turns interleave with assistant turns.
-- Prompts and user lines come from a larger template bank per sub-domain and language, so a run no longer has a single prompt.
-- Both packs declare English and Turkish. Any other language is refused with a message instead of producing English.
-- Text stays template-based in this slice, and no provider is called. Provider-written turns arrive with the episode builder in Slice 6.
-
-### Quality report v1
-
-Computed on every run and stored with it:
-
-- **Complete:** hard-check violations, which must be zero; referential integrity; the share of journeys reaching a terminal state; and runs of identical events outside allowed repeats.
-- **Comprehensive:** distinct sequences per hundred journeys, event-type coverage per selected sub-domain, the rare-path share, and transition bigram coverage.
-- **Representative** and **qualitative** are shown as "not measured yet" until Slices 4 and 5.
-
-### Studio
-
-- The run page gains time-axis swimlanes per object (customer, application, account, card, loan), a process map of the run with transition counts, a variant explorer showing the top sequences and their frequency, and the quality scorecard.
-- The composer shows the cap of sixty-four before generating, gates Generate on the acknowledgment and the document count, and shows how many warm documents were readable.
-- A re-run keeps the files and links added during it. Today they are dropped (`apps/web/app/studio/compose/page.js:150-177`).
-- A study can be reused across runs, instead of the composer creating a new study each session.
-- Trajectory-level feedback, which the API already accepts, gets a place in the UI.
-
-### Task list
-
-1. Write `lifecycle.py`: machines, guards, exclusivity, terminal states, and the semi-Markov sampler with dwell-time distributions.
-2. Express the banking pack as machines and priors, and delete the variant templates, `_repair`, and `_pad`.
-3. Generate banking hard checks from the machines, and add the property-based sweep.
-4. Port insurance to the same engine and checks.
-5. Rebuild branch generation on branch points, with sampler probabilities and `causal_claim=false`.
-6. Rewrite corpus steering: word-boundary matching, negation, weights instead of forced events, and the steering report.
-7. Add direction and role to money, qualifiers to event-object links, realistic `effective_time` and `recorded_at`, and start-time profiles.
-8. Add `Sample.trajectory_id`, samples for alternatives, sentence-boundary segments, and interleaved user turns.
-9. Move reviewer notes out of trainable text.
-10. Expand the prompt and user-line template banks in English and Turkish, and refuse other languages at the API and in the composer.
-11. Compute quality report v1, store it on the run, and return it from `GET /runs/{id}`.
-12. Build the time axis, process map, variant explorer, and scorecard on the run page.
-13. Fix the composer: show the cap, gate Generate, show readable documents, keep re-run uploads, reuse studies, and add trajectory feedback.
-14. Update `docs/trajectory-contract.md` and `docs/evaluation.md` to match.
+1. **Natural end.** The walker marks a walk that ran out of legal events as exhausted, and `_choose` and `_rollouts` count it as long enough, as they count a journey-ending event.
+   - The composer shows each scope's typical length before generating, and warns when the minimum is beyond it. The standing constraint says caps and substitutions are shown before generation.
+   - Tests: airline and hotel booking alone pass at their policies' rates, measured against the payment and guarantee outcome shares; a primary and its rollouts agree within noise.
+2. **Group signal in every sub-domain.** A new gate, `group_signal`, runs each sub-domain alone in groups of four and needs accepted groups in at least a fifth of them (decision 8).
+   - Where no rollout can fail, the pack gains the failure branch its industry has, for example:
+     - insurance: a quote abandoned, a missed premium that lapses the policy, a claim or complaint rejected
+     - telecom: a fault that recurs after repair
+     - airline: missing miles that need a claim
+     - hotel: a charge disputed at check-out
+   - Each new branch passes the other gates, and its prior is set where the industry's rate would put it.
+3. **Copies at export.** The exporter indexes 12-word runs of every uploaded document's text and every data-source row, and checks every exported text field against them (decision 9):
+   - samples, prefixes, episodes, decision records, and tasks
+   - a record with a match is left out
+   - the manifest counts what was left out, by part
+   - Tests: a planted copy is caught in a small run and in a large run's export job; a clean run leaves nothing out.
+4. **CI.** A GitHub Actions workflow runs the Python suite and the studio's `next build` on every pull request and on `main`, with no secrets and the engine and providers mocked as the tests already do. The slice's own pull request is the first to show checks.
+5. **Cost.** Decision values are computed once per shared prefix and reused across a group's members, since the members share their prefix up to the first decision.
+   - A 10,000-sequence banking run with episodes, decision records, and the decision-score signal is measured end to end as a job, with a target of three times the plain run or less.
+   - Progress messages name the stage (journeys, episodes, decisions, scoring), so a long run says what it is doing.
+6. **Docs.** README, the contract (the exhausted walk, the new gate, the export check), the roadmap, and the delivered log.
 
 ### Exit criteria
 
-- Zero hard-check violations across the property-based sweep, for both packs.
-- 64 journeys over all seven banking sub-domains hold at least 32 distinct event sequences. Today they hold 8.
-- No journey contains a run of identical events outside the allowed repeats.
-- A corpus that names both outcomes of a decision yields journeys of both kinds, and none holding both.
-- No reviewer text appears in a trainable segment, and every sample links to a trajectory.
-- The quality report and the new run-page views are visible in the studio, and the composer shows the cap before generating.
+- Every sub-domain of every pack, alone, yields accepted groups in at least a fifth of its groups of four, and the gate enforces it for every registered pack.
+- Airline and hotel booking alone pass at their policies' rates, not near zero.
+- A planted copy of an uploaded record is caught at export and counted in the manifest.
+- CI passes on the slice's pull request.
+- The 10,000-sequence run with every consumer feature finishes within three times the plain run.
 
-## Queued: Slice 2, groups, shared rewards, and export
+## Queued: Slice 9, judge completion across repositories
 
-Progress, 25 September 2026: Slice 2 ships in two pull requests. The first adds groups and the shared rewards module: `group_size` up to 16, rollouts that share the prefix to the first decision and keep one intent, the contract fields below, all five mechanisms checked against hand-computed values, record-only penalty rules, and the cascade. On all banking sub-domains, groups of 4 hold 4 distinct sequences on average and 13 of 16 groups carry a group signal; insurance passes more often, so fewer of its groups (8 of 16) do. The second pull request adds export, the group viewer, the download panel, and the group size in the composer.
+Work in `llm_inference_engine` first (decision 7):
+- a rubric registry that accepts rubrics over an authenticated API and persists them per tenant
+- `/v1/evals/run` taking a scheduler slot as chat does
+- the safety rubric's template including the prompt
+- an `n` parameter that repeats a judgment above temperature 0
+- typed errors for a timeout or an over-long prompt
 
-The second pull request completes Slice 2: the four export parts with the deterministic split, an optional held-out sub-domain, the data card, and checksums; a group viewer on the run page showing each rollout's outcome, reward, advantage, quality factor, and recorded flags, with the time axis following the chosen rollout; a download panel with a data-card preview; and sequences per prompt in the composer, with the cap counted in sequences.
+Then, in the studio:
+- **4B:** the judge studies a group of journeys with the warm-start passages and proposes study-specific solution and behavior rubrics. The user reviews and edits them in the judge panel before they are registered and used.
+- **Repeated judgments:** each rubric is judged three times per model. Agreement across repeats is reported next to agreement across models.
+- **Judge-side conformance and decision rubrics:** `process_conformance` and `decision_score` are registered with the engine so the judge can score them, and are compared with the code scorers.
 
-The design approved on 24 September stands, with the revisions after it.
+Exit: a rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric.
 
-### Retained design
+## Queued: Slice 10, representative everywhere and natural text
 
-- **Groups.** `RunBody` and `RerunBody` gain `group_size`, default 1 and capped at 16, the group size MiMo trains with. Each generator draws G variants of one prompt from its seeded sampler, varying branch choices and dwell times, so a group holds different outcomes for the same request and stays reproducible.
-- **Contract fields.** Nullable only, so stored bundles keep validating: `group_accepted` and `group_pass_rate` on Sample; `outcome`, `solution_score`, `behavior_score`, `quality_factor`, `token_estimate`, and `dropped` on Sequence; `dropped` on Context; `flagged_reason` on Segment.
-- **Rewards.** One `packages/sectors/src/sectors/rewards.py`, shared by every pack, replaces both copies of `_apply_rewards`:
-  - the multiplicative reward R = R_test × S_sol × S_beh, where a failed verification zeroes the reward;
-  - group-relative advantage, each reward minus the group mean;
-  - groupwise advantage redistribution over the passing set, which rescales quality-weighted positive advantages by λ = ΣA / ΣfA so the positive mass is conserved, with λ capped and failing sequences untouched;
-  - the group-relative length penalty, gated on the minimum pass rate and measured against a percentile of successful lengths, so hard prompts keep room to explore;
-  - segment penalties that mask flagged segments in positive sequences and weight them by κ in negative ones, with α and β bounded;
-  - the cascade: a context with no surviving trainable segment is dropped, a sequence with no surviving context gets zero advantage, a sample with no surviving sequence is rejected, and all-pass and all-fail groups are marked not accepted.
-- **Export.** `GET /runs/{run_id}/export/{part}`, owner-checked like `require_run` in `apps/api/app/service.py`, returning 409 when the run has no candidate.
-  - `samples.jsonl`: one line per Sample, with the hierarchy, `trainable`, and the group fields.
-  - `domain.jsonl`: one line per domain record.
-  - `manifest.json`: run id, sector, generator and pack versions, the configuration without `credential_id`, group size, counts, judge cycles, split ratios, and a statement that every record is synthetic. No secret, ciphertext, or fingerprint reaches it.
-  - The train, validation, and test split is assigned from a hash of `sample_id`, so a re-export reproduces it. One sub-domain can be held out to measure generalization.
-- **Tests.** Each formula against hand-computed values, advantage mass conservation, the pass-rate gate exempting hard groups, and the cascade, in the style of `tests/test_generator.py`.
+- **Hotel calibration:** a catalogue adapter for the Hotel booking demand dataset (decision 10). Cancellations, no-shows, and lead times calibrate the hotel pack's guarantee, cancellation, and arrival outcomes and their durations.
+- **Airline calibration:** an adapter for the Bureau of Transportation Statistics on-time performance data. Delay and cancellation rates and delay lengths calibrate the airline pack's disruption outcomes.
+- **Telecom and insurance sources:** these follow a terms review.
+- **Provider-written turn text** (decision 11): on request, a provider model on the owner's key writes each sample's turn text from the skeleton.
+  - Code checks every turn: each event in order, no invented amount or identifier, and the run's language.
+  - A turn that fails keeps the template.
+  - The composer estimates the calls and takes a cap, as for provider rollouts.
+- **More languages** (decision 12): these wait for provider-written text.
 
-### Revisions from this review
+Exit: a hotel run calibrated from the catalogue reports representativeness, and provider-written turns pass the skeleton checks.
 
-- **Define the reward terms.** R_test is the code verification of the sample's goal: a legal journey that reaches the requested outcome. S_sol and S_beh start as deterministic measures, goal attainment and conformance to the pack's machines, and switch to judge rubric scores when Slice 4 makes the judge trustworthy.
-- **Add `ocel.json`.** The domain layer in OCEL 2.0 JSON: event types, object types, events, objects, and qualified event-object and object-object relationships. Both research reports recommend it, and process-mining tools read it directly.
-- **Add a data card to the manifest.** Scope, jurisdiction profile, intended use, known limitations, generator and pack versions, and the quality report.
-- **Detect before penalizing.** MiMo's penalty module separates rules, which detect, from strategies, which mask, shape advantages, or only record. Every penalty starts in record-only mode and is shown in the group viewer, so a user sees what would change before it changes the training data.
-- **UI.** A group viewer with the G sequences side by side, reward and advantage per sequence, and a download panel with the data card.
+## Out of scope
 
-## Out of scope for Slice 1
-
-Groups, rewards, and export (Slice 2). Background jobs and lifting the cap (Slice 3). Judge reliability (Slice 4). Document parsing and calibration (Slice 5). Episodes and decision records (Slice 6). New sectors (Slice 7).
-
-## What the attached material contributed
-
-- **The MiMo PDF** was checked again. It holds 320 link annotations from its own cross-references and no highlight, note, or ink annotations, and its pages contain no flattened highlight marks. The copy in Downloads is byte-identical to the one in `docs/`. If you annotated it in another app, exporting the annotations from that app would bring them in.
-- **From MiMo:** the trajectory hierarchy and penalty module (§6.1), together with groupwise reward synthesis, groupwise advantage redistribution, and the behavioral penalties (§4.3), shape Slice 2. Rollout auditing and repeated or cross-model judging (§4.2.1 and §4.2.2) shape Slice 4. Environment synthesis with atomic rubric items (§4.2.2), multi-harness training (§4.2.5), and prefix-conditioned distillation (§5.6) shape Slice 6. The Sample Mixer (§6.3) shapes the oversampling in Slice 3.
-- **From the GPT banking report:** orthogonal state machines, the time model, the rules for money, the validation order, and the rules for alternative paths shape Slice 1. The documentation-to-knowledge pipeline, with explicit and strongly implied facts, and the calibration sources shape Slice 5.
-- **From the Gemini banking report:** OCEL 2.0 JSON export shapes Slice 2. The BPI Challenge 2017 baseline and the conformance measures shape Slices 4 and 5; the scorecard computes fitness and precision in-house. The MDP framing, with BIAN operations as actions, shapes the decision records in Slice 6.
+New sectors beyond the five, a trainer, and hosting. Jev-type remains a target family on the same contract, not a trainer.
