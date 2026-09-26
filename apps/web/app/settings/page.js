@@ -11,6 +11,7 @@ export default function Settings() {
   const [label, setLabel] = useState("My key");
   const [secret, setSecret] = useState("");
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   function refresh() {
     return api("/credentials").then((data) => setRows(data.data.filter((item) => item.scope === "byok")));
@@ -23,19 +24,23 @@ export default function Settings() {
   async function save(event) {
     event.preventDefault();
     setError("");
+    setSaving(true);
     try {
+      // Saving asks the provider whether it accepts the key; a key it rejects is not stored.
       await api("/credentials", { method: "POST", body: JSON.stringify({ provider, label, secret, scope: "byok" }) });
       setSecret("");
       await refresh();
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
   return (
     <Shell>
       <h1 className="word" style={{ fontSize: 52, marginBottom: 0 }}>Your keys</h1>
-      <p className="lede">OpenAI, Anthropic, Google, and xAI keys stay on your account. A warm study can send a web search to the provider you choose. The secret is not shown again.</p>
+      <p className="lede">OpenAI, Anthropic, Google, and xAI keys stay on your account. A warm study can send a web search to the provider you choose. The secret is not shown again. Saving a key checks it with a free call to the provider, and only a key the provider accepts is ready.</p>
       {error ? <div className="error">{error}</div> : null}
       <form onSubmit={save} style={{ maxWidth: 520 }}>
         <label>Provider</label>
@@ -49,7 +54,7 @@ export default function Settings() {
         <input value={label} onChange={(e) => setLabel(e.target.value)} required />
         <label>Secret</label>
         <input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} required />
-        <div className="actions"><button className="primary" type="submit">Save key</button></div>
+        <div className="actions"><button className="primary" type="submit" disabled={saving}>{saving ? "Checking with the provider" : "Save key"}</button></div>
       </form>
       <KeyRows rows={rows} onChange={refresh} onError={setError} />
     </Shell>

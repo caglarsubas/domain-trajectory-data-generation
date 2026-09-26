@@ -40,6 +40,10 @@ class Credential(Base):
     scope: Mapped[str] = mapped_column(String(16))
     ready: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # The last live check against the provider: valid, rejected, or unreachable.
+    check_status: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    check_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Project(Base):
@@ -129,7 +133,7 @@ class EvalVerdict(Base):
 
 
 class Job(Base):
-    """Work that outlives a request: generating a run today; judging and deep search next."""
+    """Work that outlives a request: generating, exporting, or judging a run, or a deep search for a study."""
 
     __tablename__ = "jobs"
 
@@ -137,11 +141,14 @@ class Job(Base):
     kind: Mapped[str] = mapped_column(String(32))
     owner_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
     run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), index=True, nullable=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("projects.id"), index=True, nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
     progress: Mapped[float] = mapped_column(default=0.0)
     message: Mapped[str] = mapped_column(Text, default="")
     payload: Mapped[dict] = mapped_column(JSON, default=dict)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the handler produced, such as the corpus item a deep search stored, or the HTTP status of a refusal.
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     cancel_requested: Mapped[int] = mapped_column(Integer, default=0)
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

@@ -46,7 +46,7 @@ Schema updates also live in `apps/api/alembic`. The API creates tables on startu
 
 ## Jobs
 
-Generating a run is a job. `JOBS_MODE` decides who runs it:
+Generating, exporting, and judging a run are jobs, and so is a deep search. `JOBS_MODE` decides who runs them:
 
 - `inline`, the default on SQLite: the request that creates the run generates it before answering.
 - `thread`, the default on Postgres: a background thread in the API process picks jobs up.
@@ -60,6 +60,12 @@ A run's size can be a number of prompts drawn or, with more than one sequence pe
 
 A run is `queued`, then `generating`, then `generated`, `failed`, or `cancelled`. The run page shows progress while it waits and can cancel it. A job whose worker stops sending heartbeats is requeued when a worker next starts.
 
+Asking the judge queues an `evaluate` job; the run's `judge_job` reports its progress, rubric by rubric, and a failure keeps its reason there while the previous cycle stays. A deep search queues a `deep_search` job and answers with it; `GET /jobs/{id}` returns its progress and, when it succeeds, the stored corpus item, and `POST /jobs/{id}/cancel` stops a queued or running job. The account's key is decrypted only inside the job and is never written to it. Inline, both answer when they finish, with the same status codes as before.
+
 ## Accounts
 
 Register as `user` or `demo`. Both must bring their own provider key. The admin account is created from `ADMIN_EMAIL` and `ADMIN_PASSWORD` and is the only account that can store platform keys. The judge uses `INFERENCE_ENGINE_API_KEY` from the environment, not a user key.
+
+Saving or replacing a key checks it with a free authenticated call to the provider, listing its models. A key the provider rejects is refused and not stored, and a replacement it rejects leaves the old key in place. When the provider cannot be reached, the key is saved but not ready until `POST /credentials/{id}/check` succeeds; the Keys page shows each key's last check and can run it again.
+
+Demo accounts have daily limits over a rolling 24 hours, set by `DEMO_RUNS_PER_DAY` (10), `DEMO_JUDGE_CYCLES_PER_DAY` (10), and `DEMO_DEEP_SEARCHES_PER_DAY` (3), and a run size limit, `DEMO_MAX_SEQUENCES` (2,000), which counts an accepted-group target at its ceiling of five times the target. A job that failed, or was cancelled before it started, does not count. Past a daily limit the API answers 429 with the time the next slot frees; `GET /quota` reports use, and the composer shows it.

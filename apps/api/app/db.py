@@ -33,7 +33,11 @@ def init_db(url: str) -> None:
 
 
 # Columns added after a table first shipped. create_all makes new tables but never alters old ones.
-ADDED_COLUMNS = {"runs": {"generation": "JSON"}}
+ADDED_COLUMNS = {
+    "runs": {"generation": "JSON"},
+    "jobs": {"project_id": "VARCHAR(36)", "result": "JSON"},
+    "credentials": {"check_status": "VARCHAR(16)", "check_detail": "TEXT", "checked_at": "TIMESTAMP WITH TIME ZONE"},
+}
 
 
 def _add_missing_columns(engine) -> None:

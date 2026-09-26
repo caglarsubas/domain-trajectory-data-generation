@@ -45,6 +45,7 @@ def evaluate_bundle(
     corpus_items: list,
     thresholds: dict[str, float],
     judge: Judge,
+    progress=None,
 ) -> dict:
     sector = get_sector(sector_id)
     errors = sector.hard_checks(bundle)
@@ -108,7 +109,9 @@ def evaluate_bundle(
     verdicts = []
     notes: list[str] = []
     accepted = True
-    for rubric, payload in calls:
+    for index, (rubric, payload) in enumerate(calls):
+        if progress is not None:
+            progress(index, len(calls), f"Asking the judge about {rubric.replace('_', ' ')} ({index + 1} of {len(calls)}).")
         result = judge.run_eval(rubric=rubric, **payload)
         score = float(result["score"])
         minimum = float(thresholds.get(rubric, DEFAULT_THRESHOLDS[rubric]))

@@ -26,6 +26,10 @@ class Settings:
     inference_key_id: str
     inference_judge_model: str
     dev_mode: bool
+    demo_runs_per_day: int = 10
+    demo_max_sequences: int = 2000
+    demo_judge_cycles_per_day: int = 10
+    demo_deep_searches_per_day: int = 3
 
 
 def load_settings() -> Settings:
@@ -49,7 +53,21 @@ def load_settings() -> Settings:
         ).strip(),
         inference_judge_model=os.environ.get("INFERENCE_ENGINE_JUDGE_MODEL", "").strip() or "qwen3.8:27b",
         dev_mode=os.environ.get("TRAJ_DEV_MODE", "").strip().lower() in {"1", "true", "yes"},
+        demo_runs_per_day=_count("DEMO_RUNS_PER_DAY", 10),
+        demo_max_sequences=_count("DEMO_MAX_SEQUENCES", 2000),
+        demo_judge_cycles_per_day=_count("DEMO_JUDGE_CYCLES_PER_DAY", 10),
+        demo_deep_searches_per_day=_count("DEMO_DEEP_SEARCHES_PER_DAY", 3),
     )
+
+
+def _count(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(int(raw), 0)
+    except ValueError as exc:
+        raise SettingsError(f"{name} must be a whole number") from exc
 
 
 def check_startup(cfg: Settings) -> None:

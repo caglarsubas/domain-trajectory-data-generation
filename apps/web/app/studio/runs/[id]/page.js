@@ -77,13 +77,14 @@ export default function RunPage() {
   }, []);
 
   const pending = run && ["queued", "generating"].includes(run.status);
+  const judging = ["queued", "running"].includes(run?.judge_job?.status);
   useEffect(() => {
-    if (!pending) return undefined;
+    if (!pending && !judging) return undefined;
     const timer = setTimeout(() => load(params.id).catch((err) => setError(err.message)), 1000);
     return () => clearTimeout(timer);
-  }, [pending, run, params.id]);
+  }, [pending, judging, run, params.id]);
 
-  const ready = run?.status === "generated";
+  const ready = ["generated", "evaluated"].includes(run?.status);
 
   // Journeys come a page at a time, for small and large runs alike; a variant narrows the list.
   useEffect(() => {
@@ -182,6 +183,7 @@ export default function RunPage() {
     setBusy(true);
     setError("");
     try {
+      // The judge runs as a job; while it works, the page polls the run for its progress and cycle.
       const next = await api(`/runs/${run.id}/evaluate`, { method: "POST", body: JSON.stringify({}) });
       setRun(next);
     } catch (err) {
@@ -190,6 +192,21 @@ export default function RunPage() {
       setBusy(false);
     }
   }
+
+  async function stopJudge() {
+    setError("");
+    try {
+      await api(`/jobs/${run.judge_job.id}/cancel`, { method: "POST" });
+      await load(run.id);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  const judgeJob = run.judge_job;
+  // judge_job is the latest attempt, so a failure there is the last word until the judge is asked again.
+  const judgeFailed = judgeJob?.status === "failed";
+  const explain = (text) => (text.includes("INFERENCE_ENGINE_API_KEY") ? "The platform judge is not configured on this server yet." : text);
 
   const rerunHref = `/studio/compose?from=${run.id}&notes=${picked.join(",")}`;
 
@@ -205,12 +222,20 @@ export default function RunPage() {
         ))}
       </div>
       <div className="actions">
-        <button className="primary" type="button" onClick={evaluate} disabled={busy || run.cycle_count >= run.config.max_cycles}>
-          {busy ? "Judging" : "Ask the judge"}
+        <button className="primary" type="button" onClick={evaluate} disabled={busy || judging || run.cycle_count >= run.config.max_cycles}>
+          {busy ? "Asking" : judging ? "Judging" : "Ask the judge"}
         </button>
         <Link className="ghost" href={rerunHref} style={{ display: "inline-block" }}>Run again</Link>
       </div>
-      {error ? <div className="error">{error.includes("INFERENCE_ENGINE_API_KEY") ? "The platform judge is not configured on this server yet." : error}</div> : null}
+      {judging ? (
+        <div className="judge-status">
+          <div className="bar"><i style={{ width: `${Math.round((judgeJob.progress || 0) * 100)}%` }} /></div>
+          <small>{judgeJob.message}</small>
+          <button className="ghost" type="button" onClick={stopJudge}>Stop</button>
+        </div>
+      ) : null}
+      {judgeFailed ? <div className="error">The judge did not finish: {explain(judgeJob.error || judgeJob.message)}</div> : null}
+      {error ? <div className="error">{explain(error)}</div> : null}
       {run.bundle_source === "fixture" ? (
         <p className="note">This is the banking sample. Generation is not running yet, so the canvas stays filled while you practice the loop.</p>
       ) : null}

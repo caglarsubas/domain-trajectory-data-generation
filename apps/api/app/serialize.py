@@ -59,6 +59,9 @@ def job_out(job) -> dict | None:
         "progress": job.progress,
         "message": job.message,
         "error": job.error,
+        "result": job.result,
+        "run_id": job.run_id,
+        "project_id": job.project_id,
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "started_at": job.started_at.isoformat() if job.started_at else None,
         "finished_at": job.finished_at.isoformat() if job.finished_at else None,
@@ -168,6 +171,7 @@ def run_out(run: Run, db: Session) -> dict:
         "generation_active": _generation(run) is not None,
         "generation": _generation(run),
         "job": job_out(latest_for(db, run.id)),
+        "judge_job": job_out(latest_for(db, run.id, "evaluate")),
     }
 
 

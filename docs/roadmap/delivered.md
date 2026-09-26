@@ -1,8 +1,8 @@
 # Delivered slices
 
-What each merged pull request established, and the decisions inside it that later work depends on. All sixteen are merged and their branches are deleted.
+What each merged pull request established, and the decisions inside it that later work depends on. All seventeen are merged and their branches are deleted.
 
-`main` history: `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
+`main` history: `8391bad`, `c0cb37a`, `8e8f664`, `f73b75d`, `f9edc37`, `4002c1f`, `eb16284`, `6ced1a4`, `1a6fe6f`, `2410de8`, `3c46d4c`, `8b00aa7`, `f4f620c`, `ba1d02c`, `95012cb`.
 
 Corrected on 25 September 2026 against the code: slice 2 checks two lifecycle rules, not a general set, and slice 4's first insurance rule was stated backwards.
 
@@ -117,3 +117,9 @@ Slice 3, first part. A `jobs` table on the application database, run inline on S
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/16
 
 Slice 3, second part. Runs up to 100,000 sequences are generated in batches of 256 with their own seeds and batch-prefixed ids, written as gzipped files under `DATA_DIR/runs/<id>/`, and checkpointed so a restarted worker resumes and matches an uninterrupted run. Journeys are served a page at a time, and quality and the overview accumulate batch by batch. A 10,000-journey run completes in about 22 seconds with no rule violations.
+
+## 17. Export large runs as a job and size runs by accepted groups
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/17
+
+Slice 3, third part. Large runs export through a job that streams batch by batch into gzipped parts, staged and renamed when complete, with manifest checksums of the uncompressed content. `target_kind: "accepted_groups"` oversamples from the observed acceptance rate until the target survives the dynamic sampler, stopping at five times the target; `domain_shares` split a run into parts with their own targets and seeds. The work showed that five of the seven banking sub-domains had no failing rollouts, so their groups carried no signal.
