@@ -2,9 +2,16 @@
 
 Repository: https://github.com/caglarsubas/domain-trajectory-data-generation
 
-Last reviewed: 25 September 2026, against `main` at `3c46d4c`. This revision re-read the purpose statement, the MiMo-V2.6 report, and both research reports in `docs/banking`, audited the code on `main` by running the generators, and checked how the judge reaches `llm_inference_engine` and what a Jev-type model consumes. The audit changed the order of work. The evidence is in [next-slice.md](next-slice.md#why-the-order-changed). Six open decisions were settled the same day, all as recommended; they are listed under [Decisions](#decisions).
+Last reviewed: 26 September 2026, against `main` at `234ba5b`, after Slices 0 to 7 shipped. This review:
+- re-ran the gates for all five packs
+- measured group signal in every sub-domain of every pack
+- estimated generation cost with episodes, decision records, and the decision-score signal
+- checked each open item in `llm_inference_engine` at `5e91407`
+- re-read the standing constraints against the code
 
-Companion files: [delivered.md](delivered.md) records what each merged slice established. [next-slice.md](next-slice.md) is the approved plan for the work now in front of us.
+The previous review, against `3c46d4c` on 25 September, set the slice order that has now been delivered; its evidence is in git history. What this review found, and the slices it set, are in [next-slice.md](next-slice.md); they and decisions 7 to 12 were approved the same day, all as recommended.
+
+Companion files: [delivered.md](delivered.md) records what each merged pull request established. [next-slice.md](next-slice.md) is the approved plan for the work now in front of us.
 
 ## Purpose
 
@@ -14,23 +21,24 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 
 ## What done means
 
-| Purpose clause | What satisfies it | On `main` today | Closed by |
+| Purpose clause | What satisfies it | On `main` today | Status |
 |---|---|---|---|
-| Complete | Every journey legal end to end: zero impossible transitions, referential integrity, a terminal or horizon state | Two banking lifecycle rules are checked. A journey holding both `kyc.passed` and `kyc.failed` passes. | Slice 1 |
-| Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 64 journeys over all seven banking sub-domains hold 8 distinct event sequences | Slice 1 |
-| Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Warm start contributes substring matches from a 2,000-character excerpt | Slices 4 and 5 |
-| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | One trajectory is judged once, by the engine's default 3B model. Every language except Turkish is written in English. | Slices 1, 4, and 6 |
-| Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | One sequence per sample, placeholder rewards, narrated prose, no export | Slices 2 and 6 |
-| Decision scoring | Decision records at branch points: state, options, outcome, score | `decision_score` changes only prompt text | Slice 6 |
-| Evaluation | Tasks with verifiers, held-out splits, avg@k and pass@k | No evaluation export | Slices 2 and 6 |
-| Jev-type models | Typed decision records (choice, score, true or false) with calibrated targets | `target_family="jev"` changes only prompt text | Slice 6 |
-| Warm-start material | PDFs, repositories, links, and data sources actually read, with an extraction report | PDFs are dropped or read as raw bytes. Links and repositories are never fetched. | Slice 5 |
-| Warm versus cold guidance | Recommend warm, warn when warm material yields nothing usable, allow cold with acknowledgment | The wording and the acknowledgment exist. Nothing warns when a document yields no text. | Slices 1 and 5 |
-| Run configuration | Size, length, scope, language, reward, and signal each change the data | Size stops at 64 without the composer saying so. Length is met by repeating events. Signal changes only text. | Slices 1, 2, 3, and 6 |
-| Admin keys and BYOK | Custody, deletion and rotation, live validation, demo quotas | Custody and the four deep-search request shapes exist. Keys cannot be deleted or rotated, validation checks only the prefix, and demo accounts have no limits. | Slices 0 and 3 |
-| Own evaluation cycle | Judge calls that succeed, repeat, agree, and drive regeneration | The configured engine address cannot be reached. A second cycle re-judges the same candidate. | Slices 0 and 4 |
-| Visually rich studio | Time axis, process map, variant explorer, sample and group viewer, re-run diff | A grid of events by index and four score meters. No charts, no diff. | UX track, every slice |
-| Sectors | Banking first, then the others on one schema | Banking and insurance share the run schema | Slice 7 |
+| Complete | Every journey legal end to end: zero impossible transitions, referential integrity, a terminal or horizon state | Every pack's journeys replay through its own machines. The gates' sweep of 150 random configurations per pack breaks no rule, and every event of every pack is reachable. | Met |
+| Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 41 to 57 distinct sequences in 64 journeys across the five packs, and every sub-domain reaches its milestones alone and together | Met |
+| Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Event logs in CSV, Parquet, XES, or OCEL 2.0 calibrate any pack. Fitness, precision, and next-step divergence are reported. The catalogue offers banking sources only. | Partly; Slice 10 |
+| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, a control journey, audit flags, and regeneration from notes. Repeats above temperature 0, study-specific rubrics, and the safety prompt wait on the engine. Turn text is templated narration in English or Turkish. | Partly; Slices 9 and 10 |
+| Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | Groups of up to 16, the shared MiMo rewards with every signal scored, episodes in three harness formats with provider rollouts, and history prefixes. Some sub-domains never yield an accepted group, and narrow scopes draw almost only failures. | Partly; Slice 8 |
+| Decision scoring | Decision records at branch points: state, options, outcome, score | Decision points with policy shares and simulated values, exported as typed questions under a versioned schema every record validates against | Met |
+| Evaluation | Tasks with verifiers, held-out splits, avg@k and pass@k | Journey and agent tasks with environment, verifiers, and references, reported as avg@k and pass@k by verifier and by policy, including each provider model | Met |
+| Jev-type models | Typed decision records (choice, score, true or false) with calibrated targets | Derived facts precomputed, explicit criteria, an abstain answer, policy-share and simulated-value targets, invariance variants, and train, calibration, and held-out splits | Met |
+| Warm-start material | PDFs, repositories, links, and data sources actually read, with an extraction report | PDF, Word, HTML, Markdown, and OpenAPI or AsyncAPI definitions; links behind an address guard; GitHub repositories; event logs; facts with evidence and review | Met |
+| Warm versus cold guidance | Recommend warm, warn when warm material yields nothing usable, allow cold with acknowledgment | The composer recommends warm, warns when no document is readable, and needs an acknowledgment for cold | Met |
+| Run configuration | Size, length, scope, language, reward, and signal each change the data | Size to 100,000 sequences as jobs, length, scope, language, reward, signal, consumer, and target family all change the data. A minimum length beyond a narrow scope's natural length silently favours failures. | Partly; Slice 8 |
+| Admin keys and BYOK | Custody, deletion and rotation, live validation, demo quotas | Custody, deletion, rotation, a live check on save, demo quotas, and a provider-call cap | Met |
+| Own evaluation cycle | Judge calls that succeed, repeat, agree, and drive regeneration | Calls succeed, two models agree or disagree per rubric, and cycles regenerate from notes. Repeats wait on the engine. | Partly; Slice 9 |
+| Visually rich studio | Time axis, process map, variant explorer, sample and group viewer, re-run diff | All of these, plus the judge panel, episode and decision viewers, the signal table, and the export panel with each consumer's parts | Met |
+| Sectors | Banking first, then the others on one schema | Banking, insurance, telecommunications, airline, and hotel, each past the same gates | Met |
+| Synthetic, not copied | Uploads scrubbed before storage, exports checked for verbatim copies of uploaded records | Uploads are scrubbed. Exports are not checked for copies. | Partly; Slice 8 |
 
 ## How the pieces fit
 
@@ -77,7 +85,7 @@ Every run gets a quality report, stored with the run and shown on its page. A ru
 
 These hold across every slice and should not be renegotiated silently.
 
-- Sector order is banking, then insurance, then telecommunication, airways, and hotels. Adding a sector widens the `sector` literal and registers a pack. It does not change the run schema.
+- Sector order was banking, then insurance, then telecommunication, airways, and hotels; all five are registered. A new sector registers a pack that passes the gates in `sectors.gates`. It does not change the run schema.
 - The judge is the platform tenant on `llm_inference_engine`, tenant `domain-trajectory-data-generation`, organization `org-trajdata`. Local hard checks run first, and a failed check must not call the model. A cold start is marked `reference_quality=weak`.
 - The admin account may store platform provider keys. User and demo accounts must bring their own key. Credentials are encrypted with `CREDENTIAL_MASTER_KEY` and are returned only as provider, label, and fingerprint.
 - Secrets stay out of git, logs, and API responses. A key that ever reached git history is treated as compromised and rotated. Provider keys and `INFERENCE_ENGINE_API_KEY` are never returned or logged, and tests mock HTTP rather than printing keys.
@@ -87,7 +95,7 @@ These hold across every slice and should not be renegotiated silently.
 - Invariants come first. A run with an impossible transition is never exported, whatever its judge scores.
 - Facts extracted from warm-start material carry their source, the evidence span, and a confidence. Only facts the source states explicitly enter hard rules automatically. Strongly implied facts need the user's approval in the studio.
 - An alternative branch is a simulated alternative, not a causal counterfactual. A decision-level counterfactual pair, which decision-scoring and Jev-type data need, is allowed only relative to the generator's own decision rule and is labeled `counterfactual_basis: generator_policy`.
-- Synthetic does not mean anonymous. Uploaded material is scrubbed before it is stored, and exported data is checked for verbatim copies of uploaded records.
+- Synthetic does not mean anonymous. Uploaded material is scrubbed before it is stored, and exported data is checked for verbatim copies of uploaded records. The export check is not built yet; it is part of Slice 8.
 - Reviewer text never becomes trainable text. Only assistant segments are trainable.
 - Every run records the generator and pack versions, the seed, and the corpus hashes it used, so it can be reproduced.
 - Jev-type is a target family on the same contract, not a trainer.
@@ -95,18 +103,25 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-The loop of configuring, generating, judging, leaving feedback, and re-running works end to end, and 34 tests cover it. The data it produces is not yet usable for any of the three stated uses. In short:
+All eight slices have shipped, 272 tests cover them, and the data serves all three stated uses. The gaps below were each reproduced against `234ba5b`:
 
-- Journeys come from eight fixed variants in rotation, are stretched to length by repeating events, and can contradict themselves when warm-start text names both outcomes of a decision.
-- The training layer is canned prose with one prompt per run. It has no link back to the journey it narrates, and reviewer comments end up in trainable text.
-- The judge cannot be reached with the configured address. When it can, the engine's default 3B model judges one trajectory once.
-- Warm-start documents contribute at most 2,000 characters of text, matched by substring. PDFs, repositories, and links contribute nothing usable.
-- Size, signal, consumer, and target family either stop at a cap or change only prompt text.
-- The studio shows events on a grid by index, with four score meters. Files added during a re-run are dropped.
+- **Narrow scopes favour failures.** A journey that runs out of legal events in its scope before the minimum length is redrawn, so only journeys that end early on a failure qualify. With a minimum of six events, airline booking alone passed none of 400 sequences, and hotel booking alone passed 2%.
+- **Some sub-domains carry no group signal.** With groups of four, no group is accepted in insurance quoting, billing, servicing, and complaints, telecom fault management, or airline loyalty, because no rollout there can fail. Hotel check-out and airline baggage accept fewer than one group in ten. Their advantages are all zero.
+- **Exports are not checked for copies of uploaded records**, although the standing constraints require it.
+- **There is no CI.** Pull requests have merged with no checks; the suite runs only where someone runs it.
+- **Cost at scale.** For banking with groups of four, episodes, decision records, and the decision-score signal raise the estimated time to generate 10,000 sequences from about 7 seconds to about 49. This is not yet measured end to end.
+- **The judge.** Engine #115 stopped the empty verdicts. Other engine items are still open, so study-specific rubrics (4B) and repeated judging still wait:
+  - evals bypass the engine's scheduler
+  - the safety rubric omits the prompt
+  - rubrics register only in-process
+  - judging runs once at temperature 0
+  - eval errors are untyped
+- **Representative beyond banking** depends on logs a user uploads; the catalogue has no telecom, airline, hotel, or insurance source.
+- **Text is templated narration** in English and Turkish. Provider-written turn text, which the first decision allows, is not built.
 
 ## Roadmap
 
-Depth before breadth, and truth before volume. No new sector until the registered ones produce data a trainer or an evaluator would accept. This order was approved on 25 September 2026.
+Depth before breadth, and truth before volume. This order was approved on 25 September 2026, and every slice in it has shipped; [delivered.md](delivered.md) lists the pull requests. The slices approved after it follow the table.
 
 | Slice | Goal | Exit criterion |
 |---|---|---|
@@ -119,13 +134,21 @@ Depth before breadth, and truth before volume. No new sector until the registere
 | 6. Episodes, decision records, evaluation tasks | Tool-using agent episodes, Jev decision records, and evaluation tasks from the same journeys, with real signal mechanisms | Each consumer gets its own export, and every decision record validates against the platform's decision-record schema |
 | 7. More sectors | Telecommunication, airways, and hotels on the shared framework | Each new pack passes the same quality gates as banking |
 
+Approved on 26 September 2026 (detail in [next-slice.md](next-slice.md)):
+
+| Slice | Goal | Exit criterion |
+|---|---|---|
+| 8. Honest data at every scope | Narrow scopes stop favouring failures, every sub-domain yields group signal, exports are checked for copies of uploaded records, CI runs on every pull request, and generation cost at scale is measured and brought down | Every sub-domain of every pack, alone, yields accepted groups in at least a fifth of its groups of four. Airline and hotel booking alone pass at their policies' rates. A planted copy of an uploaded record is caught at export. CI passes on the slice's pull request. |
+| 9. Judge completion, across repositories | In `llm_inference_engine`: a rubric registry API, evals through the scheduler, the safety prompt, repeats above temperature 0, and typed errors. In the studio: study-specific rubrics (4B) and repeated judgments | A rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric |
+| 10. Representative everywhere, and natural text | Catalogue sources for hotels and airlines with adapters, and provider-written turn text checked by code against the skeleton | A hotel run calibrated from the catalogue reports representativeness, and provider-written turns pass the skeleton checks |
+
 ### Slice 0. Rotate credentials and fix the judge wiring
 
 Small and urgent. Issue a fresh engine key and address. Make the judge client normalize the base address, send `judge_model` explicitly, wait longer than the engine's own completion timeout, retry once where `Retry-After` allows, and report engine failures as 502, 503, or 504 instead of 500. Fix the Compose default for the key id, refuse the default JWT secret outside development, and add deletion and rotation for stored keys. Detail in [next-slice.md](next-slice.md#slice-0-rotate-credentials-and-fix-the-judge-wiring).
 
 ### Slice 1. Trustworthy journeys
 
-The approved next slice. A shared lifecycle engine replaces the variant templates in both packs: orthogonal state machines, guards and exclusive outcomes, a semi-Markov sampler with dwell-time distributions, and length met by sampling rather than repetition. Hard checks are derived from the same state machines, so every rule the sampler obeys is verified again on the output. Warm-start text weights the sampler's choices instead of forcing events in. The training layer links each sample to its journey and keeps reviewer text out of trainable segments. Quality report v1 measures complete and comprehensive. The run page gains a time axis, a process map, and a variant explorer. Detail in [next-slice.md](next-slice.md#slice-1-trustworthy-journeys).
+Delivered in three pull requests. A shared lifecycle engine replaces the variant templates in both packs: orthogonal state machines, guards and exclusive outcomes, a semi-Markov sampler with dwell-time distributions, and length met by sampling rather than repetition. Hard checks are derived from the same state machines, so every rule the sampler obeys is verified again on the output. Warm-start text weights the sampler's choices instead of forcing events in. The training layer links each sample to its journey and keeps reviewer text out of trainable segments. Quality report v1 measures complete and comprehensive. The run page gains a time axis, a process map, and a variant explorer. Detail in [next-slice.md](next-slice.md#slice-1-trustworthy-journeys).
 
 ### Slice 2. Groups, shared rewards, export
 
@@ -186,19 +209,23 @@ Every slice ships the view that makes its change visible. Views are drawn in pla
 | 4 | A judge panel with justifications and agreement, rubric review, and a re-run diff showing what changed and which notes were applied |
 | 5 | Warm-start strength per document, an extraction report, the fact review queue, and jurisdiction choice |
 | 6 | An episode viewer with tool calls, a decision explorer with options and probabilities, consumer presets in the composer, and a provider-call estimate with a budget cap |
+| 7 | Sector chips and default sub-domains that come from each pack, and wording that no longer assumes a bank |
 
 ## Cross-repository dependencies
 
-In `llm_inference_engine`, needed by Slices 0 and 4:
+In `llm_inference_engine`, checked at `5e91407` on 26 September 2026. Slice 9 takes the open items on.
 
-- `/v1/evals/run` bypasses the tenant scheduler, so judge load queues inside Ollama where the engine cannot see it. Evals should take a scheduler slot as chat does.
-- The safety rubric's template leaves out the prompt, so the trajectory app's safety instruction never reaches the judge.
-- Custom rubrics can be registered only in-process. `process_conformance`, `decision_score`, and study-specific rubrics need a file-based or API registry.
-- The judge runs at temperature 0 with one call per request. Agreement needs repeats at a temperature above 0, and pairwise needs an A/B swap.
-- A timeout or an over-long prompt on the eval route comes back as a generic 500. Both should map to typed errors.
-- `/v1/models` reports each model's trained window, but Ollama serves 32,768 tokens. The judge's prompt budget must assume 32k.
-- Verdicts come back empty for longer prompts. On 25 September a live run through the studio got an empty verdict for helpfulness, correctness, and pairwise quality from `qwen3.8:27b`, and a short check got one from `gemma4:26b`. The engine pins judge output at 512 tokens, which a reasoning model can spend before it writes the verdict. The judge needs a larger output budget, or reasoning turned off, for eval calls. Until then the studio leaves such rubrics unscored instead of scoring them 0.
-- The default judge model is `llama3.2:3b`. The trajectory app will name its judges explicitly: `qwen3.8:27b` as the primary and `gemma4:26b` as the second opinion, both already loaded.
+| Item | Status |
+|---|---|
+| `/v1/evals/run` bypasses the tenant scheduler, so judge load queues inside Ollama where the engine cannot see it | Open |
+| The safety rubric's template leaves out the prompt, so the trajectory app's safety instruction never reaches the judge | Open |
+| Custom rubrics can be registered only in-process; `process_conformance`, `decision_score`, and study-specific rubrics need a file-based or API registry | Open; blocks 4B |
+| The judge runs at temperature 0 with one call per request; agreement needs repeats above temperature 0 | Open; the studio already swaps pairwise order itself |
+| A timeout or an over-long prompt on the eval route comes back as a generic 500 | Open; only a `ValueError` maps to 400 |
+| `/v1/models` reports each model's trained window, but Ollama serves 32,768 tokens | Worked around: the studio's judge budget is 8,000 tokens |
+| Verdicts came back empty for longer prompts, because a reasoning judge spent its 512 output tokens thinking | Resolved by engine #115, which asks the judge to answer without thinking |
+| The default judge model is `llama3.2:3b` | Worked around: the studio names `qwen3.8:27b` and `gemma4:26b` on every call |
+
 ## Decisions
 
 Settled on 25 September 2026, all as recommended in the review.
@@ -210,6 +237,15 @@ Settled on 25 September 2026, all as recommended in the review.
 5. **Judge models.** `qwen3.8:27b` is the primary judge from Slice 0, and `gemma4:26b` joins as the second opinion for agreement in Slice 4.
 6. **No PM4Py dependency.** PM4Py is copyleft, so the scorecard computes fitness and precision against a directly-follows model in-house. The OCEL export stays readable by PM4Py for anyone who wants the full toolkit.
 
+Settled on 26 September 2026 for Slices 8 to 10, all as recommended:
+
+7. **Take the engine work into this plan.** Slice 9 changes `llm_inference_engine`, which is also this account's repository, because study-specific rubrics and repeated judging cannot land without it.
+8. **Group-signal gate.** Every sub-domain alone yields accepted groups in at least a fifth of its groups of four, enforced by a new gate. Where no rollout can fail, the pack gains the failure branch its industry actually has.
+9. **Copies at export.** An exported record that shares a run of 12 or more words with an uploaded document or data-source row is left out, and the manifest counts what was left out.
+10. **Catalogue beyond banking.** First the Hotel booking demand dataset (Antonio, de Almeida, and Nunes, 2019), whose CC BY 4.0 licence is confirmed when it is added, and the US Bureau of Transportation Statistics on-time performance data, a public-domain federal source. Telecom and insurance sources follow a terms review, as HMDA did.
+11. **Provider-written turn text.** Opt-in per run, budgeted and capped like provider rollouts, off by default. Every turn is checked by code: each event in order, no invented amount or identifier, and the run's language.
+12. **More languages.** English and Turkish stay until provider-written text lands, which makes a new language a matter of prompts rather than phrase tables.
+
 ## Stack
 
-FastAPI, SQLAlchemy, and Alembic over Postgres with a SQLite fallback, Pydantic for the contract, and a Next.js App Router studio. Docker Compose runs Postgres, the API, and the studio together. The studio is published on host port 3000 and the API on host port 18000, which `API_HOST_PORT` overrides. Planned additions: a job queue in Slice 3, `pypdf` for PDFs in Slice 5 (PyMuPDF is AGPL), and a charting library only when a view needs distributions. Conformance is computed in-house rather than through PM4Py.
+FastAPI, SQLAlchemy, and Alembic over Postgres with a SQLite fallback, Pydantic for the contract, and a Next.js App Router studio. Docker Compose runs Postgres, the API, and the studio together. The studio is published on host port 3000 and the API on host port 18000, which `API_HOST_PORT` overrides. Jobs run on the application database (Slice 3), `pypdf` reads PDFs (PyMuPDF is AGPL), and no view has needed a charting library yet. Conformance is computed in-house rather than through PM4Py. CI arrives in Slice 8.
