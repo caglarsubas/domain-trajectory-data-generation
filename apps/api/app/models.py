@@ -117,6 +117,13 @@ class EvalCycle(Base):
     judge_org_id: Mapped[str] = mapped_column(String(120), default="")
     judge_key_id: Mapped[str] = mapped_column(String(160), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # The journeys judged, the models asked, per-rubric scores per model, agreement, and audit flags.
+    sample: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    models: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    scores: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    agreement: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    flags: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    canary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class EvalVerdict(Base):
@@ -130,6 +137,10 @@ class EvalVerdict(Base):
     raw: Mapped[str] = mapped_column(Text, default="")
     judge_model: Mapped[str] = mapped_column(String(200), default="")
     duration_ms: Mapped[float] = mapped_column(default=0)
+    # Which journey, which order for a pairwise call ("ab" or "ba"), and whether it was the control journey.
+    trajectory_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pair_order: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    canary: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Job(Base):

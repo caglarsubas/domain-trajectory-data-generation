@@ -30,6 +30,9 @@ class Settings:
     demo_max_sequences: int = 2000
     demo_judge_cycles_per_day: int = 10
     demo_deep_searches_per_day: int = 3
+    second_judge_model: str = "gemma4:26b"
+    judge_sample_size: int = 6
+    judge_prompt_tokens: int = 8000
 
 
 def load_settings() -> Settings:
@@ -57,6 +60,11 @@ def load_settings() -> Settings:
         demo_max_sequences=_count("DEMO_MAX_SEQUENCES", 2000),
         demo_judge_cycles_per_day=_count("DEMO_JUDGE_CYCLES_PER_DAY", 10),
         demo_deep_searches_per_day=_count("DEMO_DEEP_SEARCHES_PER_DAY", 3),
+        # The second opinion; set it empty to judge with the primary model alone.
+        second_judge_model=os.environ.get("INFERENCE_ENGINE_SECOND_JUDGE_MODEL", "gemma4:26b").strip(),
+        judge_sample_size=max(_count("JUDGE_SAMPLE_SIZE", 6), 1),
+        # Ollama serves a 32,768-token window whatever the model was trained on; the prompt stays well inside it.
+        judge_prompt_tokens=min(max(_count("JUDGE_PROMPT_TOKENS", 8000), 1000), 30000),
     )
 
 

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import Shell from "../../../../components/Shell";
 import { api } from "../../../../lib/api";
 import DownloadPanel from "../../../../components/DownloadPanel";
+import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
 import { GroupViewer, ProcessMap, QualityCard, TimeAxis, VariantList } from "../../../../components/RunViews";
 
 const PAGE = 100;
@@ -160,6 +161,15 @@ export default function RunPage() {
   const event = selected ? layout.events[selected] : null;
   const transitions = event ? layout.transitions.filter((item) => item.event_id === event.event_id) : [];
   const cycle = run.cycles.at(-1);
+  // The primary judge's unreadable rubrics; older cycles held one verdict per rubric.
+  const unreadable = [
+    ...new Set(
+      (cycle?.models?.length
+        ? (cycle.flags || []).filter((flag) => flag.kind === "unreadable" && flag.model === cycle.models[0])
+        : (cycle?.verdicts || []).filter((verdict) => verdict.readable === false)
+      ).map((item) => item.rubric.replaceAll("_", " "))
+    ),
+  ];
   const notesFor = (id) => (run.feedback || []).filter((note) => note.target_id === id);
   const pack = sectors.find((item) => item.id === (run.config.sector || "banking"));
   const eventKinds = pack?.event_kinds || {};
@@ -267,22 +277,23 @@ export default function RunPage() {
       {cycle && !cycle.hard_check_passed ? (
         <div className="error">{cycle.hard_check_errors.join(" ")}</div>
       ) : null}
-      <div className="scores">
-        {(cycle?.verdicts || ["helpfulness", "correctness", "safety", "pairwise_quality"].map((rubric) => ({ rubric, score: null }))).map((verdict) => (
-          <div className="meter" key={verdict.rubric}>
-            <span>{verdict.rubric.replaceAll("_", " ")}</span>
-            <strong>{verdict.score == null ? "—" : verdict.score}</strong>
-            <div className="bar"><i style={{ width: `${verdict.score == null ? 0 : Math.min(100, verdict.rubric === "helpfulness" ? verdict.score * 20 : verdict.score * 100)}%` }} /></div>
-          </div>
-        ))}
-      </div>
-      {cycle?.verdicts?.some((verdict) => verdict.readable === false) ? (
+      <ScoreMeters cycle={cycle} />
+      {unreadable.length ? (
         <p className="warn">
-          The judge returned no readable verdict for {cycle.verdicts.filter((verdict) => verdict.readable === false).map((verdict) => verdict.rubric.replaceAll("_", " ")).join(", ")}.
-          Those rubrics are left unscored and add no revision notes. Evaluate again, or change the judge model.
+          The judge returned no readable verdict for {unreadable.join(", ")}.
+          Those verdicts are left unscored and add no revision notes. Evaluate again, or change the judge model.
         </p>
       ) : null}
       {cycle?.revision_notes?.length ? <p className="warn">{cycle.revision_notes.join(" ")}</p> : null}
+      <JudgePanel
+        cycle={cycle}
+        onPick={(trajectoryId) => {
+          setVariant("");
+          setSelected(null);
+          setFocus(trajectoryId);
+          document.querySelector(".stage")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
       <QualityCard quality={run.generation?.quality} />
       {pack && overview && overview.journeys > 1 ? (
         <div className="overview">

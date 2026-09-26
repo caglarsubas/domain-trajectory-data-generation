@@ -1,17 +1,24 @@
-"""One evaluation cycle of a run, as the `evaluate` job runs it."""
+"""One evaluation cycle of a run, as the `evaluate` job runs it.
+
+The judge reads a stratified sample of the run's journeys, not only the first: one from each kind of
+journey and outcome in turn, largest first, chosen deterministically from the run and cycle.
+"""
 
 from __future__ import annotations
+
+import hashlib
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import runtime
-from app.evaluation import evaluate_bundle
+from app.evaluation import corpus_excerpt, evaluate_journeys
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Run
 from app.settings import Settings
-from app.store import store_for
+from app.store import DbStore, store_for
+from sectors.registry import get_sector
 from trajectory_contract import TrajectoryBundle, banking_fixture
 
 
@@ -29,24 +36,45 @@ def judge_client(cfg: Settings) -> InferenceEngineClient:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _bundle(run: Run) -> TrajectoryBundle:
-    if run.candidate:
-        return TrajectoryBundle.model_validate(run.candidate)
-    found = store_for(run)
-    if found is not None:
-        # A large run is judged on its first journey and that journey's alternative, as a small run is.
-        entries = found.entries()
-        if entries:
-            return TrajectoryBundle.model_validate(found.journey(entries[0]["trajectory_id"]))
-    return banking_fixture()
+def judge_models(cfg: Settings) -> list[str]:
+    models = [cfg.inference_judge_model]
+    if cfg.second_judge_model and cfg.second_judge_model != cfg.inference_judge_model:
+        models.append(cfg.second_judge_model)
+    return models
+
+
+def sample_entries(entries: list[dict], size: int, seed: str) -> list[dict]:
+    """Take journeys from each (kind, outcome) stratum in turn, largest stratum first, in a seeded order."""
+    strata: dict[tuple, list[dict]] = {}
+    for entry in entries:
+        strata.setdefault((entry["trajectory_type"], entry.get("outcome") or ""), []).append(entry)
+    for members in strata.values():
+        members.sort(key=lambda entry: hashlib.sha256(f"{seed}|{entry['trajectory_id']}".encode()).hexdigest())
+    order = sorted(strata, key=lambda key: (-len(strata[key]), key))
+    picked: list[dict] = []
+    while len(picked) < size and any(strata[key] for key in order):
+        for key in order:
+            if strata[key] and len(picked) < size:
+                picked.append(strata[key].pop(0))
+    return picked
 
 
 def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
-    """Judge the run's candidate, record the cycle and its verdicts, and return the cycle."""
+    """Judge a sample of the run's journeys, record the cycle and its verdicts, and return the cycle."""
     if run.cycle_count >= int(run.config["max_cycles"]):
         raise HTTPException(status_code=409, detail="max evaluation cycles reached")
-    bundle = _bundle(run)
+    sector = get_sector(run.config["sector"])
+    found = store_for(run) or DbStore(banking_fixture().model_dump(mode="json"))
+    whole = []
+    if isinstance(found, DbStore):
+        # A candidate bundle is checked whole before any journey is sampled from it.
+        whole = sector.hard_checks(TrajectoryBundle.model_validate(found.bundle))
+    cycle_index = run.cycle_count + 1
+    entries = sample_entries(found.entries(), cfg.judge_sample_size, f"{run.id}|{cycle_index}")
+    journeys = [TrajectoryBundle.model_validate(found.journey(entry["trajectory_id"])) for entry in entries]
     items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id)))
+    cold = run.config["start_mode"] == "cold"
+    brief = sector.judge_brief(sub_domains=run.config["sub_domains"], language=run.config["language"], corpus_excerpt=corpus_excerpt(items), cold_start=cold)
     created: list[InferenceEngineClient] = []
 
     class _Lazy:
@@ -59,18 +87,26 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 created.append(judge_client(cfg))
             return created[0].run_eval(**kwargs)
 
+    reference = "weak" if cold else "corpus"
     try:
-        result = evaluate_bundle(
-            bundle=bundle,
-            sector_id=run.config["sector"],
-            sub_domains=run.config["sub_domains"],
-            language=run.config["language"],
-            cold_start=run.config["start_mode"] == "cold",
-            corpus_items=items,
-            thresholds=run.config["thresholds"],
-            judge=_Lazy(),
-            progress=progress,
-        )
+        if whole:
+            result = {
+                "hard_check_passed": False, "hard_check_errors": whole, "reference_quality": reference, "accepted": False,
+                "revision_notes": whole, "verdicts": [], "called_judge": False, "sample": [], "models": judge_models(cfg),
+                "scores": {}, "agreement": {}, "flags": [], "canary": None,
+            }
+        else:
+            result = evaluate_journeys(
+                journeys=journeys,
+                sector=sector,
+                brief=brief,
+                reference_quality=reference,
+                thresholds=run.config["thresholds"],
+                judge=_Lazy(),
+                models=judge_models(cfg),
+                budget_tokens=cfg.judge_prompt_tokens,
+                progress=progress,
+            )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
     finally:
@@ -78,7 +114,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
             client.close()
     cycle = EvalCycle(
         run_id=run.id,
-        cycle_index=run.cycle_count + 1,
+        cycle_index=cycle_index,
         hard_check_passed=1 if result["hard_check_passed"] else 0,
         hard_check_errors=result["hard_check_errors"],
         reference_quality=result["reference_quality"],
@@ -87,6 +123,12 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
         judge_tenant=cfg.inference_tenant if result["called_judge"] else "",
         judge_org_id=cfg.inference_org_id if result["called_judge"] else "",
         judge_key_id=cfg.inference_key_id if result["called_judge"] else "",
+        sample=result["sample"],
+        models=result["models"],
+        scores=result["scores"],
+        agreement=result["agreement"],
+        flags=result["flags"],
+        canary=result["canary"],
     )
     db.add(cycle)
     db.flush()
@@ -100,6 +142,9 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 raw=verdict["raw"],
                 judge_model=verdict["judge_model"],
                 duration_ms=verdict["duration_ms"],
+                trajectory_id=verdict["trajectory_id"],
+                pair_order=verdict["order"],
+                canary=1 if verdict["canary"] else 0,
             )
         )
     run.cycle_count += 1

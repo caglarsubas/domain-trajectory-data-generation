@@ -78,12 +78,18 @@ def test_a_rerun_of_a_large_run_resolves_notes_without_loading_the_parent(client
         assert all(event["event_type"] != "kyc.started" for event in detail["events"])
 
 
-def test_a_large_run_is_judged_on_its_first_journey(client):
+def test_a_large_run_is_judged_on_a_sample_drawn_across_its_batches(client):
     headers, run = _large(client, "large-judge@example.com")
     runtime.judge = RecordingJudge()
     judged = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={})
     assert judged.status_code == 200, judged.text
-    assert judged.json()["cycles"][-1]["hard_check_passed"] is True
+    cycle = judged.json()["cycles"][-1]
+    assert cycle["hard_check_passed"] is True
+    sampled = [entry["trajectory_id"] for entry in cycle["sample"]]
+    assert len(sampled) == 6
+    listed = {row["trajectory_id"] for row in client.get(f"/runs/{run['id']}/journeys", headers=headers, params={"limit": 500}).json()["data"]}
+    assert set(sampled) <= listed
+    assert len({trajectory_id.split(".")[0] for trajectory_id in sampled}) > 1
     runtime.judge = None
 
 
