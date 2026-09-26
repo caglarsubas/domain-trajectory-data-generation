@@ -234,3 +234,9 @@ Slice 7, first part. `sectors.gates` checks any pack against the gates banking p
 - episodes, decisions, and signals
 
 The telecommunications pack covers ordering with a credit check, activation with number porting, billing with suspension and restoration, plan changes, fault repair, retention, and complaints, with operations named after TM Forum Open API domains. Packs gained their own operation maps and agent wording, jurisdictions gained rules per sector, the API accepts any registered sector, and the composer takes each pack's default sub-domains.
+
+## 36. Delete a run from the API and from its page
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/36
+
+Runs could only be removed by hand in the database. `DELETE /runs/{id}` lets a run's owner remove it with its judge cycles and verdicts, its notes, and its files, exports included, and is refused while a job is still working on it. Its jobs stay with the run cleared, so a demo account's daily quota still counts them, and runs made from it keep their journeys and lose only the comparison with it. The run page and the job panel for a failed or cancelled run get a Delete run button that asks first.
