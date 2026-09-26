@@ -3,7 +3,7 @@ import re
 import pytest
 
 from app import runtime
-from app.evaluation import render_journey
+from app.evaluation import render_journey, summarize
 from app.judging import sample_entries
 from test_api import _auth, _link, _project, _ready_key, _run
 from trajectory_contract import TrajectoryBundle
@@ -171,3 +171,42 @@ def test_the_control_journey_breaks_the_rules_the_judge_should_see(client):
     broken = broken_copy(bundle, primary.trajectory_id)
     assert isinstance(broken, TrajectoryBundle) and sector.hard_checks(broken)
     assert bundle.trajectories[0].event_ids != broken.trajectories[0].event_ids
+
+
+def _verdict(tid, rubric, score, *, readable=True, order=None):
+    return {
+        "trajectory_id": tid,
+        "rubric": rubric,
+        "score": score if readable else None,
+        "readable": readable,
+        "judge_model": "judge",
+        "order": order,
+        "canary": False,
+        "parsed": {},
+        "raw": "",
+    }
+
+
+def _passing(tid, *, ab=True, ba=True, helpfulness=True):
+    return [
+        _verdict(tid, "helpfulness", 5.0, readable=helpfulness),
+        _verdict(tid, "correctness", 1.0),
+        _verdict(tid, "safety", 1.0),
+        _verdict(tid, "pairwise_quality", 1.0, readable=ab, order="ab"),
+        _verdict(tid, "pairwise_quality", 0.0, readable=ba, order="ba"),
+    ]
+
+
+def test_one_unreadable_pairwise_order_does_not_block_acceptance():
+    sample = [{"trajectory_id": "T1"}, {"trajectory_id": "T2"}]
+    result = summarize(_passing("T1") + _passing("T2", ab=False), sample, ["judge"], {})
+    assert result["accepted"] is True
+    assert {"kind": "unreadable", "trajectory_id": "T2", "rubric": "pairwise_quality", "model": "judge"} in result["flags"]
+
+
+def test_a_journey_left_unscored_still_blocks_acceptance():
+    sample = [{"trajectory_id": "T1"}, {"trajectory_id": "T2"}]
+    both_orders = summarize(_passing("T1") + _passing("T2", ab=False, ba=False), sample, ["judge"], {})
+    assert both_orders["accepted"] is False
+    single = summarize(_passing("T1") + _passing("T2", helpfulness=False), sample, ["judge"], {})
+    assert single["accepted"] is False
