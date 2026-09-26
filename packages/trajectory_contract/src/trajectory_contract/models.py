@@ -139,7 +139,9 @@ class GenerationMeta(BaseModel):
     primary_trajectories: int
     alternative_trajectories: int
     event_count: int
-    limited_by: Literal["event_budget", "studio_cap"] | None = None
+    limited_by: Literal["event_budget", "studio_cap", "acceptance"] | None = None
+    # What the run's size counts and how far it got: prompts, or accepted groups, per share bucket.
+    target: dict[str, Any] | None = None
     pack_version: str | None = None
     group_size: int | None = None
     rewards: dict[str, Any] | None = None

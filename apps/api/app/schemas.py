@@ -103,6 +103,10 @@ class RunBody(BaseModel):
     thresholds: dict[str, float] | None = None
     max_cycles: int = Field(default=2, ge=1, le=8)
     group_size: int = Field(default=1, ge=1, le=16)
+    # "accepted_groups" counts only groups the dynamic sampler accepts; the job draws extra to reach it.
+    target_kind: Literal["prompts", "accepted_groups"] = "prompts"
+    # Relative shares per selected sub-domain; each share becomes its own bucket with its own target.
+    domain_shares: dict[str, float] | None = None
     credential_id: str
 
 
@@ -131,7 +135,13 @@ class RerunBody(BaseModel):
     thresholds: dict[str, float] | None = None
     max_cycles: int | None = Field(default=None, ge=1, le=8)
     group_size: int | None = Field(default=None, ge=1, le=16)
+    target_kind: Literal["prompts", "accepted_groups"] | None = None
+    domain_shares: dict[str, float] | None = None
     credential_id: str | None = None
+
+
+class ExportBody(BaseModel):
+    held_out: str | None = None
 
 
 class DeepSearchBody(BaseModel):

@@ -1,20 +1,38 @@
 """Export a run: samples.jsonl, domain.jsonl, ocel.json, and manifest.json.
 
-Every part is built from the stored candidate, so a re-export of the same run with the same
-held-out sub-domain reproduces the same bytes and the same split.
+One exporter writes every part from a stream of bundles: a small run's single bundle, or a large
+run's batches one at a time, so no export holds a whole large run. A small run's parts are built in
+memory and served at once; a large run's are written by a job as gzip files and served from disk.
+Either way a re-export with the same held-out sub-domain reproduces the same content and split.
 """
 
 from __future__ import annotations
 
+import gzip
 import hashlib
+import io
 import json
+import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 
 from trajectory_contract import TrajectoryBundle
 
 PARTS = ("samples.jsonl", "domain.jsonl", "ocel.json", "manifest.json")
+DATA_PARTS = PARTS[:3]
 SPLIT_RATIOS = {"train": 0.8, "validation": 0.1, "test": 0.1}
 FORMAT_VERSION = 1
+EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+EVENT_ATTRIBUTES = (
+    ("channel", "string"),
+    ("status", "string"),
+    ("amount", "float"),
+    ("currency", "string"),
+    ("direction", "string"),
+    ("amount_role", "string"),
+    ("effective_time", "time"),
+    ("observation_status", "string"),
+)
 
 INTENDED_USE = {
     "post_training": "Supervised and reinforcement post-training of language models on synthetic journeys.",
@@ -27,7 +45,6 @@ LIMITATIONS = (
     "Turn text is built from templates in English or Turkish; it narrates events rather than acting with tools (Slice 6).",
     "Penalty rules run in record-only mode: flags are recorded but change no reward, mask, or advantage.",
     "Alternative branches and group rollouts are simulated alternatives, not causal counterfactuals.",
-    "The studio stores at most 64 journeys per run until background jobs arrive (Slice 3).",
 )
 
 
@@ -57,128 +74,166 @@ def splits(run_id: str, bundle: TrajectoryBundle, lifecycle, held_out: str | Non
     return result
 
 
-def samples_part(bundle: TrajectoryBundle, split: dict[str, str]) -> str:
-    lines = []
-    for sample in bundle.samples:
-        record = sample.model_dump(mode="json")
-        record["split"] = split[sample.sample_id]
-        lines.append(json.dumps(record, sort_keys=True, ensure_ascii=False))
-    return "\n".join(lines) + "\n"
+class Sink:
+    """A text destination that also hashes what it writes, so the manifest can carry checksums."""
+
+    def __init__(self, stream) -> None:
+        self.stream = stream
+        self.digest = hashlib.sha256()
+        self.size = 0
+
+    def write(self, text: str) -> None:
+        data = text.encode()
+        self.digest.update(data)
+        self.size += len(data)
+        self.stream.write(data)
 
 
-def domain_part(bundle: TrajectoryBundle, split: dict[str, str]) -> str:
-    sample_of = {}
-    for sample in bundle.samples:
-        for sequence in sample.sequences:
-            if sequence.trajectory_id:
-                sample_of[sequence.trajectory_id] = sample.sample_id
-    lines = []
-    for record_type, records in (
-        ("object", bundle.objects),
-        ("relationship", bundle.relationships),
-        ("event", bundle.events),
-        ("event_object", bundle.event_objects),
-        ("state_transition", bundle.state_transitions),
-        ("trajectory", bundle.trajectories),
-    ):
-        for record in records:
-            row = {"record_type": record_type, **record.model_dump(mode="json")}
-            if record_type == "trajectory":
-                row["split"] = split.get(sample_of.get(record.trajectory_id, ""))
-            lines.append(json.dumps(row, sort_keys=True, ensure_ascii=False))
-    return "\n".join(lines) + "\n"
+def _line(value) -> str:
+    return json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":")) + "\n"
 
 
-def ocel_part(bundle: TrajectoryBundle) -> str:
-    """The domain layer in OCEL 2.0 JSON: typed objects and events with qualified relationships."""
-    events_by_id = {event.event_id: event for event in bundle.events}
-    dimensions: dict[str, set[str]] = {}
-    history: dict[str, list[dict]] = {}
-    types_of = {obj.object_id: obj.object_type for obj in bundle.objects}
-    for change in bundle.state_transitions:
-        event = events_by_id.get(change.event_id)
-        object_type = types_of.get(change.object_id)
-        if event is None or object_type is None or change.state_after is None:
-            continue
-        dimensions.setdefault(object_type, set()).add(change.state_dimension)
-        history.setdefault(change.object_id, []).append(
-            {"name": change.state_dimension, "time": event.event_time.isoformat(), "value": change.state_after}
-        )
-    object_types = sorted({obj.object_type for obj in bundle.objects})
-    event_attributes = (
-        ("channel", "string"),
-        ("status", "string"),
-        ("amount", "float"),
-        ("currency", "string"),
-        ("direction", "string"),
-        ("amount_role", "string"),
-        ("effective_time", "time"),
-        ("observation_status", "string"),
-    )
-    links: dict[str, list[dict]] = {}
-    for link in bundle.event_objects:
-        links.setdefault(link.event_id, []).append({"objectId": link.object_id, "qualifier": link.qualifier or link.object_role})
-    related: dict[str, list[dict]] = {}
-    for relationship in bundle.relationships:
-        related.setdefault(relationship.subject_id, []).append({"objectId": relationship.object_id, "qualifier": relationship.predicate})
-    document = {
-        "objectTypes": [
-            {
-                "name": name,
-                "attributes": [{"name": "subtype", "type": "string"}, {"name": "pii_class", "type": "string"}]
-                + [{"name": dimension, "type": "string"} for dimension in sorted(dimensions.get(name, ()))],
-            }
-            for name in object_types
-        ],
-        "eventTypes": [
-            {"name": name, "attributes": [{"name": key, "type": kind} for key, kind in event_attributes]}
-            for name in sorted({event.event_type for event in bundle.events})
-        ],
-        "objects": [
-            {
+class Exporter:
+    """Add bundles one at a time; `finish` writes the OCEL document and returns the manifest."""
+
+    def __init__(self, run_id: str, lifecycle, held_out: str | None, open_part, scratch) -> None:
+        self.run_id = run_id
+        self.lifecycle = lifecycle
+        self.held_out = held_out
+        self.open_part = open_part
+        self.samples = Sink(open_part("samples.jsonl"))
+        self.domain = Sink(open_part("domain.jsonl"))
+        self.ocel_objects = scratch("objects")
+        self.ocel_events = scratch("events")
+        self.first_object = self.first_event = True
+        self.object_dimensions: dict[str, set[str]] = {}
+        self.event_types: set[str] = set()
+        self.counts = {"samples": 0, "sequences": 0, "trajectories": 0, "events": 0, "objects": 0, "relationships": 0}
+        self.split_counts = {"train": 0, "validation": 0, "test": 0, "heldout": 0}
+
+    def add(self, bundle: TrajectoryBundle) -> None:
+        split = splits(self.run_id, bundle, self.lifecycle, self.held_out)
+        sample_of = {}
+        for sample in bundle.samples:
+            record = sample.model_dump(mode="json")
+            record["split"] = split[sample.sample_id]
+            self.samples.write(_line(record))
+            self.split_counts[record["split"]] += 1
+            self.counts["samples"] += 1
+            self.counts["sequences"] += len(sample.sequences)
+            for sequence in sample.sequences:
+                if sequence.trajectory_id:
+                    sample_of[sequence.trajectory_id] = sample.sample_id
+        for record_type, records in (
+            ("object", bundle.objects),
+            ("relationship", bundle.relationships),
+            ("event", bundle.events),
+            ("event_object", bundle.event_objects),
+            ("state_transition", bundle.state_transitions),
+            ("trajectory", bundle.trajectories),
+        ):
+            for record in records:
+                row = {"record_type": record_type, **record.model_dump(mode="json")}
+                if record_type == "trajectory":
+                    row["split"] = split.get(sample_of.get(record.trajectory_id, ""))
+                self.domain.write(_line(row))
+        self.counts["trajectories"] += len(bundle.trajectories)
+        self.counts["events"] += len(bundle.events)
+        self.counts["objects"] += len(bundle.objects)
+        self.counts["relationships"] += len(bundle.relationships)
+        self._ocel(bundle)
+
+    def _ocel(self, bundle: TrajectoryBundle) -> None:
+        events_by_id = {event.event_id: event for event in bundle.events}
+        types_of = {obj.object_id: obj.object_type for obj in bundle.objects}
+        history: dict[str, list[dict]] = {}
+        for change in bundle.state_transitions:
+            event = events_by_id.get(change.event_id)
+            object_type = types_of.get(change.object_id)
+            if event is None or object_type is None or change.state_after is None:
+                continue
+            self.object_dimensions.setdefault(object_type, set()).add(change.state_dimension)
+            history.setdefault(change.object_id, []).append(
+                {"name": change.state_dimension, "time": event.event_time.isoformat(), "value": change.state_after}
+            )
+        links: dict[str, list[dict]] = {}
+        for link in bundle.event_objects:
+            links.setdefault(link.event_id, []).append({"objectId": link.object_id, "qualifier": link.qualifier or link.object_role})
+        related: dict[str, list[dict]] = {}
+        for relationship in bundle.relationships:
+            related.setdefault(relationship.subject_id, []).append({"objectId": relationship.object_id, "qualifier": relationship.predicate})
+        for obj in bundle.objects:
+            self.object_dimensions.setdefault(obj.object_type, set())
+            since = (obj.valid_from or EPOCH).isoformat()
+            item = {
                 "id": obj.object_id,
                 "type": obj.object_type,
                 "attributes": [
-                    {"name": "subtype", "time": (obj.valid_from or datetime(1970, 1, 1, tzinfo=timezone.utc)).isoformat(), "value": obj.subtype},
-                    {"name": "pii_class", "time": (obj.valid_from or datetime(1970, 1, 1, tzinfo=timezone.utc)).isoformat(), "value": obj.pii_class},
+                    {"name": "subtype", "time": since, "value": obj.subtype},
+                    {"name": "pii_class", "time": since, "value": obj.pii_class},
                 ]
                 + history.get(obj.object_id, []),
                 "relationships": related.get(obj.object_id, []),
             }
-            for obj in bundle.objects
-        ],
-        "events": [
-            {
+            self.ocel_objects.write(("" if self.first_object else ",") + json.dumps(item, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
+            self.first_object = False
+        for event in bundle.events:
+            self.event_types.add(event.event_type)
+            attributes = (
+                ("channel", event.channel_id),
+                ("status", event.status),
+                ("amount", event.amount),
+                ("currency", event.currency),
+                ("direction", event.direction),
+                ("amount_role", event.amount_role),
+                ("effective_time", event.effective_time.isoformat() if event.effective_time else None),
+                ("observation_status", event.observation_status.value),
+            )
+            item = {
                 "id": event.event_id,
                 "type": event.event_type,
                 "time": event.event_time.isoformat(),
-                "attributes": [
-                    {"name": key, "value": value}
-                    for key, value in (
-                        ("channel", event.channel_id),
-                        ("status", event.status),
-                        ("amount", event.amount),
-                        ("currency", event.currency),
-                        ("direction", event.direction),
-                        ("amount_role", event.amount_role),
-                        ("effective_time", event.effective_time.isoformat() if event.effective_time else None),
-                        ("observation_status", event.observation_status.value),
-                    )
-                    if value is not None
-                ],
+                "attributes": [{"name": key, "value": value} for key, value in attributes if value is not None],
                 "relationships": links.get(event.event_id, []),
             }
-            for event in bundle.events
-        ],
-    }
-    return json.dumps(document, sort_keys=True, ensure_ascii=False, indent=1)
+            self.ocel_events.write(("" if self.first_event else ",") + json.dumps(item, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
+            self.first_event = False
+
+    def finish(self, run, sector, cycles: list[dict], generation: dict | None) -> dict:
+        ocel = Sink(self.open_part("ocel.json"))
+        types = [
+            {
+                "name": name,
+                "attributes": [{"name": "subtype", "type": "string"}, {"name": "pii_class", "type": "string"}]
+                + [{"name": dimension, "type": "string"} for dimension in sorted(self.object_dimensions[name])],
+            }
+            for name in sorted(self.object_dimensions)
+        ]
+        kinds = [{"name": name, "attributes": [{"name": key, "type": kind} for key, kind in EVENT_ATTRIBUTES]} for name in sorted(self.event_types)]
+        ocel.write('{"eventTypes":' + json.dumps(kinds, separators=(",", ":")) + ',"events":[')
+        _copy(self.ocel_events, ocel)
+        ocel.write('],"objectTypes":' + json.dumps(types, separators=(",", ":")) + ',"objects":[')
+        _copy(self.ocel_objects, ocel)
+        ocel.write("]}")
+        files = {name: sink.digest.hexdigest() for name, sink in (("samples.jsonl", self.samples), ("domain.jsonl", self.domain), ("ocel.json", ocel))}
+        sizes = {name: sink.size for name, sink in (("samples.jsonl", self.samples), ("domain.jsonl", self.domain), ("ocel.json", ocel))}
+        manifest = _manifest(run, sector, cycles, generation or {}, self.counts, self.split_counts, self.held_out, files, sizes)
+        Sink(self.open_part("manifest.json")).write(manifest)
+        return {"files": files, "sizes": sizes, "counts": self.counts, "split": self.split_counts}
 
 
-def manifest_part(run, bundle: TrajectoryBundle, sector, cycles: list[dict], split: dict[str, str], held_out: str | None, files: dict[str, str]) -> str:
-    generation = bundle.generation
+def _copy(scratch, sink: Sink) -> None:
+    scratch.seek(0)
+    while chunk := scratch.read(1 << 20):
+        sink.write(chunk)
+
+
+def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, files, sizes) -> str:
     config = {key: value for key, value in (run.config or {}).items() if key != "credential_id"}
-    counts = {name: sum(1 for value in split.values() if value == name) for name in ("train", "validation", "test", "heldout")}
-    steering = dict(generation.steering or {}) if generation else {}
+    steering = dict(generation.get("steering") or {})
+    limitations = list(LIMITATIONS)
+    if not generation.get("storage"):
+        limitations.append("This run was small enough to keep on the run itself; runs above 64 sequences are written in batches.")
     manifest = {
         "format": "trajectory-studio-export",
         "format_version": FORMAT_VERSION,
@@ -186,18 +241,12 @@ def manifest_part(run, bundle: TrajectoryBundle, sector, cycles: list[dict], spl
         "parent_run_id": run.parent_run_id,
         "created_at": run.created_at.isoformat() if run.created_at else None,
         "sector": sector.id,
-        "generator_id": generation.generator_id if generation else None,
-        "pack_version": generation.pack_version if generation else None,
+        "generator_id": generation.get("generator_id"),
+        "pack_version": generation.get("pack_version"),
         "configuration": config,
-        "group_size": generation.group_size if generation else 1,
-        "counts": {
-            "samples": len(bundle.samples),
-            "sequences": sum(len(sample.sequences) for sample in bundle.samples),
-            "trajectories": len(bundle.trajectories),
-            "events": len(bundle.events),
-            "objects": len(bundle.objects),
-            "relationships": len(bundle.relationships),
-        },
+        "group_size": generation.get("group_size") or 1,
+        "target": generation.get("target"),
+        "counts": counts,
         "split": {
             "method": "sha256(run_id|sample_id) over [0, 1): train below 0.8, validation below 0.9, test above",
             "ratios": SPLIT_RATIOS,
@@ -205,7 +254,7 @@ def manifest_part(run, bundle: TrajectoryBundle, sector, cycles: list[dict], spl
             "held_out_rule": "A sample is held out when any of its sequences reaches a milestone event of that sub-domain."
             if held_out
             else None,
-            "counts": counts,
+            "counts": split_counts,
         },
         "judge_cycles": [
             {
@@ -220,8 +269,8 @@ def manifest_part(run, bundle: TrajectoryBundle, sector, cycles: list[dict], spl
             }
             for cycle in cycles
         ],
-        "rewards": generation.rewards if generation else None,
-        "quality": generation.quality if generation else None,
+        "rewards": generation.get("rewards"),
+        "quality": generation.get("quality"),
         "steering": {key: steering.get(key) for key in ("currency", "channel", "products", "named_events", "negated_events", "weighted_events")}
         if steering
         else None,
@@ -236,21 +285,68 @@ def manifest_part(run, bundle: TrajectoryBundle, sector, cycles: list[dict], spl
             "target_family": config.get("target_family"),
             "start": config.get("start_mode"),
             "reference": "weak (cold start)" if config.get("start_mode") == "cold" else "warm-start corpus",
-            "known_limitations": list(LIMITATIONS),
+            "known_limitations": limitations,
         },
         "files": files,
+        "file_sizes": sizes,
         "synthetic": "Every record in this export is synthetic. No real person, account, policy, or claim is described.",
     }
     return json.dumps(manifest, sort_keys=True, ensure_ascii=False, indent=1)
 
 
 def build(run, bundle: TrajectoryBundle, sector, cycles: list[dict], held_out: str | None) -> dict[str, str]:
-    split = splits(run.id, bundle, sector.lifecycle, held_out)
-    parts = {
-        "samples.jsonl": samples_part(bundle, split),
-        "domain.jsonl": domain_part(bundle, split),
-        "ocel.json": ocel_part(bundle),
-    }
-    files = {name: hashlib.sha256(text.encode()).hexdigest() for name, text in parts.items()}
-    parts["manifest.json"] = manifest_part(run, bundle, sector, cycles, split, held_out, files)
-    return parts
+    """A small run's parts, in memory."""
+    buffers = {name: io.BytesIO() for name in PARTS}
+    exporter = Exporter(run.id, sector.lifecycle, held_out, lambda name: buffers[name], lambda _name: io.StringIO())
+    exporter.add(bundle)
+    exporter.finish(run, sector, cycles, run.generation or (bundle.generation.model_dump(mode="json") if bundle.generation else None))
+    return {name: buffer.getvalue().decode() for name, buffer in buffers.items()}
+
+
+def export_key(held_out: str | None) -> str:
+    return f"heldout-{held_out}" if held_out else "all"
+
+
+def part_path(root: Path, held_out: str | None, part: str) -> Path:
+    suffix = "" if part == "manifest.json" else ".gz"
+    return root / "exports" / export_key(held_out) / f"{part}{suffix}"
+
+
+def write_files(run, store, sector, cycles: list[dict], held_out: str | None, root: Path, report) -> dict:
+    """A large run's parts, written batch by batch as gzip files under the run's directory."""
+    target = root / "exports" / export_key(held_out)
+    staging = target.with_name(target.name + ".tmp")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    handles = []
+
+    def open_part(name: str):
+        path = staging / (name if name == "manifest.json" else f"{name}.gz")
+        handle = open(path, "wb") if name == "manifest.json" else gzip.open(path, "wb", compresslevel=5)
+        handles.append(handle)
+        return handle
+
+    def scratch(name: str):
+        handle = open(staging / f"{name}.part", "w+", encoding="utf-8")
+        handles.append(handle)
+        return handle
+
+    try:
+        exporter = Exporter(run.id, sector.lifecycle, held_out, open_part, scratch)
+        names = store.batches()
+        for index, bundle in enumerate(store.bundles(), start=1):
+            exporter.add(bundle)
+            report(index, len(names) + 1, f"Exported batch {index} of {len(names)}.")
+        summary = exporter.finish(run, sector, cycles, run.generation)
+    finally:
+        for handle in handles:
+            handle.close()
+    for leftover in staging.glob("*.part"):
+        leftover.unlink()
+    shutil.rmtree(target, ignore_errors=True)
+    staging.rename(target)
+    return summary
+
+
+def prepared(root: Path, held_out: str | None) -> bool:
+    return part_path(root, held_out, "manifest.json").is_file()

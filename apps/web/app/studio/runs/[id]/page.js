@@ -225,7 +225,16 @@ export default function RunPage() {
           {run.generation.limited_by === "studio_cap"
             ? ` ${run.generation.requested_trajectories} were requested; this view stores ${run.generation.primary_trajectories}.`
             : null}
+          {run.generation.target?.kind === "accepted_groups"
+            ? ` ${run.generation.target.reached} of ${run.generation.target.requested} accepted groups reached.`
+            : null}
+          {run.generation.limited_by === "acceptance"
+            ? " Too few groups were accepted: a part stopped after drawing five times its target."
+            : null}
         </p>
+      ) : null}
+      {run.generation?.target?.buckets?.length > 1 || run.generation?.target?.kind === "accepted_groups" ? (
+        <TargetTable target={run.generation.target} />
       ) : null}
       {run.inherited_feedback_ids?.length ? (
         <p className="warn">This iteration inherited {run.inherited_feedback_ids.length} note{run.inherited_feedback_ids.length === 1 ? "" : "s"} from the previous run.</p>
@@ -438,7 +447,7 @@ function JobPanel({ run, error, onCancel }) {
     <div className="job-panel" data-state={run.status}>
       <h1 className="word">{label}</h1>
       <p className="lede">
-        {run.config.target_trajectory_count} {run.config.group_size > 1 ? `prompts × ${run.config.group_size} sequences` : "journeys"} · {(run.config.sub_domains || []).map((item) => item.replaceAll("_", " ")).join(", ")}
+        {run.config.target_trajectory_count} {run.config.target_kind === "accepted_groups" ? `accepted groups of ${run.config.group_size}` : run.config.group_size > 1 ? `prompts × ${run.config.group_size} sequences` : "journeys"} · {(run.config.sub_domains || []).map((item) => item.replaceAll("_", " ")).join(", ")}
       </p>
       {active ? (
         <>
@@ -488,5 +497,34 @@ function FeedbackBox({ stance, setStance, comment, setComment, onSave }) {
         <button className="primary" type="button" disabled={!comment.trim()} onClick={onSave}>Leave note</button>
       </div>
     </>
+  );
+}
+
+function TargetTable({ target }) {
+  const accepted = target.kind === "accepted_groups";
+  const reasons = { acceptance: "Acceptance ceiling", event_budget: "Event budget" };
+  return (
+    <table className="target-table">
+      <thead>
+        <tr>
+          <th>Part</th>
+          <th>Target</th>
+          <th>{accepted ? "Groups drawn" : "Generated"}</th>
+          {accepted ? <th>Accepted</th> : null}
+          <th>Stopped by</th>
+        </tr>
+      </thead>
+      <tbody>
+        {target.buckets.map((bucket, index) => (
+          <tr key={index}>
+            <td>{bucket.sub_domains.map((item) => item.replaceAll("_", " ")).join(", ")}</td>
+            <td>{bucket.target}</td>
+            <td>{bucket.generated}</td>
+            {accepted ? <td>{bucket.accepted}{bucket.generated ? ` (${Math.round((bucket.accepted / bucket.generated) * 100)}%)` : ""}</td> : null}
+            <td>{reasons[bucket.stopped_by] || "Target reached"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
