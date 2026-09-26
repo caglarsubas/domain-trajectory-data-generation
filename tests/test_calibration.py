@@ -144,10 +144,10 @@ def _upload(client, headers, project_id, name, body, kind="data_source"):
     return response.json()
 
 
-def _declined_share(run):
+def _share(run, event_type):
     kinds = {event["event_id"]: event["event_type"] for event in run["bundle"]["events"]}
     primaries = [[kinds[item] for item in trajectory["event_ids"]] for trajectory in run["bundle"]["trajectories"] if not trajectory.get("parent_trajectory_id")]
-    return sum("application.declined" in types for types in primaries) / len(primaries)
+    return sum(event_type in types for types in primaries) / len(primaries)
 
 
 def test_an_uploaded_log_calibrates_runs_and_its_mapping_can_be_corrected(client, tmp_path, monkeypatch):
@@ -163,14 +163,15 @@ def test_an_uploaded_log_calibrates_runs_and_its_mapping_can_be_corrected(client
     facts = client.get(f"/projects/{project_id}/facts", headers=headers).json()
     assert not any("A_Create" in json.dumps(row["evidence"]) for row in facts["explicit"] + facts["implied"])
 
-    options = dict(target_trajectory_count=30, event_budget=None, sub_domains=["onboarding_and_kyc", "consumer_credit"], min_events=4, max_events=14)
+    options = dict(target_trajectory_count=60, event_budget=None, sub_domains=["onboarding_and_kyc", "consumer_credit"], min_events=4, max_events=14)
     plain = _run(client, headers, project_id, None, calibrate=False, **options).json()
     calibrated = _run(client, headers, project_id, None, **options).json()
     assert plain["generation"]["calibration"] is None and plain["generation"]["quality"]["representative"]["status"] != "measured"
     assert calibrated["generation"]["calibration"]["cases"] == 60
     representative = calibrated["generation"]["quality"]["representative"]
     assert representative["status"] == "measured" and 0 <= representative["fitness"] <= 1 and 0 <= representative["precision"] <= 1
-    assert _declined_share(calibrated) > _declined_share(plain)
+    # Every logged application is submitted, so the calibrated run abandons fewer.
+    assert _share(calibrated, "application.abandoned") < _share(plain, "application.abandoned")
     assert get_sector("banking").hard_checks(__import__("trajectory_contract").TrajectoryBundle.model_validate(calibrated["bundle"])) == []
 
     remapped = client.put(f"/projects/{project_id}/corpus/{item['id']}/mapping", headers=headers, json={"mapping": {"A_Pending": "application.approved", "W_Validate application": "kyc.started"}})
@@ -302,5 +303,5 @@ def test_bpi_2017_through_the_catalogue_moves_the_decision_toward_the_data(clien
     plain = _run(client, headers, project_id, None, calibrate=False, **options).json()
     calibrated = _run(client, headers, project_id, None, **options).json()
     # One in three applications in the data is denied; the pack's prior declines far fewer.
-    assert _declined_share(calibrated) >= _declined_share(plain) + 0.05
+    assert _share(calibrated, "application.declined") >= _share(plain, "application.declined") + 0.05
     assert calibrated["generation"]["quality"]["representative"]["status"] == "measured"

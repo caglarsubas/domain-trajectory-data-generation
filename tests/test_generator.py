@@ -44,12 +44,15 @@ def test_generated_bundle_passes_hard_checks_and_uses_the_contract():
     assert bundle.generation.event_count <= 800
     primaries = [item for item in bundle.trajectories if item.parent_trajectory_id is None]
     assert len(primaries) == 40
+    kinds = {event.event_id: event.event_type for event in bundle.events}
     for primary in primaries:
         assert primary.generator_id == GENERATOR_ID
         assert primary.observed_or_synthetic == "synthetic"
         assert bundle.generation is not None
         length = len(primary.event_ids)
-        assert 8 <= length <= 24
+        # A journey the domain ends, such as a declined application, keeps its natural length.
+        assert length <= 24
+        assert length >= 8 or BANKING_LIFECYCLE[kinds[primary.event_ids[-1]]].ends_journey
     alternatives = [item for item in bundle.trajectories if item.parent_trajectory_id]
     assert alternatives
     assert alternatives[0].observed_or_synthetic == "alternative"
@@ -116,7 +119,8 @@ def test_an_account_opens_only_after_its_application_is_approved():
 
 
 def test_feedback_drop_revise_and_keep_change_the_next_bundle():
-    parent = _bundle(sub_domains=["cards_and_payments", "onboarding_and_kyc"], seed="parent", target_trajectory_count=6)
+    # Ten journeys hold a purchase and an activation to note for any seed tried, though some end at a decline.
+    parent = _bundle(sub_domains=["cards_and_payments", "onboarding_and_kyc"], seed="parent", target_trajectory_count=10)
     purchase = next(event for event in parent.events if event.event_type == "card.purchase_authorised")
     activation = next(event for event in parent.events if event.event_type == "card.activated")
     child = _bundle(
