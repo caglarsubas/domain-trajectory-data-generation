@@ -370,7 +370,10 @@ def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, floa
 
 
 def _first_decision(path: Path) -> int:
-    """Index of the first step, after the opening, where the machines offered more than one choice."""
+    """Index of the first step, after the opening, where the machines offered more than one choice.
+
+    A walk with no such step that chose to stop while it could go on decides at its end.
+    """
     for index, step in enumerate(path.steps):
         if index and len(step.options) > 1:
             return index
@@ -391,21 +394,27 @@ def _rollouts(
     """Further sequences for the same prompt: the shared prefix, then a fresh walk from the first decision.
 
     A rollout keeps the first sequence's intent, such as a loan, so one opening fits the whole group.
+    A rollout the domain ended, such as an abandoned application, counts even below the length floor:
+    rejecting it would keep only the outcomes that run long, and those are mostly the successes.
     """
     split = _first_decision(path)
-    if split >= len(path.steps):
+    if split < len(path.steps):
+        state, counts = path.steps[split].state_before, path.steps[split].counts_before
+    elif path.stopped:
+        state, counts = path.state, path.counts
+    else:
         return split, []
-    step = path.steps[split]
     intent = pack.intent(path.types)
     rollouts = []
     for _ in range(size - 1):
         best: Path | None = None
         for _attempt in range(PATH_ATTEMPTS):
-            walked = walker.walk(rng, floor=floor, cap=cap, state=step.state_before, counts=step.counts_before, prefix=path.steps[:split])
+            walked = walker.walk(rng, floor=floor, cap=cap, state=state, counts=counts, prefix=path.steps[:split])
             fits = pack.intent(walked.types) in (None, intent)
             wanted = pack.classify(walked.types) not in dropped
+            ended = bool(walked.steps) and pack.lifecycle[walked.types[-1]].ends_journey
             best = walked if best is None else best
-            if fits and wanted and len(walked.steps) >= floor:
+            if fits and wanted and (len(walked.steps) >= floor or ended):
                 best = walked
                 break
         assert best is not None

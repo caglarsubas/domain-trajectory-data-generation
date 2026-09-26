@@ -178,9 +178,15 @@ def test_warm_corpus_weights_named_events_and_notes_still_win():
         "max_events": 16,
         "event_budget": None,
     }
-    named = _bundle(corpus_text="Public notes: kyc.document_submitted before the check passes. Customers use USD on mobile.", **common)
-    plain = _bundle(corpus_text="Customers use USD on mobile.", **common)
-    assert _share(named, "kyc.document_submitted") > _share(plain, "kyc.document_submitted") + 0.15
+    named_text = "Public notes: kyc.document_submitted before the check passes. Customers use USD on mobile."
+    named = _bundle(corpus_text=named_text, **common)
+
+    def pooled_share(text):
+        # Pooled over seeds, so the assertion measures the weighting rather than one draw.
+        seeds = ("events", "events-2", "events-3")
+        return sum(_share(_bundle(corpus_text=text, **{**common, "seed": seed}), "kyc.document_submitted") for seed in seeds) / len(seeds)
+
+    assert pooled_share(named_text) > pooled_share("Customers use USD on mobile.") + 0.15
     assert any(event.currency == "USD" for event in named.events)
     assert any(event.event_type == "product.viewed" and event.channel_id == "mobile" for event in named.events)
     assert banking_hard_checks(named) == []

@@ -77,6 +77,16 @@ def test_group_rewards_are_centred_and_all_pass_groups_are_not_accepted():
     assert summary["accepted_groups"] == sum(1 for sample in bundle.samples if sample.group_accepted)
 
 
+@pytest.mark.parametrize("sub_domain", SUB_DOMAINS)
+def test_every_banking_sub_domain_yields_accepted_groups(sub_domain):
+    bundle = _bundle(sub_domains=[sub_domain], target_trajectory_count=40, max_events=16, seed="accepted")
+    assert banking_hard_checks(bundle) == []
+    assert bundle.samples and all(len(sample.sequences) == 4 for sample in bundle.samples)
+    accepted = [sample for sample in bundle.samples if sample.group_accepted]
+    assert accepted, sub_domain
+    assert bundle.generation.rewards["accepted_groups"] == len(accepted)
+
+
 def test_redistribution_gives_passing_quality_factors_and_keeps_groups_centred():
     bundle = _bundle(reward_mechanism="groupwise_advantage_redistribution", seed="gar")
     for sample in bundle.samples:

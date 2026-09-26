@@ -13,7 +13,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "banking-semi-markov-v2"
-PACK_VERSION = "banking-pack-2"
+PACK_VERSION = "banking-pack-3"
 
 OD = "onboarding_and_kyc"
 RC = "risk_and_compliance"
@@ -54,8 +54,16 @@ LIFECYCLE = LifecycleSpec(
             "application.submitted", (OD,),
             requires=(need("application", "application", "started"),),
             sets=(put("application", "application", "submitted"),),
-            dwell_hours=(0.1, 2.0),
+            outcome="application_completion", dwell_hours=(0.1, 2.0),
             violation="application submitted before it started",
+        ),
+        # An account or loan application the customer never finishes belongs to that product's lifecycle.
+        EventSpec(
+            "application.abandoned", (OD, DP, CC),
+            requires=(need("application", "application", "started"),),
+            sets=(put("application", "application", "abandoned"),),
+            weight=0.15, outcome="application_completion", ends_journey=True, dwell_hours=(2.0, 7 * DAY),
+            violation="application abandoned before it started or after it was submitted",
         ),
         EventSpec(
             "kyc.started", (OD,),
@@ -86,7 +94,7 @@ LIFECYCLE = LifecycleSpec(
             violation="KYC passed without an open case, or during review before documents arrived",
         ),
         EventSpec(
-            "kyc.failed", (OD, RC),
+            "kyc.failed", (OD, RC, DP, CC),
             requires=(need("kyc", "kyc", "pending", "review_required", "documents_received"),),
             sets=(put("kyc", "kyc", "failed"),),
             weight=0.05, outcome="kyc_outcome", dwell_hours=(1.0, 48.0),
@@ -100,7 +108,7 @@ LIFECYCLE = LifecycleSpec(
             violation="application approved without a submitted application and verified KYC",
         ),
         EventSpec(
-            "application.declined", (OD,),
+            "application.declined", (OD, DP, CC),
             requires=(
                 need("application", "application", "submitted"),
                 need("kyc", "kyc", "verified", "failed"),
@@ -146,8 +154,14 @@ LIFECYCLE = LifecycleSpec(
         EventSpec(
             "card.purchase_authorised", (CP,),
             requires=(need("card", "card", "active"), need("account", "account", "active")),
-            repeat=5, dwell_hours=(0.2, 48.0),
+            repeat=5, outcome="card_authorisation", dwell_hours=(0.2, 48.0),
             violation="card purchase without an active card and account",
+        ),
+        EventSpec(
+            "card.purchase_declined", (CP,),
+            requires=(need("card", "card", "active"), need("account", "account", "active")),
+            weight=0.12, repeat=2, outcome="card_authorisation", dwell_hours=(0.2, 48.0),
+            violation="card purchase declined without an active card and account",
         ),
         EventSpec(
             "loan.disbursed", (CC,),
@@ -187,8 +201,38 @@ LIFECYCLE = LifecycleSpec(
             "complaint.resolved", (CO,),
             requires=(need("complaint", "complaint", "open"),),
             sets=(put("complaint", "complaint", "resolved"),),
-            weight=0.8, dwell_hours=(2 * DAY, 56 * DAY),
+            weight=0.8, outcome="complaint_outcome", dwell_hours=(2 * DAY, 56 * DAY),
             violation="complaint resolved before it was received",
+        ),
+        # The final response does not uphold the complaint.
+        EventSpec(
+            "complaint.rejected", (CO,),
+            requires=(need("complaint", "complaint", "open"),),
+            sets=(put("complaint", "complaint", "rejected"),),
+            weight=0.4, outcome="complaint_outcome", dwell_hours=(2 * DAY, 56 * DAY),
+            violation="complaint rejected before it was received",
+        ),
+        # A limit change, such as an arranged overdraft, is a servicing request the bank may refuse.
+        EventSpec(
+            "account.limit_change_requested", (SV,),
+            requires=(need("account", "account", "active"), need("account", "limit", None)),
+            sets=(put("account", "limit", "requested"),),
+            weight=0.25, dwell_hours=(DAY, 60 * DAY),
+            violation="limit change requested twice or on an account that is not active",
+        ),
+        EventSpec(
+            "account.limit_changed", (SV,),
+            requires=(need("account", "account", "active"), need("account", "limit", "requested")),
+            sets=(put("account", "limit", "changed"),),
+            weight=0.65, outcome="limit_decision", dwell_hours=(0.05, 72.0),
+            violation="limit changed without a request or on an account that is not active",
+        ),
+        EventSpec(
+            "account.limit_change_declined", (SV,),
+            requires=(need("account", "account", "active"), need("account", "limit", "requested")),
+            sets=(put("account", "limit", "declined"),),
+            weight=0.35, outcome="limit_decision", dwell_hours=(0.05, 72.0),
+            violation="limit change declined without a request or on an account that is not active",
         ),
         EventSpec(
             "account.closed", (DP, SV),
@@ -204,7 +248,7 @@ LIFECYCLE = LifecycleSpec(
         DP: ("account.funded",),
         CP: ("card.activated", "card.purchase_authorised"),
         CC: ("loan.disbursed",),
-        SV: ("account.funded", "complaint.received", "account.closed"),
+        SV: ("account.funded", "account.limit_changed", "account.limit_change_declined", "complaint.received", "account.closed"),
         CO: ("complaint.received",),
     },
 )
@@ -224,6 +268,7 @@ ROLES = {
     "product.viewed": (("party", "prospect"), ("offering", "offering")),
     "application.started": (("party", "applicant"), ("application", "application")),
     "application.submitted": (("party", "applicant"), ("application", "application")),
+    "application.abandoned": (("party", "applicant"), ("application", "application")),
     "application.approved": (("party", "applicant"), ("application", "application")),
     "application.declined": (("party", "applicant"), ("application", "application")),
     "kyc.started": (("party", "subject"), ("kyc", "case")),
@@ -236,12 +281,17 @@ ROLES = {
     "card.issued": (("account", "account"), ("card", "card")),
     "card.activated": (("card", "card"),),
     "card.purchase_authorised": (("card", "card"), ("account", "account")),
+    "card.purchase_declined": (("card", "card"), ("account", "account")),
     "loan.disbursed": (("party", "borrower"), ("loan", "loan"), ("application", "application")),
     "loan.repayment_received": (("party", "borrower"), ("loan", "loan")),
     "loan.delinquent": (("loan", "loan"),),
     "loan.cured": (("loan", "loan"),),
     "complaint.received": (("party", "complainant"), ("complaint", "case")),
     "complaint.resolved": (("party", "complainant"), ("complaint", "case")),
+    "complaint.rejected": (("party", "complainant"), ("complaint", "case")),
+    "account.limit_change_requested": (("party", "holder"), ("account", "account")),
+    "account.limit_changed": (("party", "holder"), ("account", "account")),
+    "account.limit_change_declined": (("party", "holder"), ("account", "account")),
     "account.closed": (("party", "holder"), ("account", "account")),
 }
 
@@ -249,6 +299,7 @@ EN = {
     "product.viewed": "The prospect viewed a retail product.",
     "application.started": "The application started.",
     "application.submitted": "The application was submitted.",
+    "application.abandoned": "The applicant left the application unfinished.",
     "application.approved": "The application was approved.",
     "application.declined": "The application was declined.",
     "kyc.started": "Identity checks started.",
@@ -261,18 +312,24 @@ EN = {
     "card.issued": "The card was issued.",
     "card.activated": "The card was activated.",
     "card.purchase_authorised": "A card purchase was authorised.",
+    "card.purchase_declined": "A card purchase was declined.",
     "loan.disbursed": "The loan was disbursed.",
     "loan.repayment_received": "A loan repayment was received.",
     "loan.delinquent": "The loan became delinquent.",
     "loan.cured": "The loan returned to good standing.",
     "complaint.received": "A complaint was received.",
     "complaint.resolved": "The complaint was resolved.",
+    "complaint.rejected": "The complaint was not upheld.",
+    "account.limit_change_requested": "The customer asked to change the account limit.",
+    "account.limit_changed": "The account limit was changed.",
+    "account.limit_change_declined": "The limit change was declined.",
     "account.closed": "The account was closed.",
 }
 TR = {
     "product.viewed": "Aday perakende ürünü inceledi.",
     "application.started": "Başvuru başladı.",
     "application.submitted": "Başvuru iletildi.",
+    "application.abandoned": "Başvuru yarım bırakıldı.",
     "application.approved": "Başvuru onaylandı.",
     "application.declined": "Başvuru reddedildi.",
     "kyc.started": "Kimlik kontrolü başladı.",
@@ -285,20 +342,27 @@ TR = {
     "card.issued": "Kart basıldı.",
     "card.activated": "Kart kullanıma açıldı.",
     "card.purchase_authorised": "Kartla alışveriş onaylandı.",
+    "card.purchase_declined": "Kartla alışveriş reddedildi.",
     "loan.disbursed": "Kredi tutarı aktarıldı.",
     "loan.repayment_received": "Kredi taksiti ödendi.",
     "loan.delinquent": "Kredi gecikmeye düştü.",
     "loan.cured": "Kredi yeniden düzenli ödemeye döndü.",
     "complaint.received": "Şikayet kaydı açıldı.",
     "complaint.resolved": "Şikayet çözüldü.",
+    "complaint.rejected": "Şikayet haklı bulunmadı.",
+    "account.limit_change_requested": "Müşteri hesap limitinin değiştirilmesini istedi.",
+    "account.limit_changed": "Hesap limiti değiştirildi.",
+    "account.limit_change_declined": "Limit değişikliği talebi reddedildi.",
     "account.closed": "Hesap kapatıldı.",
 }
 
 TRAJECTORY_TYPES = (
     "loan_delinquency",
     "application_declined",
+    "application_abandoned",
     "kyc_review",
     "complaint_case",
+    "limit_change",
     "account_closure",
     "loan_origination",
     "acquisition_to_first_purchase",
@@ -313,10 +377,14 @@ def classify(types: list[str]) -> str:
         return "loan_delinquency"
     if "application.declined" in present:
         return "application_declined"
+    if "application.abandoned" in present:
+        return "application_abandoned"
     if "kyc.review_required" in present:
         return "kyc_review"
     if "complaint.received" in present:
         return "complaint_case"
+    if "account.limit_change_requested" in present:
+        return "limit_change"
     if "account.closed" in present:
         return "account_closure"
     if "loan.disbursed" in present:
@@ -328,11 +396,21 @@ def classify(types: list[str]) -> str:
     return "retail_journey"
 
 
+# A journey holding one of these did not get what the customer came for.
+FAILED_OUTCOMES = frozenset(
+    {"application.abandoned", "application.declined", "kyc.failed", "complaint.rejected", "account.limit_change_declined"}
+)
+
+
 def success(types: list[str]) -> bool:
-    if not types or "application.declined" in types or "kyc.failed" in types:
+    if not types or FAILED_OUTCOMES & set(types):
         return False
     credit = [name for name in types if name in {"loan.delinquent", "loan.cured"}]
-    return not credit or credit[-1] == "loan.cured"
+    if credit and credit[-1] != "loan.cured":
+        return False
+    # A later authorisation recovers from a declined purchase, as a cure recovers a delinquent loan.
+    payments = [name for name in types if name in {"card.purchase_authorised", "card.purchase_declined"}]
+    return not payments or payments[-1] == "card.purchase_authorised"
 
 
 PROMPTS = {
@@ -428,17 +506,22 @@ PACK = PackSpec(
             "loan.delinquent",
             "loan.cured",
             "complaint.resolved",
+            "complaint.rejected",
+            "account.limit_changed",
+            "account.limit_change_declined",
         }
     ),
-    fixed_channels={"card.purchase_authorised": "pos"},
+    fixed_channels={"card.purchase_authorised": "pos", "card.purchase_declined": "pos"},
     default_channels={
         "product.viewed": "web",
         "application.started": "web",
         "application.submitted": "web",
+        "application.abandoned": "web",
         "kyc.started": "web",
         "kyc.document_submitted": "mobile",
         "account.funded": "mobile",
         "card.activated": "mobile",
+        "account.limit_change_requested": "mobile",
         "complaint.received": "call_centre",
         "account.closed": "branch",
     },
@@ -453,6 +536,7 @@ PACK = PackSpec(
         ("card.issued", "account"): "linked_account",
         ("card.purchase_authorised", "card"): "payment_instrument",
         ("card.purchase_authorised", "account"): "debited_account",
+        ("card.purchase_declined", "card"): "payment_instrument",
         ("loan.disbursed", "application"): "originating_application",
         ("loan.disbursed", "loan"): "disbursed_loan",
         ("loan.repayment_received", "loan"): "repaid_loan",
