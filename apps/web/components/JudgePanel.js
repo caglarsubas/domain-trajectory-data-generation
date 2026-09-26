@@ -84,6 +84,13 @@ export default function JudgePanel({ cycle, onPick }) {
           {cycle.sample.some((entry) => entry.truncated) ? "; some were shortened to fit the prompt budget" : ""}.
         </small>
       </div>
+      {cycle.reference?.length ? (
+        <p className="lede">
+          The brief carried {cycle.reference.length} warm-start {cycle.reference.length === 1 ? "passage" : "passages"} chosen for this study, from{" "}
+          {[...new Set(cycle.reference.map((item) => item.source))].join(", ")}
+          {cycle.reference.every((item) => !item.score) ? "; none matched the study's terms, so each document's opening was used" : ""}.
+        </p>
+      ) : null}
       <table className="target-table">
         <thead>
           <tr>

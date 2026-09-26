@@ -33,12 +33,6 @@ SCALE = {"helpfulness": 5.0}
 CHARS_PER_TOKEN = 4
 
 
-def corpus_excerpt(items: list) -> str:
-    from app.corpus_text import read_corpus_excerpt
-
-    return read_corpus_excerpt(items)
-
-
 def normalized(rubric: str, score: float | None) -> float | None:
     return None if score is None else round(score / SCALE.get(rubric, 1.0), 4)
 
