@@ -17,7 +17,7 @@ def _setup(client, email, **overrides):
 
 
 def _part(client, headers, run_id, part, **params):
-    response = client.get(f"/runs/{run_id}/export/{part}", headers=headers, params=params)
+    response = client.get(f"/runs/{run_id}/export/{part}", headers=headers, params={**(params or {}), "allow_unaccepted": "true"})
     assert response.status_code == 200, response.text
     return response
 

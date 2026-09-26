@@ -23,9 +23,17 @@ export default function DownloadPanel({ run, paged = false }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   const [exports, setExports] = useState([]);
-  const query = heldOut ? `?held_out=${encodeURIComponent(heldOut)}` : "";
-  const prefix = `run-${run.id.slice(0, 8)}${heldOut ? `-heldout-${heldOut}` : ""}`;
-  const current = exports.find((item) => (item.held_out || "") === heldOut);
+  const [allowUnaccepted, setAllowUnaccepted] = useState(false);
+  // Export follows the judge: a run it has not accepted exports only when asked, and the manifest says so.
+  const latest = run.cycles?.at(-1);
+  const accepted = Boolean(latest?.accepted);
+  const open = accepted || allowUnaccepted;
+  const params = new URLSearchParams();
+  if (heldOut) params.set("held_out", heldOut);
+  if (!accepted && allowUnaccepted) params.set("allow_unaccepted", "true");
+  const query = params.toString() ? `?${params}` : "";
+  const prefix = `run-${run.id.slice(0, 8)}${heldOut ? `-heldout-${heldOut}` : ""}${accepted ? "" : "-unaccepted"}`;
+  const current = exports.find((item) => (item.held_out || "") === heldOut && Boolean(item.unaccepted) === !accepted);
   const working = exports.some((item) => ["queued", "running"].includes(item.job.status));
 
   const refresh = useCallback(async () => {
@@ -50,7 +58,9 @@ export default function DownloadPanel({ run, paged = false }) {
     setError("");
     setBusy("prepare");
     try {
-      setExports((await api(`/runs/${run.id}/exports`, { method: "POST", body: JSON.stringify({ held_out: heldOut || null }) })).data);
+      setExports(
+        (await api(`/runs/${run.id}/exports`, { method: "POST", body: JSON.stringify({ held_out: heldOut || null, allow_unaccepted: !accepted && allowUnaccepted }) })).data
+      );
     } catch (err) {
       setError(err.message);
     } finally {
@@ -112,16 +122,27 @@ export default function DownloadPanel({ run, paged = false }) {
         </div>
         {paged && !current?.ready ? (
           <div>
-            <button className="primary" type="button" onClick={prepare} disabled={Boolean(busy) || ["queued", "running"].includes(current?.job.status)}>
+            <button className="primary" type="button" onClick={prepare} disabled={!open || Boolean(busy) || ["queued", "running"].includes(current?.job.status)}>
               {busy === "prepare" ? "Queueing" : current?.job.status === "failed" ? "Prepare again" : "Prepare export"}
             </button>
           </div>
         ) : (
           <div>
-            <button className="ghost" type="button" onClick={preview} disabled={Boolean(busy)}>{busy === "preview" ? "Reading" : "Preview data card"}</button>
+            <button className="ghost" type="button" onClick={preview} disabled={!open || Boolean(busy)}>{busy === "preview" ? "Reading" : "Preview data card"}</button>
           </div>
         )}
       </div>
+      {accepted ? (
+        <p className="note">The judge accepted this run in cycle {latest.cycle_index}.</p>
+      ) : (
+        <div className="warn">
+          {latest ? "The judge did not accept this run." : "The judge has not read this run yet."} Accepted runs export as they are.
+          <label className="check" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={allowUnaccepted} onChange={(e) => { setAllowUnaccepted(e.target.checked); setCard(null); }} />
+            Export it anyway; the manifest will say it was not accepted
+          </label>
+        </div>
+      )}
       {error ? <div className="error">{error}</div> : null}
       {paged && current && !current.ready ? (
         <div className="export-status">
@@ -137,7 +158,7 @@ export default function DownloadPanel({ run, paged = false }) {
       ) : null}
       {paged && !current?.ready ? null : <div className="parts">
         {PARTS.map(([part, label, detail]) => (
-          <button key={part} type="button" className="part" onClick={() => save(part)} disabled={Boolean(busy)}>
+          <button key={part} type="button" className="part" onClick={() => save(part)} disabled={!open || Boolean(busy)}>
             <b>{busy === part ? "Preparing" : label}</b>
             <code>{paged && part !== "manifest.json" ? `${part}.gz` : part}</code>
             <small>{detail}</small>

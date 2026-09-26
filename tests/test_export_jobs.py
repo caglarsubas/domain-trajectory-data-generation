@@ -7,6 +7,9 @@ import pytest
 from app import store
 from test_api import _auth, _link, _project, _ready_key, _run
 
+# These runs are not judged; exporting them needs the explicit override.
+OPEN = {"allow_unaccepted": "true"}
+
 
 @pytest.fixture(autouse=True)
 def data_dir(tmp_path, monkeypatch):
@@ -32,16 +35,16 @@ def _setup(client, email, **overrides):
 def test_a_large_run_exports_through_a_job_into_gzip_parts(client):
     headers, created = _setup(client, "export-job@example.com", sub_domains=["onboarding_and_kyc", "deposits", "consumer_credit"])
     run = created.json()
-    assert client.get(f"/runs/{run['id']}/export/samples.jsonl", headers=headers).status_code == 409
+    assert client.get(f"/runs/{run['id']}/export/samples.jsonl", headers=headers, params=OPEN).status_code == 409
 
-    prepared = client.post(f"/runs/{run['id']}/exports", headers=headers, json={})
+    prepared = client.post(f"/runs/{run['id']}/exports", headers=headers, json={"allow_unaccepted": True})
     assert prepared.status_code == 200, prepared.text
     listed = client.get(f"/runs/{run['id']}/exports", headers=headers).json()["data"]
     assert listed[0]["ready"] is True and listed[0]["job"]["status"] == "succeeded"
     assert listed[0]["sizes"]["samples.jsonl"] > listed[0]["download_sizes"]["samples.jsonl"] > 0
 
-    manifest = client.get(f"/runs/{run['id']}/export/manifest.json", headers=headers).json()
-    samples = client.get(f"/runs/{run['id']}/export/samples.jsonl", headers=headers)
+    manifest = client.get(f"/runs/{run['id']}/export/manifest.json", headers=headers, params=OPEN).json()
+    samples = client.get(f"/runs/{run['id']}/export/samples.jsonl", headers=headers, params=OPEN)
     assert samples.headers["content-type"] == "application/gzip"
     assert "samples.jsonl.gz" in samples.headers["content-disposition"]
     text = gzip.decompress(samples.content).decode()
@@ -50,17 +53,17 @@ def test_a_large_run_exports_through_a_job_into_gzip_parts(client):
     assert len(lines) == manifest["counts"]["samples"] == 300
     assert {line["split"] for line in lines} <= {"train", "validation", "test"}
 
-    ocel = json.loads(gzip.decompress(client.get(f"/runs/{run['id']}/export/ocel.json", headers=headers).content))
+    ocel = json.loads(gzip.decompress(client.get(f"/runs/{run['id']}/export/ocel.json", headers=headers, params=OPEN).content))
     object_ids = {obj["id"] for obj in ocel["objects"]}
     assert len(ocel["events"]) == run["generation"]["event_count"]
     assert all(rel["objectId"] in object_ids for event in ocel["events"] for rel in event["relationships"])
 
-    domain = gzip.decompress(client.get(f"/runs/{run['id']}/export/domain.jsonl", headers=headers).content).decode()
+    domain = gzip.decompress(client.get(f"/runs/{run['id']}/export/domain.jsonl", headers=headers, params=OPEN).content).decode()
     assert sum(1 for line in domain.splitlines() if '"record_type":"event"' in line) == run["generation"]["event_count"]
 
-    held = client.post(f"/runs/{run['id']}/exports", headers=headers, json={"held_out": "consumer_credit"})
+    held = client.post(f"/runs/{run['id']}/exports", headers=headers, json={"held_out": "consumer_credit", "allow_unaccepted": True})
     assert held.status_code == 200
-    held_manifest = client.get(f"/runs/{run['id']}/export/manifest.json", headers=headers, params={"held_out": "consumer_credit"}).json()
+    held_manifest = client.get(f"/runs/{run['id']}/export/manifest.json", headers=headers, params={"held_out": "consumer_credit", "allow_unaccepted": "true"}).json()
     assert held_manifest["split"]["counts"]["heldout"] > 0
     assert len(client.get(f"/runs/{run['id']}/exports", headers=headers).json()["data"]) == 2
 
@@ -68,8 +71,8 @@ def test_a_large_run_exports_through_a_job_into_gzip_parts(client):
 def test_small_runs_export_directly_not_through_a_job(client):
     headers, created = _setup(client, "small-export@example.com", target_trajectory_count=8)
     run = created.json()
-    assert client.post(f"/runs/{run['id']}/exports", headers=headers, json={}).status_code == 409
-    assert client.get(f"/runs/{run['id']}/export/samples.jsonl", headers=headers).status_code == 200
+    assert client.post(f"/runs/{run['id']}/exports", headers=headers, json={"allow_unaccepted": True}).status_code == 409
+    assert client.get(f"/runs/{run['id']}/export/samples.jsonl", headers=headers, params=OPEN).status_code == 200
 
 
 def test_an_accepted_target_draws_until_enough_groups_are_accepted(client):
@@ -169,11 +172,11 @@ def test_an_export_is_prepared_once_and_leaves_the_run_job_alone(client, monkeyp
 
     assert jobs.Worker().run_next() is True
     generate_job = client.get(f"/runs/{run['id']}", headers=headers).json()["job"]
-    first = client.post(f"/runs/{run['id']}/exports", headers=headers, json={}).json()["data"]
-    again = client.post(f"/runs/{run['id']}/exports", headers=headers, json={}).json()["data"]
+    first = client.post(f"/runs/{run['id']}/exports", headers=headers, json={"allow_unaccepted": True}).json()["data"]
+    again = client.post(f"/runs/{run['id']}/exports", headers=headers, json={"allow_unaccepted": True}).json()["data"]
     assert first[0]["job"]["id"] == again[0]["job"]["id"] and again[0]["job"]["status"] == "queued"
     assert client.get(f"/runs/{run['id']}", headers=headers).json()["job"] == generate_job
     assert client.post(f"/runs/{run['id']}/cancel", headers=headers).status_code == 409
     assert jobs.Worker().run_next() is True and jobs.Worker().run_next() is False
-    done = client.post(f"/runs/{run['id']}/exports", headers=headers, json={}).json()["data"]
+    done = client.post(f"/runs/{run['id']}/exports", headers=headers, json={"allow_unaccepted": True}).json()["data"]
     assert done[0]["ready"] is True and done[0]["job"]["id"] == first[0]["job"]["id"]

@@ -232,6 +232,10 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
     config = {key: value for key, value in (run.config or {}).items() if key != "credential_id"}
     steering = dict(generation.get("steering") or {})
     limitations = list(LIMITATIONS)
+    latest = cycles[-1] if cycles else None
+    accepted = bool(latest and latest["accepted"])
+    if not accepted:
+        limitations.append("The judge had not accepted this run when it was exported; it was exported on request.")
     if not generation.get("storage"):
         limitations.append("This run was small enough to keep on the run itself; runs above 64 sequences are written in batches.")
     manifest = {
@@ -255,6 +259,11 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
             if held_out
             else None,
             "counts": split_counts,
+        },
+        "review": {
+            "accepted": accepted,
+            "cycle": latest["cycle_index"] if latest else None,
+            "exported_without_acceptance": not accepted,
         },
         "judge_cycles": [
             {
@@ -316,18 +325,20 @@ def build(run, bundle: TrajectoryBundle, sector, cycles: list[dict], held_out: s
     return {name: buffer.getvalue().decode() for name, buffer in buffers.items()}
 
 
-def export_key(held_out: str | None) -> str:
-    return f"heldout-{held_out}" if held_out else "all"
+def export_key(held_out: str | None, unaccepted: bool = False) -> str:
+    """An export made before the judge accepted the run lives apart, so an accepted export never inherits its manifest."""
+    base = f"heldout-{held_out}" if held_out else "all"
+    return f"{base}-unaccepted" if unaccepted else base
 
 
-def part_path(root: Path, held_out: str | None, part: str) -> Path:
+def part_path(root: Path, held_out: str | None, part: str, unaccepted: bool = False) -> Path:
     suffix = "" if part == "manifest.json" else ".gz"
-    return root / "exports" / export_key(held_out) / f"{part}{suffix}"
+    return root / "exports" / export_key(held_out, unaccepted) / f"{part}{suffix}"
 
 
-def write_files(run, store, sector, cycles: list[dict], held_out: str | None, root: Path, report) -> dict:
+def write_files(run, store, sector, cycles: list[dict], held_out: str | None, root: Path, report, unaccepted: bool = False) -> dict:
     """A large run's parts, written batch by batch as gzip files under the run's directory."""
-    target = root / "exports" / export_key(held_out)
+    target = root / "exports" / export_key(held_out, unaccepted)
     staging = target.with_name(target.name + ".tmp")
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
@@ -361,5 +372,5 @@ def write_files(run, store, sector, cycles: list[dict], held_out: str | None, ro
     return summary
 
 
-def prepared(root: Path, held_out: str | None) -> bool:
-    return part_path(root, held_out, "manifest.json").is_file()
+def prepared(root: Path, held_out: str | None, unaccepted: bool = False) -> bool:
+    return part_path(root, held_out, "manifest.json", unaccepted).is_file()

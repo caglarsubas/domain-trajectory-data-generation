@@ -61,7 +61,7 @@ Warm-start text weights the sampler instead of forcing events in: a named event 
 
 ## Run metadata
 
-`generation` records the generator id, the pack version, the limit that stopped the run if any, and two reports:
+`generation` records the generator id, the pack version, the limit that stopped the run if any, `notes` when the run was generated from notes (each note and revision note with what it did), and two reports:
 
 - `steering`: the currency, channel, products, and events the warm-start text named, the events a negation cancelled, the events weighted because they are in scope, and one entry per document saying whether it was readable, why not, and what it contributed. Terms match on whole words; currency codes match only in capitals.
 - `quality`: version 1 of the quality report. `complete` counts hard-check violations and filler runs and checks referential integrity; `comprehensive` counts distinct sequences, event-type coverage per selected sub-domain, the share of rare paths, and distinct transitions. `representative` and `qualitative` say they are not measured yet, and a cold start is marked unreferenced.
@@ -76,6 +76,8 @@ Runs are written in the languages the pack declares, English and Turkish today. 
 - `domain.jsonl`: one line per domain record, tagged with `record_type`; trajectory lines carry their sample's `split`.
 - `ocel.json`: the domain layer in OCEL 2.0 JSON. Objects carry their state changes as time-stamped attributes and their relationships by predicate; events carry channel, money, and effective time, and link objects by qualifier or role.
 - `manifest.json`: the configuration without the credential, counts, the split, judge cycles, the reward summary, the quality report, the steering report, a data card with scope, intended use, reference, jurisdiction, and known limitations, and a SHA-256 checksum for each other part. No secret, ciphertext, or fingerprint reaches it.
+
+Export follows the judge: a run whose latest cycle the judge accepted exports as it is, and any other only with `allow_unaccepted=true`. The manifest's `review` records `accepted`, the `cycle`, and `exported_without_acceptance`, and `judge_cycles` carries each cycle's models, sampled journeys, per-model scores, agreement, flags, and control result.
 
 The split is assigned from `sha256(run_id|sample_id)`: train below 0.8, validation below 0.9, test above, so a re-export reproduces it. `?held_out=<sub_domain>` moves every sample whose sequences reach a milestone of that sub-domain, such as `loan.disbursed` for consumer credit, into a `heldout` split, to measure generalization rather than fit.
 

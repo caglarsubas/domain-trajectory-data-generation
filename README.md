@@ -68,6 +68,10 @@ A cycle judges a sample of the run's journeys, six by default (`JUDGE_SAMPLE_SIZ
 
 The cycle records each model's score per rubric, how often the two agree on pass or fail, whether each model kept its pairwise choice when the order was swapped, and audit flags in the spirit of MiMo's rollout auditing: a likely false positive when a judge passes the control journey, a likely false negative when it calls a legally replaying journey incorrect, a disagreement between the models, an order flip, and an unreadable verdict. Acceptance and revision notes follow the primary judge. The run page shows the scores with the second opinion, the agreement, the flags, and each sampled journey's verdicts with their reasons, and opens a journey from there.
 
+A run the judge has read is not judged again; only a cycle with an unreadable primary verdict can be. When the judge does not accept a run, `POST /runs/{id}/regenerate` makes a child run from the cycle's revision notes and the run's notes, and judges it as soon as it is generated. `max_cycles`, shown in the composer as judge rounds, limits how many rounds a study may go. Each run records which notes it applied and what each did, and `GET /runs/{id}/diff` compares a run with its parent: configuration, notes and their effects, data measures, events per 100 journeys, paths gained and lost, and the judge's scores. The run page shows it as "What changed".
+
+Export follows the judge. An accepted run exports as it is; any other needs `allow_unaccepted=true` on the part or in the export job's body, and its manifest records `review.exported_without_acceptance` and a known limitation. A large run keeps an unaccepted export apart from an accepted one.
+
 The engine judges at temperature 0, so asking one model the same question twice returns the same verdict; repeats wait on the engine, as do study-specific rubrics.
 
 ## Accounts

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from app.db import get_db
 from app.generation import ACCEPTANCE_CEILING
-from app.models import Account, CorpusItem, Credential, Feedback, Job, Project, Run
+from app.models import Account, CorpusItem, Credential, EvalCycle, Feedback, Job, Project, Run
 from app.providers import PROVIDERS, KeyCheck, check_key, get_provider
 from app import quotas
 from app.schemas import (
@@ -27,6 +27,7 @@ from app.schemas import (
     FeedbackBody,
     LoginBody,
     ProjectBody,
+    RegenerateBody,
     RegisterBody,
     RerunBody,
     RunBody,
@@ -456,18 +457,21 @@ def get_run(run_id: str, account: AccountDep, db: Db) -> dict:
 
 
 @router.get("/runs/{run_id}/export/{part}")
-def export_run(run_id: str, part: str, account: AccountDep, db: Db, held_out: str | None = None) -> Response:
+def export_run(
+    run_id: str, part: str, account: AccountDep, db: Db, held_out: str | None = None, allow_unaccepted: bool = False
+) -> Response:
     run = require_run(db, run_id, account)
     if part not in run_export.PARTS:
         raise HTTPException(status_code=404, detail=f"unknown export part; choose one of {', '.join(run_export.PARTS)}")
     sector = get_sector(run.config.get("sector", "banking"))
     if held_out is not None and held_out not in (run.config.get("sub_domains") or []):
         raise HTTPException(status_code=422, detail="the held-out sub-domain must be one of this run's sub-domains")
+    unaccepted = _require_acceptance(run, db, allow_unaccepted)
     if not run.candidate:
         if store_for(run) is None:
             raise HTTPException(status_code=409, detail="this run has no generated candidate to export")
-        path = run_export.part_path(run_dir(run.id), held_out, part)
-        if not run_export.prepared(run_dir(run.id), held_out) or not path.is_file():
+        path = run_export.part_path(run_dir(run.id), held_out, part, unaccepted)
+        if not run_export.prepared(run_dir(run.id), held_out, unaccepted) or not path.is_file():
             raise HTTPException(status_code=409, detail="prepare this export first; large runs are exported by a background job")
         suffix = f"-heldout-{held_out}" if held_out else ""
         return FileResponse(
@@ -496,10 +500,32 @@ def prepare_export(run_id: str, body: ExportBody, account: AccountDep, db: Db) -
         raise HTTPException(status_code=409, detail="this run has nothing to export")
     if body.held_out is not None and body.held_out not in (run.config.get("sub_domains") or []):
         raise HTTPException(status_code=422, detail="the held-out sub-domain must be one of this run's sub-domains")
-    current = next((item for item in list_exports(run_id, account, db)["data"] if item["held_out"] == body.held_out), None)
+    unaccepted = _require_acceptance(run, db, body.allow_unaccepted)
+    current = next(
+        (item for item in list_exports(run_id, account, db)["data"] if item["held_out"] == body.held_out and item["unaccepted"] == unaccepted),
+        None,
+    )
     if current is None or not (current["ready"] or current["job"]["status"] in {"queued", "running"}):
-        jobs.enqueue(db, kind="export", owner_id=account.id, run_id=run.id, payload={"held_out": body.held_out})
+        jobs.enqueue(db, kind="export", owner_id=account.id, run_id=run.id, payload={"held_out": body.held_out, "unaccepted": unaccepted})
     return list_exports(run_id, account, db)
+
+
+def _latest_cycle(run: Run, db: Session) -> EvalCycle | None:
+    return db.scalars(select(EvalCycle).where(EvalCycle.run_id == run.id).order_by(EvalCycle.cycle_index.desc())).first()
+
+
+def _require_acceptance(run: Run, db: Session, allow_unaccepted: bool) -> bool:
+    """Export follows the judge: an accepted run exports as it is, any other only on request. True when unaccepted."""
+    cycle = _latest_cycle(run, db)
+    if cycle is not None and cycle.accepted:
+        return False
+    if not allow_unaccepted:
+        state = "has not judged this run yet" if cycle is None else "did not accept this run"
+        raise HTTPException(
+            status_code=409,
+            detail=f"The judge {state}. Export it anyway with allow_unaccepted=true; the manifest will say it was not accepted.",
+        )
+    return True
 
 
 @router.get("/runs/{run_id}/exports")
@@ -507,16 +533,18 @@ def list_exports(run_id: str, account: AccountDep, db: Db) -> dict:
     run = require_run(db, run_id, account)
     root = run_dir(run.id)
     rows = list(db.scalars(select(Job).where(Job.run_id == run.id, Job.kind == "export").order_by(Job.created_at)))
-    latest: dict[str | None, Job] = {}
+    latest: dict[tuple, Job] = {}
     for row in rows:
-        latest[row.payload.get("held_out")] = row
+        latest[(row.payload.get("held_out"), bool(row.payload.get("unaccepted")))] = row
     data = []
-    for held_out, job in latest.items():
-        manifest = run_export.part_path(root, held_out, "manifest.json")
+    for (held_out, unaccepted), job in latest.items():
+        manifest = run_export.part_path(root, held_out, "manifest.json", unaccepted)
         ready = manifest.is_file()
         sizes = json.loads(manifest.read_text()).get("file_sizes", {}) if ready else {}
-        downloads = {part: run_export.part_path(root, held_out, part).stat().st_size for part in run_export.PARTS} if ready else {}
-        data.append({"held_out": held_out, "ready": ready, "sizes": sizes, "download_sizes": downloads, "job": job_out(job)})
+        downloads = {part: run_export.part_path(root, held_out, part, unaccepted).stat().st_size for part in run_export.PARTS} if ready else {}
+        data.append(
+            {"held_out": held_out, "unaccepted": unaccepted, "ready": ready, "sizes": sizes, "download_sizes": downloads, "job": job_out(job)}
+        )
     return {"data": data}
 
 
@@ -597,6 +625,69 @@ def rerun(run_id: str, body: RerunBody, account: AccountDep, db: Db, cfg: Cfg) -
     return run_out(child, db)
 
 
+@router.post("/runs/{run_id}/regenerate")
+def regenerate(run_id: str, body: RegenerateBody, account: AccountDep, db: Db, cfg: Cfg) -> dict:
+    """A child run generated from the parent's revision notes and notes, judged as soon as it is generated."""
+    parent = require_run(db, run_id, account)
+    _require_generated(parent)
+    cycle = _latest_cycle(parent, db)
+    if cycle is None:
+        raise HTTPException(status_code=409, detail="Ask the judge first; its revision notes steer the regenerated run.")
+    if cycle.accepted:
+        raise HTTPException(status_code=409, detail="The judge accepted this run; there is nothing to regenerate.")
+    current = (parent.config.get("regeneration") or {}).get("round", 1)
+    limit = int(parent.config["max_cycles"])
+    if current >= limit:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This study has been judged {current} times, its limit. Change the configuration and run it again.",
+        )
+    known = [row.id for row in db.scalars(select(Feedback).where(Feedback.run_id == parent.id).order_by(Feedback.created_at))]
+    feedback_ids = known if body.feedback_ids is None else list(body.feedback_ids)
+    if any(item not in known for item in feedback_ids):
+        raise HTTPException(status_code=422, detail="feedback does not belong to the parent run")
+    config = {**parent.config, "regeneration": {"from_run": parent.id, "round": current + 1, "revision_notes": list(cycle.revision_notes or [])}}
+    _require_run_quota(db, account, cfg, config)
+    quotas.require_daily(db, account, cfg, "judge_cycles")
+    child = Run(
+        project_id=parent.project_id,
+        owner_id=account.id,
+        parent_run_id=parent.id,
+        status="queued",
+        config=config,
+        inherited_feedback_ids=feedback_ids,
+        candidate=None,
+        cycle_count=0,
+    )
+    db.add(child)
+    db.commit()
+    jobs.enqueue(db, kind="generate", owner_id=account.id, run_id=child.id, payload={"feedback_ids": feedback_ids, "judge_after": True})
+    db.refresh(child)
+    return run_out(child, db)
+
+
+@router.get("/runs/{run_id}/diff")
+def run_diff(run_id: str, account: AccountDep, db: Db) -> dict:
+    """What changed from the parent run: configuration, notes and their effects, data, and scores."""
+    from app.diff import diff_runs
+
+    run = require_run(db, run_id, account)
+    if not run.parent_run_id:
+        raise HTTPException(status_code=404, detail="this run has no previous run to compare with")
+    return diff_runs(db, require_run(db, run.parent_run_id, account), run)
+
+
+def judged(cycle: EvalCycle | None) -> bool:
+    """A cycle that reached a decision: the hard checks failed, or the primary judge read every rubric."""
+    if cycle is None:
+        return False
+    if not cycle.hard_check_passed:
+        return True
+    if cycle.models:
+        return not any(flag.get("kind") == "unreadable" and flag.get("model") == cycle.models[0] for flag in cycle.flags or [])
+    return True
+
+
 def _require_run_quota(db: Session, account: Account, cfg: Settings, config: dict) -> None:
     sequences = int(config["target_trajectory_count"]) * int(config.get("group_size") or 1)
     if config.get("target_kind") == "accepted_groups":
@@ -633,6 +724,11 @@ def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: 
     current = jobs.latest_for(db, run.id, "evaluate")
     if current is not None and current.status in jobs.ACTIVE:
         raise HTTPException(status_code=409, detail="the judge is already working on this run")
+    if body.candidate is None and judged(_latest_cycle(run, db)):
+        raise HTTPException(
+            status_code=409,
+            detail="The judge has already read this run. Regenerate from its notes instead of judging the same journeys again.",
+        )
     if body.candidate is not None:
         TrajectoryBundle.model_validate(body.candidate)
         run.candidate = body.candidate
