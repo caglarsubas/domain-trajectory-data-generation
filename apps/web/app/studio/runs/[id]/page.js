@@ -26,6 +26,19 @@ function markClass(type) {
   return "kyc_case";
 }
 
+function providerNote(provider) {
+  if (!provider.rollouts && !provider.errors && !provider.skipped_rollouts) return "No group in this run parted at a decision, so no provider calls were made.";
+  const rollouts = `${provider.rollouts} provider ${provider.rollouts === 1 ? "rollout" : "rollouts"} on your key used ${provider.calls} of ${provider.limit} calls`;
+  const checked = provider.rollouts
+    ? `; ${provider.checks.legal} took a legal step, ${provider.checks.grounded} named the case's own objects, ${provider.checks.no_call} made no call`
+    : "";
+  const skipped = provider.skipped_rollouts
+    ? ` ${provider.skipped_rollouts} more ${provider.skipped_rollouts === 1 ? "was" : "were"} skipped ${provider.stopped_by === "errors" ? "after repeated provider errors" : "when the call budget ran out"}.`
+    : "";
+  const failed = provider.errors ? ` ${provider.errors} ${provider.errors === 1 ? "call" : "calls"} failed${provider.last_error ? `: ${provider.last_error}` : ""}.` : "";
+  return `${rollouts}${checked}.${skipped}${failed}`;
+}
+
 export default function RunPage() {
   const params = useParams();
   const [run, setRun] = useState(null);
@@ -321,6 +334,9 @@ export default function RunPage() {
             : null}
           {run.generation.calibration
             ? ` Calibrated from ${run.generation.calibration.sources.join(", ")} (${run.generation.calibration.cases.toLocaleString()} cases, ${(run.generation.calibration.steps_observed || 0).toLocaleString()} observed steps).`
+            : null}
+          {run.generation.episodes?.provider
+            ? ` ${providerNote(run.generation.episodes.provider)}`
             : null}
           {run.generation.jurisdiction && run.generation.jurisdiction !== "neutral"
             ? ` Jurisdiction: ${sectors.find((item) => item.id === run.config.sector)?.jurisdictions?.find((item) => item.id === run.generation.jurisdiction)?.label || run.generation.jurisdiction}.`

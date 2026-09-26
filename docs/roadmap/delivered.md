@@ -183,3 +183,16 @@ Slice 5, second part. A study's documents are read into currency, channel, produ
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/28
 
 Slice 5, third part, completing the slice. CSV, Parquet, XES, and OCEL 2.0 logs are read, their activities mapped to the pack's events and correctable, and turned into next-step counts and duration quantiles; runs blend them with the priors by how much data backs them and follow steps through events a run leaves out. Representativeness is measured as fitness, precision, and next-step divergence. The catalogue downloads BPI Challenge 2017 and UCI Bank Marketing on demand with licence and snapshot date and recognizes a CFPB complaint export.
+
+## 29. Open accounts only after approval, and accept a run a single unreadable pairwise order leaves scored
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/29
+
+Two fixes found while judging a warm banking run with the local engine. `account.opened` now needs an approved application, not only a submitted one (`banking-pack-4`), and a test walks all seven banking sub-domains to check it. An unreadable verdict from the primary judge now blocks acceptance only when it leaves a sampled journey without a score for its rubric, so one readable pairwise order still scores the journey; it is still flagged.
+
+## 30. Build agent episodes at each decision point and export them in three harness formats
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/30
+
+Slice 6, first part. Where a group's rollouts part, an episode holds the machines' state, operations named after BIAN service domains and shaped by the study's OpenAPI definitions, a task in the run's language, five code-checked rubric items, and scripted rollouts (the step taken, legal alternatives, a forbidden operation, another case's object) rewarded as verification times rubric score, with group-relative advantages. Export writes every rollout in chat-tool, tool-block, and ReAct formats, with ReAct held out, and the run page shows the focused journey's episode.
+

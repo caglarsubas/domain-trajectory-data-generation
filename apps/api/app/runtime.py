@@ -26,3 +26,6 @@ class Fetcher:
 
 
 fetcher: Fetcher | None = None
+
+# Tests install a factory here that returns an agent with act() and report(), instead of calling providers.
+agent_factory = None

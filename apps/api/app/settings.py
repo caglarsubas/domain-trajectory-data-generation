@@ -34,6 +34,7 @@ class Settings:
     judge_sample_size: int = 6
     judge_prompt_tokens: int = 8000
     judge_reference_chars: int = 6000
+    demo_max_provider_calls: int = 100
 
 
 def load_settings() -> Settings:
@@ -68,6 +69,7 @@ def load_settings() -> Settings:
         judge_prompt_tokens=min(max(_count("JUDGE_PROMPT_TOKENS", 8000), 1000), 30000),
         # How much retrieved warm-start text the judge's brief carries.
         judge_reference_chars=min(max(_count("JUDGE_REFERENCE_CHARS", 6000), 500), 40000),
+        demo_max_provider_calls=_count("DEMO_MAX_PROVIDER_CALLS", 100),
     )
 
 

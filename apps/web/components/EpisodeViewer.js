@@ -9,6 +9,18 @@ const POLICY = {
   "perturbed:wrong_object": "Another case's object",
 };
 
+const CHECKS = [
+  ["tool_known", "a known operation"],
+  ["arguments_valid", "arguments the schema accepts"],
+  ["legal", "a step the state allows"],
+  ["grounded", "this case's objects"],
+  ["single_call", "one call"],
+];
+
+function label(policy) {
+  return POLICY[policy] || (policy.startsWith("provider:") ? `${policy.slice(9)} on your key` : policy);
+}
+
 function shown(value) {
   return typeof value === "number" ? (Number.isInteger(value) ? String(value) : value.toFixed(2)) : "—";
 }
@@ -51,14 +63,20 @@ export default function EpisodeViewer({ episode }) {
           <div className="episode-rollouts">
             {episode.rollouts.map((item, index) => (
               <button key={item.rollout_id} type="button" className="episode-rollout" data-on={index === open} data-outcome={item.legal && item.outcome === "pass" ? "pass" : "fail"} onClick={() => setOpen(index)}>
-                <b>{POLICY[item.policy] || item.policy}</b>
+                <b>{label(item.policy)}</b>
                 <small>reward {shown(item.reward)} · advantage {shown(item.advantage)}</small>
               </button>
             ))}
           </div>
           <div className="episode-call">
-            <code>{call?.name}({JSON.stringify(call?.arguments || {})})</code>
-            <pre>{JSON.stringify(result, null, 1)}</pre>
+            {call ? <code>{call.name}({JSON.stringify(call.arguments || {})})</code> : <code>No operation call</code>}
+            {rollout.checks ? (
+              <p className="episode-checks">
+                Checked against the skeleton: {CHECKS.map(([key, text]) => `${rollout.checks[key] ? "✓" : "✗"} ${text}`).join(" · ")}
+                {rollout.checks.branch === "unobserved" ? " · a legal branch no rollout observed" : ""}
+              </p>
+            ) : null}
+            {result ? <pre>{JSON.stringify(result, null, 1)}</pre> : null}
             <p>{final}</p>
             <table className="target-table">
               <tbody>

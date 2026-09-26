@@ -26,6 +26,10 @@ from sectors.quality import QualityAccumulator
 from sectors.registry import get_sector
 
 
+# Settings that change no journey stay out of the seed, so turning them on draws the same journeys.
+SEED_FREE = {"credential_id", "episodes", "provider_rollouts", "provider_call_budget", "provider_model"}
+
+
 def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, parent: Run | None) -> tuple:
     """The generator arguments shared by every batch, and the corpus items behind them."""
     items = []
@@ -62,7 +66,7 @@ def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, 
             corpus_steering = replace(corpus_steering, channel=max(channels, key=lambda name: (channels[name], name)))
     seed_payload = {
         # Keys that change no journey stay out of the seed, so turning them on draws the same journeys.
-        "config": {key: config[key] for key in sorted(config) if key not in {"credential_id", "episodes"}},
+        "config": {key: config[key] for key in sorted(config) if key not in SEED_FREE},
         "facts": corpus_steering.report() if corpus_steering is not None else None,
         "corpus_text": corpus_text,
         "feedback": feedback,
@@ -115,6 +119,12 @@ def candidate_for_run(db: Session, config: dict, *, project_id: str, feedback_ro
     if errors:
         raise HTTPException(status_code=500, detail=f"generated trajectory failed {sector.id} checks")
     assert bundle.generation is not None
+    agent, calls = agent_for(db, config)
+    if agent is not None:
+        # Reported even when no group had a decision to hand over, so the run says it made no calls.
+        if bundle.episodes:
+            bundle.episodes = _with_provider_rollouts(bundle.episodes, agent, int(config["provider_rollouts"]), calls, progress)
+        bundle.generation.episodes = {**summarize_episodes(bundle.episodes), "provider": calls.as_dict()}
     if bundle.generation.steering is not None:
         bundle.generation.steering["documents"] = [_document_report(sector, item) for item in items]
         bundle.generation.steering["facts"] = _facts_counts(db, config, project_id, items, sector)
@@ -146,6 +156,7 @@ def buckets_for(config: dict, requested: int) -> list[dict]:
 def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run | None, progress) -> dict:
     """Generate a large run batch by batch into files. Returns the run's generation metadata."""
     sector, kwargs, items = prepare(db, run.config, project_id=run.project_id, feedback_rows=feedback_rows, parent=parent)
+    agent, calls = agent_for(db, run.config)
     size = kwargs["group_size"]
     requested = kwargs["target_trajectory_count"]
     accepted_mode = run.config.get("target_kind") == "accepted_groups"
@@ -214,6 +225,14 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
             errors = sector.hard_checks(bundle)
             if errors:
                 raise HTTPException(status_code=500, detail=f"generated batch {name} failed {sector.id} checks")
+            if agent is not None and bundle.episodes:
+                # One budget for the whole run, kept in the checkpoint, so a resumed run never spends it twice.
+                saved = state.get("provider") or {}
+                calls.used, calls.errors, calls.skipped, calls.rollouts = saved.get("calls", 0), saved.get("errors", 0), saved.get("skipped_rollouts", 0), saved.get("rollouts", 0)
+                calls.last_error, calls.checks = saved.get("last_error"), dict(saved.get("checks") or calls.checks)
+                bundle.episodes = _with_provider_rollouts(bundle.episodes, agent, int(run.config["provider_rollouts"]), calls, None)
+                bundle.generation.episodes = summarize_episodes(bundle.episodes)
+                state["provider"] = calls.as_dict()
             quality.add(bundle)
             overview.add(bundle)
             meta = bundle.generation
@@ -298,7 +317,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "quality": _with_representative(quality.report(), kwargs.get("calibration"), overview.report()),
         "overview": overview.report(),
         "calibration": (meta_first or {}).get("calibration"),
-        "episodes": totals.get("episodes"),
+        "episodes": {**(totals.get("episodes") or summarize_episodes([])), "provider": state.get("provider") or calls.as_dict()} if agent is not None else totals.get("episodes"),
         "storage": {"kind": "files", "batches": len(state["done"]), "batch_sequences": BATCH_SEQUENCES},
         "target": target,
     }
@@ -329,6 +348,40 @@ def _resolve_notes(parent: Run, feedback: list[dict]) -> list[dict]:
             target = store.trajectory_type(target) or target
         resolved.append({**note, "target_id": target})
     return resolved
+
+
+def agent_for(db: Session, config: dict):
+    """The provider agent for a run with provider rollouts, using the key of the account that owns it, and its budget."""
+    from app.agents import Budget, ProviderAgent
+    from app import runtime
+    from app.models import Credential
+    from app.security import decrypt_secret
+    from app.settings import load_settings
+
+    if not config.get("provider_rollouts") or not config.get("credential_id"):
+        return None, None
+    credential = db.get(Credential, config["credential_id"])
+    if credential is None or not credential.ready:
+        raise HTTPException(status_code=422, detail="the run's provider key is missing or not ready")
+    key = decrypt_secret(load_settings().credential_master_key, credential.ciphertext)
+    model = config.get("provider_model") or None
+    agent = runtime.agent_factory(credential.provider, key, model) if runtime.agent_factory else ProviderAgent(credential.provider, key, model)
+    return agent, Budget(limit=int(config.get("provider_call_budget") or 0))
+
+
+def _with_provider_rollouts(episodes: list, agent, per_episode: int, budget, progress) -> list:
+    from app.agents import add_provider_rollouts
+    from trajectory_contract.models import Episode
+
+    dumped = [episode.model_dump(mode="json") for episode in episodes]
+    add_provider_rollouts(dumped, agent, per_episode, budget, progress)
+    return [Episode.model_validate(item) for item in dumped]
+
+
+def summarize_episodes(episodes: list) -> dict:
+    from sectors.episodes import summarize
+
+    return summarize(episodes)
 
 
 def _operations(items: list) -> list[dict]:
