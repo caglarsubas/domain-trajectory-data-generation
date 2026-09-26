@@ -222,7 +222,7 @@ def test_failed_lifecycle_does_not_call_the_judge(client):
     judge = RecordingJudge(fail_if_called=True)
     runtime.judge = judge
     bundle = banking_fixture()
-    bundle.events[8].event_time = bundle.events[8].event_time.replace(year=2020)
+    bundle.events[9].event_time = bundle.events[9].event_time.replace(year=2020)
     response = client.post(
         f"/runs/{run_id}/evaluate",
         headers=headers,
@@ -316,7 +316,7 @@ def test_rerun_applies_drop_and_revise_notes(client):
         credential_id,
         sub_domains=["onboarding_and_kyc", "cards_and_payments"],
         target_trajectory_count=4,
-        min_events=6,
+        min_events=8,
         max_events=16,
         event_budget=400,
     )

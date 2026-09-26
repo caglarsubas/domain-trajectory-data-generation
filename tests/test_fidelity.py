@@ -56,7 +56,7 @@ def test_quality_report_measures_complete_and_comprehensive():
     assert set(quality["comprehensive"]["event_type_coverage"]) == set(SUB_DOMAINS)
     assert quality["representative"]["status"] == "unreferenced"
     assert quality["qualitative"]["status"] == "not_measured"
-    assert bundle.generation.pack_version == "banking-pack-3"
+    assert bundle.generation.pack_version == "banking-pack-4"
 
 
 def test_the_process_map_places_each_event_type_in_time_and_in_sequence():

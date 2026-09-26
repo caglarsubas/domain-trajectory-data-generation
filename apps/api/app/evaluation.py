@@ -345,8 +345,10 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
                     flags.append({"kind": "models_disagree", "trajectory_id": entry["trajectory_id"], "rubric": rubric, "model": f"{primary} vs {second}"})
     order = {model: {**value, "rate": round(value["consistent"] / value["journeys"], 4) if value["journeys"] else None} for model, value in consistency.items()}
 
-    unreadable_primary = any(not item["readable"] for item in judged if item["judge_model"] == primary)
-    accepted = bool(asked) and not unreadable_primary and all(
+    # A broken verdict blocks acceptance only when it leaves a sampled journey unscored for its rubric;
+    # pairwise judges both orders, so one readable order still scores the journey.
+    unscored_primary = any(value is None for (tid, rubric, model), value in per.items() if model == primary)
+    accepted = bool(asked) and not unscored_primary and all(
         scores[rubric][primary] is not None and scores[rubric][primary] >= minimum[rubric] for rubric in asked
     )
     notes = []
