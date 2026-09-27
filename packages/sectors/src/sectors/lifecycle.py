@@ -61,6 +61,9 @@ class EventSpec:
     violation: str | None = None
     # When an opening event is legal, a journey starts with one, such as a product view before a complaint.
     opening: bool = False
+    # A journey does not end right after this event while one of these is legal, such as a first bill after a
+    # line goes live. Only events in the run's scope are legal, so an out-of-scope follow-up never holds a journey.
+    follow_up: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.cycle_hours is not None and not 0 < self.cycle_hours[0] <= self.cycle_hours[1]:
@@ -295,10 +298,12 @@ class Walker:
                 forced = None
             else:
                 covered = sum(1 for goal in self.goals if any(counts.get(name) for name in goal))
+                legal = {name for name, _ in options}
                 may_end = (
                     len(steps) >= floor
                     and (not self.goals or covered > 0)
                     and all(counts.get(name) for name in self.kept)
+                    and not (steps and legal & set(self.lifecycle[steps[-1].event_type].follow_up))
                 )
                 stop = STOP_WEIGHT * (covered / len(self.goals) if self.goals else 1.0) if may_end else 0.0
                 total = stop + sum(weight for _, weight in options)

@@ -25,3 +25,14 @@ def test_a_pack_missing_a_phrase_or_an_operation_fails_the_spec_gate():
     )
     gate = complete_spec(broken)
     assert not gate.passed and "port.failed has no tr phrase" in gate.detail and "bill.paid has no named operation" in gate.detail
+
+
+def test_a_follow_up_that_is_not_a_pack_event_fails_the_spec_gate():
+    telecom = get_sector("telecom")
+    events = tuple(replace(spec, follow_up=("bill.mailed",)) if spec.event_type == "service.activated" else spec for spec in telecom.lifecycle.events)
+    broken = SimpleNamespace(
+        id="broken", sub_domains=telecom.sub_domains, default_sub_domains=telecom.default_sub_domains, languages=telecom.languages,
+        lifecycle=replace(telecom.lifecycle, events=events), pack=telecom.pack,
+    )
+    gate = complete_spec(broken)
+    assert not gate.passed and "service.activated follows up with bill.mailed, which is not a pack event" in gate.detail
