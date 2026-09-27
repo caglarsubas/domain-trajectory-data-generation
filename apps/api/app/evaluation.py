@@ -25,12 +25,27 @@ DEFAULT_THRESHOLDS = {
 }
 
 RUBRICS = ("helpfulness", "correctness", "safety", "pairwise_quality")
+# The rubrics that decide acceptance and write revision notes. Pairwise compares a journey with its own
+# alternative branch; both replay legally, so an unbiased judge sits near 0.5 and a 0.5 bar is a coin flip.
+# It is scored and reported, and decides nothing.
+GATING = ("helpfulness", "correctness", "safety")
 
 # Helpfulness is scored 1 to 5; the others 0 to 1. Normalized scores divide by this.
 SCALE = {"helpfulness": 5.0}
 
 # Rough characters per token, to keep a prompt inside the budget without a tokenizer.
 CHARS_PER_TOKEN = 4
+
+
+# A journey and its alternative branch often end differently on purpose: group rewards need failures.
+# Asked only which is "more plausible", judges preferred whichever succeeded, so the question rules that out.
+PAIRWISE_QUESTION = (
+    "Compare the two journeys as things that could happen to the same customer. Either may end in success or in "
+    "failure: an abandoned order, a declined application, a failed check, or a missed payment is as valid an "
+    "outcome as a completed one. Prefer the journey whose steps, order, and timing are more realistic for this "
+    "sector. Do not prefer a journey because it succeeds or because it has more events. If both are equally "
+    "realistic, answer tie."
+)
 
 
 def normalized(rubric: str, score: float | None) -> float | None:
@@ -53,8 +68,12 @@ def outcome_of(bundle: TrajectoryBundle, trajectory_id: str) -> str | None:
     return None
 
 
-def render_journey(bundle: TrajectoryBundle, trajectory_id: str, budget_chars: int = 24_000) -> tuple[str, bool]:
-    """The journey as the judge reads it, and whether it had to be shortened to fit the budget."""
+def render_journey(bundle: TrajectoryBundle, trajectory_id: str, budget_chars: int = 24_000, blind: bool = False) -> tuple[str, bool]:
+    """The journey as the judge reads it, and whether it had to be shortened to fit the budget.
+
+    Blind leaves out the journey's id, kind, outcome, and whether it is an alternative, so a pairwise judge
+    compares the events themselves and cannot pick the journey that says it succeeded.
+    """
     traj = next(item for item in bundle.trajectories if item.trajectory_id == trajectory_id)
     events = {event.event_id: event for event in bundle.events}
     links: dict[str, list[str]] = {}
@@ -65,12 +84,12 @@ def render_journey(bundle: TrajectoryBundle, trajectory_id: str, budget_chars: i
         changes.setdefault(change.event_id, []).append(
             f"{change.object_id}.{change.state_dimension}: {change.state_before or 'none'} -> {change.state_after or 'none'}"
         )
-    header = [f"Journey {traj.trajectory_id}, {traj.trajectory_type}, {traj.observed_or_synthetic}."]
-    if traj.parent_trajectory_id:
+    header = [f"Journey {traj.trajectory_id}, {traj.trajectory_type}, {traj.observed_or_synthetic}."] if not blind else ["Journey."]
+    if traj.parent_trajectory_id and not blind:
         branch = events.get(traj.branch_event_id or "")
         header.append(f"A simulated alternative of {traj.parent_trajectory_id}, branching after {branch.event_type if branch else 'its start'}.")
     outcome = outcome_of(bundle, trajectory_id)
-    if outcome:
+    if outcome and not blind:
         header.append("Outcome: it reached its goal." if outcome == "pass" else "Outcome: it did not reach its goal.")
     used = {link.object_id for link in bundle.event_objects if link.event_id in set(traj.event_ids)}
     objects = [
@@ -196,11 +215,12 @@ def evaluate_journeys(
         )
         calls.append({**own, "rubric": "safety", "payload": {"prompt": "Confirm the journey is synthetic and holds no real personal or account identifiers.", "response": text}})
         if alternative is not None:
-            other, cut = render_journey(journey, alternative.trajectory_id, budget_chars // 2)
+            mine, _ = render_journey(journey, primary.trajectory_id, budget_chars // 2, blind=True)
+            other, cut = render_journey(journey, alternative.trajectory_id, budget_chars // 2, blind=True)
             sample[-1]["truncated"] = truncated or cut
-            question = brief + "\nCompare the two journeys. Which is the more plausible customer journey?"
-            calls.append({**own, "rubric": "pairwise_quality", "order": "ab", "payload": {"prompt": question, "response": text, "response_b": other}})
-            calls.append({**own, "rubric": "pairwise_quality", "order": "ba", "payload": {"prompt": question, "response": other, "response_b": text}})
+            question = brief + "\n" + PAIRWISE_QUESTION
+            calls.append({**own, "rubric": "pairwise_quality", "order": "ab", "payload": {"prompt": question, "response": mine, "response_b": other}})
+            calls.append({**own, "rubric": "pairwise_quality", "order": "ba", "payload": {"prompt": question, "response": other, "response_b": mine}})
     canary = None
     for journey, entry in zip(journeys, sample):
         broken = broken_copy(journey, entry["trajectory_id"])
@@ -347,12 +367,13 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
 
     # A broken verdict blocks acceptance only when it leaves a sampled journey unscored for its rubric;
     # pairwise judges both orders, so one readable order still scores the journey.
-    unscored_primary = any(value is None for (tid, rubric, model), value in per.items() if model == primary)
-    accepted = bool(asked) and not unscored_primary and all(
-        scores[rubric][primary] is not None and scores[rubric][primary] >= minimum[rubric] for rubric in asked
+    gating = [rubric for rubric in asked if rubric in GATING]
+    unscored_primary = any(value is None for (tid, rubric, model), value in per.items() if model == primary and rubric in GATING)
+    accepted = bool(gating) and not unscored_primary and all(
+        scores[rubric][primary] is not None and scores[rubric][primary] >= minimum[rubric] for rubric in gating
     )
     notes = []
-    for rubric in asked:
+    for rubric in gating:
         value = scores[rubric][primary]
         if value is None or value >= minimum[rubric]:
             continue

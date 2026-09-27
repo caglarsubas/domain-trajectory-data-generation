@@ -3,12 +3,16 @@ import re
 import pytest
 
 from app import runtime
-from app.evaluation import render_journey, summarize
+from app.evaluation import PAIRWISE_QUESTION, render_journey, summarize
 from app.judging import sample_entries
 from test_api import _auth, _link, _project, _ready_key, _run
 from trajectory_contract import TrajectoryBundle
 
 PRIMARY, SECOND = "qwen3.8:27b", "gemma4:26b"
+
+
+def _events(text: str) -> str:
+    return text.split("Events:\n", 1)[1].split("\n\n", 1)[0]
 
 
 class ScriptedJudge:
@@ -34,7 +38,8 @@ class ScriptedJudge:
             score = 1
         else:
             # A = the first response shown. The primary prefers the primary journey in both orders; the second picks A always.
-            first_is_primary = self.calls[-1]["response"].startswith("Journey") and "simulated alternative" not in response.split("\n")[1]
+            # Pairwise journeys are shown blind, so the primary is recognised by the events helpfulness saw.
+            first_is_primary = _events(response) in {_events(call["response"]) for call in self.calls if call["rubric"] == "helpfulness"}
             score = 1 if second or first_is_primary else 0
         return {"score": score, "parsed": {"justification": f"{rubric} by {judge_model}"}, "raw": "{}", "judge_model": judge_model, "duration_ms": 2}
 
@@ -86,6 +91,28 @@ def test_a_cycle_judges_a_sample_with_both_models_and_reports_agreement(client, 
     assert {item["order"] for item in pairwise} == {"ab", "ba"}
     assert sum(item["canary"] for item in cycle["verdicts"]) == 2
     assert {item["trajectory_id"] for item in cycle["verdicts"]} == {entry["trajectory_id"] for entry in cycle["sample"]}
+
+
+def test_pairwise_shows_both_journeys_blind_and_does_not_reward_success(client, three_journeys):
+    headers, project_id, credential_id = _study(client, "pairwise-question@example.com")
+    run = _run(client, headers, project_id, credential_id, target_trajectory_count=6, event_budget=None).json()
+    prompts, shown_journeys = [], []
+
+    class Recording:
+        def run_eval(self, *, rubric, prompt, response, expected=None, response_b=None, judge_model=None):
+            if rubric == "pairwise_quality":
+                prompts.append(prompt)
+                shown_journeys.extend([response, response_b])
+            score = {"helpfulness": 4, "correctness": 1, "safety": 1, "pairwise_quality": 0.5}[rubric]
+            return {"score": score, "parsed": {}, "raw": "{}", "judge_model": judge_model, "duration_ms": 1}
+
+    runtime.judge = Recording()
+    assert client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).status_code == 200
+    assert prompts and all(prompt.endswith(PAIRWISE_QUESTION) for prompt in prompts)
+    for shown in shown_journeys:
+        assert shown.startswith("Journey.\n") and "Outcome:" not in shown and "simulated alternative" not in shown
+    assert "Do not prefer a journey because it succeeds" in PAIRWISE_QUESTION
+    assert "tie" in PAIRWISE_QUESTION
 
 
 def test_the_judge_reads_amounts_states_and_the_sample_text(client, three_journeys):
@@ -204,9 +231,27 @@ def test_one_unreadable_pairwise_order_does_not_block_acceptance():
     assert {"kind": "unreadable", "trajectory_id": "T2", "rubric": "pairwise_quality", "model": "judge"} in result["flags"]
 
 
-def test_a_journey_left_unscored_still_blocks_acceptance():
+def test_a_journey_left_unscored_on_a_gating_rubric_blocks_acceptance():
     sample = [{"trajectory_id": "T1"}, {"trajectory_id": "T2"}]
-    both_orders = summarize(_passing("T1") + _passing("T2", ab=False, ba=False), sample, ["judge"], {})
-    assert both_orders["accepted"] is False
     single = summarize(_passing("T1") + _passing("T2", helpfulness=False), sample, ["judge"], {})
     assert single["accepted"] is False
+    # Pairwise decides nothing, so a journey without a readable pairwise order is still accepted, and flagged.
+    both_orders = summarize(_passing("T1") + _passing("T2", ab=False, ba=False), sample, ["judge"], {})
+    assert both_orders["accepted"] is True
+    assert {"kind": "unreadable", "trajectory_id": "T2", "rubric": "pairwise_quality", "model": "judge"} in both_orders["flags"]
+
+
+def test_a_low_pairwise_score_is_reported_and_decides_nothing():
+    sample = [{"trajectory_id": "T1"}, {"trajectory_id": "T2"}]
+    # Both journeys lose to their alternative in both orders: pairwise 0.
+    verdicts = []
+    for tid in ("T1", "T2"):
+        rows = _passing(tid)
+        for row in rows:
+            if row["rubric"] == "pairwise_quality":
+                row["score"] = 0.0 if row["order"] == "ab" else 1.0
+        verdicts += rows
+    result = summarize(verdicts, sample, ["judge"], {})
+    assert result["scores"]["pairwise_quality"]["judge"] == 0.0
+    assert result["accepted"] is True
+    assert not any(note.startswith("pairwise_quality") for note in result["revision_notes"])
