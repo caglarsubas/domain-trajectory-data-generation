@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "hotel-semi-markov-v1"
-PACK_VERSION = "hotel-pack-1"
+PACK_VERSION = "hotel-pack-2"
 
 BR = "booking_and_reservations"
 MC = "modifications_and_cancellations"
@@ -149,14 +149,15 @@ LIFECYCLE = LifecycleSpec(
             "guest.checked_in", (AR,),
             requires=(need("stay", "stay", "assigned"),),
             sets=(put("stay", "stay", "in_house"),),
-            weight=0.93, outcome="arrival_outcome", dwell_hours=(0.2, 6.0),
+            weight=0.91, outcome="arrival_outcome", dwell_hours=(0.2, 6.0),
             violation="check-in before a room was assigned",
         ),
         EventSpec(
             "guest.no_show", (AR,),
             requires=(need("stay", "stay", "assigned"),),
             sets=(put("stay", "stay", "no_show"),),
-            weight=0.05, outcome="arrival_outcome", ends_journey=True, dwell_hours=(6.0, 24.0),
+            # Guaranteed reservations still see several no-shows in a hundred.
+            weight=0.07, outcome="arrival_outcome", ends_journey=True, dwell_hours=(6.0, 24.0),
             violation="no-show recorded before a room was assigned",
         ),
         EventSpec(
@@ -234,14 +235,14 @@ LIFECYCLE = LifecycleSpec(
             "folio.settled", (CB,),
             requires=(need("stay", "stay", "departed"), need("folio", "settlement", None)),
             sets=(put("folio", "settlement", "paid"),),
-            weight=0.93, outcome="settlement", dwell_hours=(0.05, 1.0),
+            weight=0.9, outcome="settlement", dwell_hours=(0.05, 1.0),
             violation="folio settled before check-out",
         ),
         EventSpec(
             "folio.disputed", (CB,),
             requires=(need("stay", "stay", "departed"), need("folio", "settlement", None)),
             sets=(put("folio", "settlement", "disputed"),),
-            weight=0.07, outcome="settlement", dwell_hours=(0.1, 72.0),
+            weight=0.1, outcome="settlement", dwell_hours=(0.1, 72.0),
             violation="folio disputed before check-out",
         ),
         EventSpec(
@@ -522,7 +523,8 @@ def classify(types: list[str]) -> str:
 FAILED_OUTCOMES = frozenset(
     {
         "guarantee.declined", "reservation.lapsed", "reservation.cancelled", "cancellation.fee_charged", "modification.declined",
-        "guest.no_show", "guest.walked", "dispute.rejected", "review.negative", "complaint.escalated",
+        # A disputed bill is a failed check-out even when it is adjusted later.
+        "guest.no_show", "guest.walked", "folio.disputed", "dispute.rejected", "review.negative", "complaint.escalated",
     }
 )
 
@@ -656,8 +658,8 @@ PACK = PackSpec(
     subtype=subtype,
     correctness_drops=("guest.walked",),
     goal={
-        "en": "The guest stays as booked without a failed outcome: no declined guarantee, lapsed or cancelled reservation, late-cancellation fee, declined change, no-show, being walked to another hotel, delayed request left unrecovered, rejected billing dispute, negative review, or escalated complaint.",
-        "tr": "Misafir, başarısız bir sonuç olmadan rezervasyonuna uygun konaklar: reddedilen garanti, düşen veya iptal edilen rezervasyon, geç iptal ücreti, reddedilen değişiklik, gelmeme, başka otele yönlendirilme, telafi edilmeyen gecikmiş talep, reddedilen folyo itirazı, olumsuz değerlendirme veya üst mercie taşınan şikâyet olmaz.",
+        "en": "The guest stays as booked without a failed outcome: no declined guarantee, lapsed or cancelled reservation, late-cancellation fee, declined change, no-show, being walked to another hotel, delayed request left unrecovered, disputed bill, negative review, or escalated complaint.",
+        "tr": "Misafir, başarısız bir sonuç olmadan rezervasyonuna uygun konaklar: reddedilen garanti, düşen veya iptal edilen rezervasyon, geç iptal ücreti, reddedilen değişiklik, gelmeme, başka otele yönlendirilme, telafi edilmeyen gecikmiş talep, itiraz edilen folyo, olumsuz değerlendirme veya üst mercie taşınan şikâyet olmaz.",
     },
     operations=OPERATIONS,
     agent={

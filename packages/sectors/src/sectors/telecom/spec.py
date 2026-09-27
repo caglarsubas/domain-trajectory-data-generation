@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "telecom-semi-markov-v1"
-PACK_VERSION = "telecom-pack-1"
+PACK_VERSION = "telecom-pack-2"
 
 SO = "sales_and_ordering"
 AP = "activation_and_porting"
@@ -195,7 +195,7 @@ LIFECYCLE = LifecycleSpec(
         ),
         EventSpec(
             "fault.reported", (FM,),
-            requires=(need("subscription", "service", "active"), need("fault", "fault", None, "resolved")),
+            requires=(need("subscription", "service", "active"), need("fault", "fault", None, "resolved", "unresolved")),
             sets=(put("fault", "fault", "open"),),
             weight=0.15, repeat=2, dwell_hours=(7 * DAY, 120 * DAY),
             violation="fault reported on a line that is not active, or while another fault is open",
@@ -211,14 +211,22 @@ LIFECYCLE = LifecycleSpec(
             "fault.resolved_remotely", (FM,),
             requires=(need("fault", "fault", "diagnosed"),),
             sets=(put("fault", "fault", "resolved"),),
-            weight=0.7, repeat=2, outcome="fault_path", dwell_hours=(0.2, 24.0),
+            weight=0.64, repeat=2, outcome="fault_path", dwell_hours=(0.2, 24.0),
             violation="fault resolved before it was diagnosed",
+        ),
+        EventSpec(
+            "fault.closed_unresolved", (FM,),
+            # "No fault found": the ticket closes while the customer's problem remains.
+            requires=(need("fault", "fault", "diagnosed"),),
+            sets=(put("fault", "fault", "unresolved"),),
+            weight=0.1, repeat=2, outcome="fault_path", dwell_hours=(DAY, 5 * DAY),
+            violation="fault closed before it was diagnosed",
         ),
         EventSpec(
             "engineer.dispatched", (FM,),
             requires=(need("fault", "fault", "diagnosed"),),
             sets=(put("fault", "fault", "visit"),),
-            weight=0.3, repeat=2, outcome="fault_path", dwell_hours=(DAY, 5 * DAY),
+            weight=0.26, repeat=2, outcome="fault_path", dwell_hours=(DAY, 5 * DAY),
             violation="engineer sent before the fault was diagnosed",
         ),
         EventSpec(
@@ -284,7 +292,7 @@ LIFECYCLE = LifecycleSpec(
         AP: ("service.activated",),
         BP: ("bill.paid", "bill.overdue"),
         PC: ("plan.changed", "plan.change_declined"),
-        FM: ("fault.resolved_remotely", "fault.fixed_on_site"),
+        FM: ("fault.resolved_remotely", "fault.fixed_on_site", "fault.closed_unresolved"),
         RE: ("retention.offer_accepted", "subscription.cancelled", "port.out_completed"),
         CO: ("complaint.received",),
     },
@@ -328,6 +336,7 @@ ROLES = {
     "fault.resolved_remotely": (("fault", "ticket"), ("subscription", "subscription")),
     "engineer.dispatched": (("fault", "ticket"), ("subscription", "subscription")),
     "fault.fixed_on_site": (("fault", "ticket"), ("subscription", "subscription")),
+    "fault.closed_unresolved": (("fault", "ticket"), ("subscription", "subscription")),
     "cancellation.requested": (("party", "subscriber"), ("subscription", "subscription")),
     "retention.offer_accepted": (("party", "subscriber"), ("subscription", "subscription")),
     "subscription.cancelled": (("party", "subscriber"), ("subscription", "subscription")),
@@ -365,6 +374,7 @@ EN = {
     "fault.resolved_remotely": "The fault was fixed remotely.",
     "engineer.dispatched": "An engineer was sent out.",
     "fault.fixed_on_site": "The engineer fixed the fault on site.",
+    "fault.closed_unresolved": "The ticket was closed without a fix.",
     "cancellation.requested": "The customer asked to cancel.",
     "retention.offer_accepted": "The customer accepted a retention offer.",
     "subscription.cancelled": "The subscription was cancelled.",
@@ -401,6 +411,7 @@ TR = {
     "fault.resolved_remotely": "Arıza uzaktan giderildi.",
     "engineer.dispatched": "Teknisyen yönlendirildi.",
     "fault.fixed_on_site": "Teknisyen arızayı yerinde giderdi.",
+    "fault.closed_unresolved": "Arıza kaydı sorun giderilmeden kapatıldı.",
     "cancellation.requested": "Müşteri iptal talep etti.",
     "retention.offer_accepted": "Müşteri elde tutma teklifini kabul etti.",
     "subscription.cancelled": "Abonelik iptal edildi.",
@@ -439,6 +450,7 @@ OPERATIONS = {
     "fault.resolved_remotely": ("Trouble Ticket", "Execute"),
     "engineer.dispatched": ("Appointment", "Initiate"),
     "fault.fixed_on_site": ("Work Order", "Execute"),
+    "fault.closed_unresolved": ("Trouble Ticket", "Control"),
     "cancellation.requested": ("Customer Retention", "Request"),
     "retention.offer_accepted": ("Customer Retention", "Execute"),
     "subscription.cancelled": ("Product Inventory", "Control"),
@@ -486,7 +498,10 @@ def classify(types: list[str]) -> str:
 
 
 FAILED_OUTCOMES = frozenset(
-    {"order.abandoned", "credit_check.failed", "port.failed", "plan.change_declined", "subscription.cancelled", "port.out_completed", "complaint.escalated"}
+    {
+        "order.abandoned", "credit_check.failed", "port.failed", "plan.change_declined", "subscription.cancelled", "port.out_completed",
+        "complaint.escalated", "fault.closed_unresolved",
+    }
 )
 
 
@@ -585,6 +600,7 @@ PACK = PackSpec(
             "plan.change_declined",
             "fault.diagnosed",
             "fault.resolved_remotely",
+            "fault.closed_unresolved",
             "subscription.cancelled",
             "port.out_completed",
             "complaint.resolved",
@@ -629,8 +645,8 @@ PACK = PackSpec(
     correctness_drops=("complaint.escalated",),
     intent=intent,
     goal={
-        "en": "The journey ends without a failed outcome: no abandoned order, failed credit check, failed number port, declined plan change, cancellation or port-out, or escalated complaint; the last bill is paid and a suspended line is back on.",
-        "tr": "Yolculuk başarısız bir sonuç olmadan biter: yarım bırakılan sipariş, olumsuz kredi kontrolü, başarısız numara taşıma, reddedilen tarife değişikliği, iptal veya numara taşıyarak ayrılma ya da üst mercie taşınan şikâyet olmaz; son fatura ödenir ve askıya alınan hat yeniden açılır.",
+        "en": "The journey ends without a failed outcome: no abandoned order, failed credit check, failed number port, declined plan change, fault closed without a fix, cancellation or port-out, or escalated complaint; the last bill is paid and a suspended line is back on.",
+        "tr": "Yolculuk başarısız bir sonuç olmadan biter: yarım bırakılan sipariş, olumsuz kredi kontrolü, başarısız numara taşıma, reddedilen tarife değişikliği, giderilmeden kapatılan arıza, iptal veya numara taşıyarak ayrılma ya da üst mercie taşınan şikâyet olmaz; son fatura ödenir ve askıya alınan hat yeniden açılır.",
     },
     operations=OPERATIONS,
     agent={

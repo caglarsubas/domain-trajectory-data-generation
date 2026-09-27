@@ -7,6 +7,8 @@
   journey classifies to a declared type.
 - every_sub_domain: each sub-domain alone, and all together, yield legal journeys that reach its milestones.
 - diversity: 64 journeys across every sub-domain hold at least 32 distinct event sequences.
+- group_signal: each sub-domain alone yields accepted groups, with both a pass and a fail, in at least a fifth of
+  its groups of four; a group whose rollouts all pass or all fail teaches nothing under group-relative rewards.
 - reachable: every event of the pack occurs in a large run, so every outcome is possible.
 - stable: the same seed draws the same bundle.
 - agent_ready: groups yield episodes whose operations follow the pack's map, decision points, and every signal.
@@ -19,6 +21,8 @@ from dataclasses import dataclass
 
 DIVERSITY_JOURNEYS = 64
 DIVERSITY_DISTINCT = 32
+SIGNAL_GROUPS = 100
+SIGNAL_SHARE = 0.2
 
 
 @dataclass(frozen=True)
@@ -123,7 +127,8 @@ def legal_sweep(sector, trials: int = 150) -> Gate:
 def every_sub_domain(sector) -> Gate:
     lifecycle = sector.lifecycle
     for scope in [[domain] for domain in sector.sub_domains] + [list(sector.sub_domains)]:
-        bundle = sector.generate(**_base(sub_domains=scope, target_trajectory_count=12, min_events=3, seed="scope|" + "|".join(scope)))
+        # All sub-domains together share their journeys, so they need more of them to reach every milestone.
+        bundle = sector.generate(**_base(sub_domains=scope, target_trajectory_count=12 if len(scope) == 1 else 40, min_events=3, seed="scope|" + "|".join(scope)))
         errors = sector.hard_checks(bundle)
         if errors:
             return Gate("every_sub_domain", False, f"{'+'.join(scope)}: {errors[0]}")
@@ -140,9 +145,23 @@ def diversity(sector) -> Gate:
     return Gate("diversity", distinct >= DIVERSITY_DISTINCT, f"{distinct} distinct sequences in {DIVERSITY_JOURNEYS} journeys")
 
 
+def group_signal(sector) -> Gate:
+    shares = {}
+    for domain in sector.sub_domains:
+        bundle = sector.generate(**_base(
+            sub_domains=[domain], target_trajectory_count=SIGNAL_GROUPS, min_events=6, max_events=24, group_size=4,
+            seed=f"signal|{domain}", materialization_cap=SIGNAL_GROUPS * 4,
+        ))
+        rewards = bundle.generation.rewards
+        shares[domain] = rewards["accepted_groups"] / max(rewards["groups"], 1)
+    weak = {domain: share for domain, share in shares.items() if share < SIGNAL_SHARE}
+    detail = ", ".join(f"{domain} {share:.0%}" for domain, share in sorted(weak.items() or shares.items(), key=lambda item: item[1])[:4])
+    return Gate("group_signal", not weak, f"too few accepted groups: {detail}" if weak else f"lowest: {detail}")
+
+
 def reachable(sector) -> Gate:
     bundle = sector.generate(**_base(
-        sub_domains=list(sector.sub_domains), target_trajectory_count=200, min_events=4, max_events=30, group_size=4, seed="reachable", materialization_cap=800,
+        sub_domains=list(sector.sub_domains), target_trajectory_count=400, min_events=4, max_events=30, group_size=4, seed="reachable", materialization_cap=1600,
     ))
     seen = {name for path in _paths(bundle, primaries_only=False) for name in path}
     missing = [name for name in sector.lifecycle.namespace if name not in seen]
@@ -177,7 +196,7 @@ def agent_ready(sector) -> Gate:
     return Gate("agent_ready", True, f"{len(bundle.episodes)} episodes, {len(bundle.decisions)} decisions, five signals")
 
 
-GATES = (complete_spec, legal_sweep, every_sub_domain, diversity, reachable, stable, agent_ready)
+GATES = (complete_spec, legal_sweep, every_sub_domain, diversity, group_signal, reachable, stable, agent_ready)
 
 
 def run_gates(sector) -> list[Gate]:

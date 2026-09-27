@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
@@ -152,6 +153,24 @@ def sectors() -> dict:
             }
         )
     return {"data": data}
+
+
+@router.get("/sectors/{sector_id}/lengths")
+def sector_lengths(sector_id: str, sub_domains: str = "", max_events: int = 24) -> dict:
+    """How long journeys in a scope can run, so the composer can say when a minimum is beyond most of them."""
+    try:
+        sector = get_sector(sector_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    domains = tuple(sorted(name for name in sub_domains.split(",") if name in sector.sub_domains))
+    return {"sector": sector.id, "sub_domains": list(domains), "max_events": min(max(max_events, 1), 200), "lengths": _lengths(sector.id, domains, min(max(max_events, 1), 200))}
+
+
+@lru_cache(maxsize=256)
+def _lengths(sector_id: str, domains: tuple[str, ...], cap: int) -> dict[int, int]:
+    from sectors.journeys import natural_lengths
+
+    return natural_lengths(get_sector(sector_id).pack, list(domains), cap)
 
 
 def _event_types(run: Run) -> tuple[str, ...]:

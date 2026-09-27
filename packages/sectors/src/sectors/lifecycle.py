@@ -192,6 +192,8 @@ class Path:
     steps: list[Step]
     # True when the walk chose to stop while events were still legal, which is itself a decision.
     stopped: bool = False
+    # True when nothing in the scope was legal any more: the journey is complete for what the run selected.
+    exhausted: bool = False
     state: State = field(default_factory=dict)
     counts: dict[str, int] = field(default_factory=dict)
 
@@ -232,6 +234,11 @@ class Walker:
             if reachable:
                 self.goals.append(reachable)
 
+    def reaches_goal(self, types: list[str]) -> bool:
+        """Whether a path reached a milestone of a selected sub-domain, so it belongs to the run's scope."""
+        seen = set(types)
+        return not self.goals or any(seen & set(goal) for goal in self.goals)
+
     def options(self, state: State, counts: dict[str, int], *, first: bool = False) -> list[tuple[str, float]]:
         found = []
         for name in self.allowed:
@@ -259,10 +266,11 @@ class Walker:
         counts = dict(counts or {})
         steps = list(prefix or [])
         forced = first
-        stopped = False
+        stopped = exhausted = False
         while len(steps) < cap:
             options = self.options(state, counts, first=not steps)
             if not options:
+                exhausted = True
                 break
             if self.calibration is not None:
                 options = self.calibration.reweight(steps[-1].event_type if steps else None, options)
@@ -295,7 +303,7 @@ class Walker:
             counts[choice] = counts.get(choice, 0) + 1
             if spec.ends_journey:
                 break
-        return Path(steps, stopped=stopped, state=state, counts=counts)
+        return Path(steps, stopped=stopped, state=state, counts=counts, exhausted=exhausted)
 
     def branch(self, path: Path, rng: random.Random, *, cap: int) -> tuple[Path, int, float] | None:
         """A simulated alternative: a different legal choice at one step, then a fresh walk."""

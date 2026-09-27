@@ -49,6 +49,16 @@ The gates check each journey alone. They do not check whether a group of journey
 
 ## Slice 8: honest data at every scope
 
+Progress, 27 September 2026: the first pull request covers tasks 1, 2, and 4. With it:
+- journeys end at their natural length once they reach their scope's milestones and the scope has nothing more for them
+- journeys that never reach their scope are redrawn
+- the composer warns when most journeys in a scope end before the minimum
+- a `group_signal` gate holds every pack
+- insurance, telecom, airline, and hotel gain the failure outcomes that make their groups carry signal
+- CI runs on every pull request
+
+Airline booking alone now passes 88% of primaries against 0% before, hotel booking alone 91% against 2%, and the lowest sub-domain across the five packs accepts 27% of its groups. The second pull request covers tasks 3 and 5.
+
 1. **Natural end.** The walker marks a walk that ran out of legal events as exhausted, and `_choose` and `_rollouts` count it as long enough, as they count a journey-ending event.
    - The composer shows each scope's typical length before generating, and warns when the minimum is beyond it. The standing constraint says caps and substitutions are shown before generation.
    - Tests: airline and hotel booking alone pass at their policies' rates, measured against the payment and guarantee outcome shares; a primary and its rollouts agree within noise.
