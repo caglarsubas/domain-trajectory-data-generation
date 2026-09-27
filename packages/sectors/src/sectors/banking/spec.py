@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "banking-semi-markov-v2"
-PACK_VERSION = "banking-pack-4"
+PACK_VERSION = "banking-pack-5"
 
 OD = "onboarding_and_kyc"
 RC = "risk_and_compliance"
@@ -131,11 +131,12 @@ LIFECYCLE = LifecycleSpec(
             dwell_hours=(0.05, 2.0),
             violation="account opened before an approved application with verified KYC",
         ),
+        # The first deposit follows opening; later ones, such as pay, arrive weekly to monthly.
         EventSpec(
             "account.funded", (DP, SV),
             requires=(need("account", "account", "active"),),
             sets=(put("account", "funding", "funded"),),
-            weight=0.9, repeat=3, dwell_hours=(4.0, 96.0),
+            weight=0.9, repeat=3, dwell_hours=(4.0, 96.0), cycle_hours=(7 * DAY, 35 * DAY),
             violation="account funded while not active",
         ),
         EventSpec(
@@ -174,7 +175,7 @@ LIFECYCLE = LifecycleSpec(
         EventSpec(
             "loan.repayment_received", (CC,),
             requires=(need("loan", "credit", "current"),),
-            repeat=6, outcome="loan_performance", dwell_hours=(25 * DAY, 35 * DAY),
+            repeat=6, outcome="loan_performance", dwell_hours=(25 * DAY, 35 * DAY), cycle_hours=(28 * DAY, 35 * DAY),
             violation="loan repayment while the loan is not current",
         ),
         EventSpec(

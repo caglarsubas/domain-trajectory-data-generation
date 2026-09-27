@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "telecom-semi-markov-v1"
-PACK_VERSION = "telecom-pack-2"
+PACK_VERSION = "telecom-pack-3"
 
 SO = "sales_and_ordering"
 AP = "activation_and_porting"
@@ -137,11 +137,12 @@ LIFECYCLE = LifecycleSpec(
             dwell_hours=(1.0, 72.0),
             violation="service activated before provisioning or with a number port still open",
         ),
+        # Bills run on a monthly cycle from the first, not a month after the last payment.
         EventSpec(
             "bill.issued", (BP,),
             requires=(need("subscription", "service", *LIVE), need("subscription", "billing", None, "paid")),
             sets=(put("subscription", "billing", "due"),),
-            repeat=6, dwell_hours=(25 * DAY, 35 * DAY),
+            repeat=6, dwell_hours=(25 * DAY, 35 * DAY), cycle_hours=(28 * DAY, 35 * DAY),
             violation="bill issued before activation or while another bill is unpaid",
         ),
         EventSpec(

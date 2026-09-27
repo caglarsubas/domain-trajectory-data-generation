@@ -7,7 +7,8 @@ behavior rubrics are always the solution and behavior terms of MiMo's multiplica
 
 - outcome: the journey reaches the pack's goal.
 - solution rubric: the resulting state; the goal, no decision left open, and every selected sub-domain reached.
-- behavior rubric: how the path was built; no step undoes an earlier state, and waits in the faster half of each step's range.
+- behavior rubric: how the path was built; no step undoes an earlier state, and waits in the faster half of each step's range,
+  a recurring step's cycle once it has happened.
 - process conformance: how typical each step is under the reference process (the priors, or the calibrated shares).
 - decision score: at each outcome decision, the simulated value of the choice against the best choice there.
 """
@@ -46,7 +47,7 @@ VERIFIERS = {
         "description": "The path was built well.",
         "items": {
             "no_rework": "1 minus the share of steps that return an object to a state it had already left.",
-            "prompt": "The share of waits in the faster half of each step's range (at or below its geometric middle).",
+            "prompt": "The share of waits in the faster half of each step's range (at or below its geometric middle); a recurring step's range is its cycle once it has happened.",
         },
         "score": "mean of the items",
         "pass": f"no_rework = 1 and prompt >= {PROMPT_SHARE}",
@@ -140,9 +141,13 @@ class Scorer:
         no_rework = 1.0 - rework / len(types) if types else 1.0
         waits = list(hours or [])[: max(len(types) - 1, 0)]
         quick = 0
+        seen = set(types[:1])
         for name, wait in zip(types[1:], waits):
-            low, high = lifecycle[name].dwell_hours
+            spec = lifecycle[name]
+            # A recurring step that happened before waits for its cycle, as the generator times it.
+            low, high = spec.cycle_hours if spec.cycle_hours is not None and name in seen else spec.dwell_hours
             quick += int(wait <= math.sqrt(max(low, 1e-3) * max(high, 1e-3)))
+            seen.add(name)
         prompt = quick / len(waits) if waits else 1.0
         items = {"no_rework": round(no_rework, 4), "prompt": round(prompt, 4)}
         return {"score": round(sum(items.values()) / len(items), 4), "passed": no_rework == 1.0 and prompt >= PROMPT_SHARE, "items": items}

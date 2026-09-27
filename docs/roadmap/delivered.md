@@ -246,3 +246,27 @@ Runs could only be removed by hand in the database. `DELETE /runs/{id}` lets a r
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/38
 
 Slice 7, second part. The airline pack covers booking with payment captured, failed, or expired before ticketing; seats, bags, changes that may be declined, and voluntary cancellation with a refund; check-in, bag drop, and boarding, a no-show, or denied boarding; delays and cancellations rebooked or refunded; late arrivals and compensation claims paid or rejected; delayed bags; loyalty; and complaints. Operations follow NDC and ONE Order service areas, and the agent speaks as an airline. Jurisdictions gain airline rules, UK261 with CAA-approved dispute resolution for the United Kingdom and SHY-Yolcu for Turkey, and local fare names. The pack passes every gate, with 55 distinct sequences in 64 journeys; the gates caught bags stranded by boarding first, so boarding now waits for a checked bag to be dropped.
+
+## 41. Add a hotel pack in HTNG and OpenTravel vocabulary that passes the sector gates, completing Slice 7
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/41
+
+Slice 7, third and last part, leaving five registered packs. The hotel pack covers reservations guaranteed and confirmed, declined, or lapsed; changes and cancellations before arrival only, refunded or charged a late fee; room assignment, check-in, no-shows, and guests walked from an oversold house with compensation; service requests, room issues, and folio charges during the stay; folio settlement or dispute after check-out; loyalty points and reviews once the stay has ended; and complaints. Operations follow HTNG and OpenTravel service areas, and the agent speaks as a hotel. Jurisdictions gain hotel rules, guest records and total pricing for the United Kingdom and the Kimlik Bildirim Sistemi for Turkey, and local rate names. The pack passes every gate, with 57 distinct sequences in 64 journeys.
+
+## 42. Review the roadmap after Slices 0 to 7 and approve Slices 8 to 10
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/42
+
+Docs only. The review re-ran the gates for all five packs, ran each sub-domain alone in groups of four, and timed a full-feature batch. It found that narrow scopes kept only journeys ending early on a failure, that eleven sub-domains had no or little group signal, that exports were not checked for copies of uploads, that there was no CI, and that episodes and decision records made large runs about seven times slower. Slice 8 (honest data at every scope) was approved with Slices 9 and 10 queued, and decisions 7 to 12 were recorded, including the group-signal gate at a fifth of each sub-domain's groups and leaving out exported records that share 12 or more words with an upload.
+
+## 43. End journeys at their natural length in their scope, give every sub-domain group signal, and add CI
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/43
+
+Slice 8, first part. A walk that runs out of legal events in its scope is marked exhausted, and a journey now counts when the domain ended it or it reached a milestone of the run's scope and is long enough or exhausted; one that never reaches its scope is redrawn. Airline booking alone passes 88% of primaries (0% before) and hotel booking alone 91% (2%). `GET /sectors/{id}/lengths` samples how long a scope's journeys can run, and the composer warns when most end before the minimum. A `group_signal` gate needs each sub-domain alone to yield accepted groups in a fifth of its groups of four, and packs gained the failures their industries have: abandoned quotes, missed premiums and lapse, declined renewals, and rejected complaints in insurance; tickets closed without a fix in telecom; damaged and lost bags and missing miles in airlines; and a disputed bill as a failed hotel check-out. The lowest sub-domain now accepts 27% of its groups. GitHub Actions runs the Python suite and the studio build on every pull request.
+
+## 45. Narrate each event with its amount and the time since it last happened
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/45
+
+Every event read as its pack's fixed phrase, so recurring events repeated assistant turns word for word: 624 `repeated_turn` flags in a 640-sequence banking export and 395 in an insurance one. A sentence now adds the event's amount in the run's currency and, for a repeat, the time since the previous one, in English and Turkish, as in "The premium was paid (319.84 GBP, 28 hours after the previous one)." Journeys and seeds are unchanged. The timings it made visible showed premiums paid hours apart, which the next pull request fixes.

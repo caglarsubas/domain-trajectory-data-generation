@@ -55,9 +55,16 @@ class EventSpec:
     # Events that share an outcome are the alternatives at a branch point, such as approved or declined.
     outcome: str | None = None
     dwell_hours: tuple[float, float] = (1.0, 24.0)
+    # A recurring event, such as a monthly premium, falls due this long after its previous occurrence,
+    # whatever happened in between; dwell_hours then times only the first occurrence.
+    cycle_hours: tuple[float, float] | None = None
     violation: str | None = None
     # When an opening event is legal, a journey starts with one, such as a product view before a complaint.
     opening: bool = False
+
+    def __post_init__(self) -> None:
+        if self.cycle_hours is not None and not 0 < self.cycle_hours[0] <= self.cycle_hours[1]:
+            raise ValueError(f"{self.event_type}: a cycle needs 0 < low <= high, not {self.cycle_hours}")
 
 
 @dataclass(frozen=True)

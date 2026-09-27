@@ -8,6 +8,8 @@ from sectors.banking.generate import generate_banking_bundle
 from sectors.banking.pack import SUB_DOMAINS
 from sectors.insurance.corpus import steering_from_text as insurance_steering
 from sectors.journeys import UnsupportedLanguage
+from sectors.lifecycle import EventSpec
+from sectors.registry import get_sector
 from test_api import _auth, _project, _ready_key, _run
 
 
@@ -56,7 +58,7 @@ def test_quality_report_measures_complete_and_comprehensive():
     assert set(quality["comprehensive"]["event_type_coverage"]) == set(SUB_DOMAINS)
     assert quality["representative"]["status"] == "unreferenced"
     assert quality["qualitative"]["status"] == "not_measured"
-    assert bundle.generation.pack_version == "banking-pack-4"
+    assert bundle.generation.pack_version == "banking-pack-5"
 
 
 def test_the_process_map_places_each_event_type_in_time_and_in_sequence():
@@ -95,11 +97,65 @@ def test_money_moves_in_a_direction_and_posts_after_authorisation():
 
 
 def test_journeys_start_on_a_weekday_and_hour_profile_rather_than_a_grid():
-    starts = [trajectory.start for trajectory in _bundle(target_trajectory_count=64).trajectories if trajectory.parent_trajectory_id is None]
+    # Enough journeys that the weekend share (about 16% expected) sits well below the bound whatever the seed draws.
+    bundle = _bundle(target_trajectory_count=256, materialization_cap=256)
+    starts = [trajectory.start for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
+    assert len(starts) == 256
     assert max(starts) - min(starts) > timedelta(days=90)
     weekend = sum(1 for start in starts if start.weekday() >= 5)
     assert weekend < len(starts) * 0.25
     assert len({start.hour for start in starts}) > 6
+
+
+@pytest.mark.parametrize(
+    "sector, recurring",
+    [
+        ("insurance", {"premium.paid"}),
+        ("telecom", {"bill.issued"}),
+        ("banking", {"account.funded", "loan.repayment_received"}),
+    ],
+)
+def test_recurring_events_repeat_on_their_cycle_and_the_first_follows_promptly(sector, recurring):
+    pack = get_sector(sector)
+    assert {spec.event_type for spec in pack.lifecycle.events if spec.cycle_hours} == recurring
+    bundle = pack.generate(
+        sub_domains=list(pack.sub_domains), language="en", target_trajectory_count=48, event_budget=None, min_events=6, max_events=24,
+        max_assistant_turns=3, start_mode="cold", reward_mechanism="binary_outcome", signal_mechanism="outcome",
+        consumer="post_training", target_family="llm", seed="cycle",
+    )
+    events = {event.event_id: event for event in bundle.events}
+    slack = 1 / 3600
+    firsts = repeats = within = carried = 0
+    for trajectory in bundle.trajectories:
+        timeline = [events[item] for item in trajectory.event_ids]
+        branch = next((index for index, event in enumerate(timeline) if event.event_id == trajectory.branch_event_id), None)
+        last: dict[str, int] = {}
+        for index, event in enumerate(timeline):
+            spec = pack.lifecycle[event.event_type]
+            if index and spec.cycle_hours:
+                wait = (event.event_time - timeline[index - 1].event_time).total_seconds() / 3600
+                if event.event_type in last:
+                    # A repeat falls due a cycle or more after the previous one, and on the first due date after the step before it.
+                    since = (event.event_time - timeline[last[event.event_type]].event_time).total_seconds() / 3600
+                    assert since >= spec.cycle_hours[0] - slack and wait <= spec.cycle_hours[1] + slack, (event.event_type, since, wait)
+                    repeats += 1
+                    within += since <= spec.cycle_hours[1] + slack
+                    carried += branch is not None and last[event.event_type] <= branch < index
+                else:
+                    assert spec.dwell_hours[0] - slack <= wait <= spec.dwell_hours[1] + slack, (event.event_type, wait)
+                    firsts += 1
+            last[event.event_type] = index
+    # Most repeats are one cycle apart; the rest follow a step that itself took longer than a cycle, such as a renewal.
+    assert firsts and within >= repeats * 0.6, (firsts, within, repeats)
+    # A simulated alternative counts its cycle from the shared prefix, not from the branch point.
+    assert carried
+
+
+def test_a_cycle_needs_a_positive_range():
+    with pytest.raises(ValueError):
+        EventSpec("premium.paid", ("billing",), cycle_hours=(0.0, 24.0))
+    with pytest.raises(ValueError):
+        EventSpec("premium.paid", ("billing",), cycle_hours=(48.0, 24.0))
 
 
 def test_every_sample_links_to_a_trajectory_and_turns_end_on_sentences():
