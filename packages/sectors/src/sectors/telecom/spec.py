@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "telecom-semi-markov-v1"
-PACK_VERSION = "telecom-pack-3"
+PACK_VERSION = "telecom-pack-4"
 
 SO = "sales_and_ordering"
 AP = "activation_and_porting"
@@ -104,7 +104,7 @@ LIFECYCLE = LifecycleSpec(
             "sim.dispatched", (AP,),
             requires=(need("order", "order", "approved"), need("subscription", "service", None)),
             sets=(put("subscription", "service", "provisioning"),),
-            dwell_hours=(2.0, 48.0),
+            dwell_hours=(2.0, 48.0), follow_up=("service.activated", "port.requested", "port.completed", "port.failed", "number.assigned"),
             violation="SIM dispatched before the order was approved",
         ),
         EventSpec(
@@ -112,14 +112,14 @@ LIFECYCLE = LifecycleSpec(
             # A port-in rides on a new connection: it is asked for before the line goes live.
             requires=(need("order", "order", "approved"), need("port", "port", None), need("subscription", "service", None, "provisioning")),
             sets=(put("port", "port", "requested"),),
-            weight=0.35, dwell_hours=(0.1, 24.0),
+            weight=0.35, dwell_hours=(0.1, 24.0), follow_up=("port.completed", "port.failed"),
             violation="number port requested before the order was approved or after the line went live",
         ),
         EventSpec(
             "port.completed", (AP,),
             requires=(need("port", "port", "requested"), need("subscription", "service", "provisioning")),
             sets=(put("port", "port", "completed"),),
-            weight=0.85, outcome="port_outcome", dwell_hours=(DAY, 3 * DAY),
+            weight=0.85, outcome="port_outcome", dwell_hours=(DAY, 3 * DAY), follow_up=("service.activated",),
             violation="number ported before it was requested or before the SIM was sent",
         ),
         EventSpec(
@@ -129,13 +129,21 @@ LIFECYCLE = LifecycleSpec(
             weight=0.15, outcome="port_outcome", dwell_hours=(DAY, 3 * DAY),
             violation="number port failed before it was requested",
         ),
+        # A failed port-in leaves the customer without the number they asked for; the line goes live on a new one.
+        EventSpec(
+            "number.assigned", (AP,),
+            requires=(need("port", "port", "failed"), need("subscription", "service", "provisioning")),
+            sets=(put("port", "port", "reassigned"),),
+            dwell_hours=(0.5, 24.0), follow_up=("service.activated",),
+            violation="new number assigned without a failed port, or after the line went live",
+        ),
         EventSpec(
             "service.activated", (AP,),
-            # A requested port settles before the line goes live, so the number is known.
-            requires=(need("subscription", "service", "provisioning"), need("port", "port", None, "completed", "failed")),
+            # A requested port settles before the line goes live, so the number is known: ported, or a new one.
+            requires=(need("subscription", "service", "provisioning"), need("port", "port", None, "completed", "reassigned")),
             sets=(put("subscription", "service", "active"), put("party", "relationship", "customer")),
-            dwell_hours=(1.0, 72.0),
-            violation="service activated before provisioning or with a number port still open",
+            dwell_hours=(1.0, 72.0), follow_up=("bill.issued",),
+            violation="service activated before provisioning, with a number port still open, or on a failed port without a new number",
         ),
         # Bills run on a monthly cycle from the first, not a month after the last payment.
         EventSpec(
@@ -323,6 +331,7 @@ ROLES = {
     "port.requested": (("party", "customer"), ("port", "port"), ("order", "order")),
     "port.completed": (("party", "customer"), ("port", "port"), ("subscription", "subscription")),
     "port.failed": (("party", "customer"), ("port", "port")),
+    "number.assigned": (("party", "customer"), ("port", "port"), ("subscription", "subscription")),
     "service.activated": (("party", "subscriber"), ("subscription", "subscription")),
     "bill.issued": (("party", "subscriber"), ("subscription", "subscription")),
     "bill.paid": (("party", "subscriber"), ("subscription", "subscription")),
@@ -361,6 +370,7 @@ EN = {
     "port.requested": "A number port was requested.",
     "port.completed": "The number was ported in.",
     "port.failed": "The number port failed.",
+    "number.assigned": "A new number was assigned instead.",
     "service.activated": "The service was activated.",
     "bill.issued": "A bill was issued.",
     "bill.paid": "The bill was paid.",
@@ -398,6 +408,7 @@ TR = {
     "port.requested": "Numara taşıma talep edildi.",
     "port.completed": "Numara taşındı.",
     "port.failed": "Numara taşıma başarısız oldu.",
+    "number.assigned": "Bunun yerine yeni bir numara atandı.",
     "service.activated": "Hizmet etkinleştirildi.",
     "bill.issued": "Fatura kesildi.",
     "bill.paid": "Fatura ödendi.",
@@ -437,6 +448,7 @@ OPERATIONS = {
     "port.requested": ("Number Portability", "Initiate"),
     "port.completed": ("Number Portability", "Execute"),
     "port.failed": ("Number Portability", "Execute"),
+    "number.assigned": ("Number Portability", "Update"),
     "service.activated": ("Service Activation", "Execute"),
     "bill.issued": ("Customer Bill", "Initiate"),
     "bill.paid": ("Payment", "Execute"),
@@ -592,6 +604,7 @@ PACK = PackSpec(
             "sim.dispatched",
             "port.completed",
             "port.failed",
+            "number.assigned",
             "service.activated",
             "bill.issued",
             "bill.overdue",

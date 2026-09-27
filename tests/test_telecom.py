@@ -99,3 +99,40 @@ def test_a_telecom_study_runs_and_exports_through_the_api(client, tmp_path, monk
     tasks = client.get(f"/runs/{body['id']}/export/tasks.jsonl", headers=headers, params={"allow_unaccepted": "true"}).text.splitlines()
     report = json.loads(client.get(f"/runs/{body['id']}/export/evaluation.json", headers=headers, params={"allow_unaccepted": "true"}).text)
     assert len(tasks) == report["tasks"]["journey"] + report["tasks"]["agent_episode"] and report["environment"]["sector"] == "telecom"
+
+
+ORDER_TO_BILL = ["sales_and_ordering", "activation_and_porting", "billing_and_payments"]
+# Events a journey may not end on while what they lead to is still in scope and legal.
+UNFINISHED = {"sim.dispatched", "port.requested", "port.completed", "number.assigned"}
+
+
+def _primaries(bundle):
+    events = {event.event_id: event.event_type for event in bundle.events}
+    return [[events[item] for item in trajectory.event_ids] for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
+
+
+def test_a_line_that_goes_live_gets_its_first_bill_when_billing_is_in_scope():
+    live = _primaries(_bundle(sub_domains=ORDER_TO_BILL, target_trajectory_count=60, group_size=1, min_events=8, seed="first-bill"))
+    assert any("service.activated" in path for path in live)
+    for path in live:
+        if "service.activated" in path:
+            assert "bill.issued" in path[path.index("service.activated"):], path
+        assert path[-1] not in UNFINISHED | {"service.activated"}, path
+    # Out of scope, a follow-up holds nothing: without billing a journey ends when its line goes live.
+    unbilled = _primaries(_bundle(sub_domains=ORDER_TO_BILL[:2], target_trajectory_count=30, group_size=1, min_events=8, seed="first-bill"))
+    assert any(path[-1] == "service.activated" for path in unbilled)
+
+
+def test_a_line_goes_live_after_a_failed_port_only_on_a_new_number():
+    bundle = _bundle(sub_domains=ORDER_TO_BILL[:2], target_trajectory_count=64, group_size=1, min_events=8, seed="failed-port")
+    rescued = [path for path in _primaries(bundle) if "port.failed" in path and "service.activated" in path]
+    assert rescued
+    for path in rescued:
+        assert path.index("port.failed") < path.index("number.assigned") < path.index("service.activated"), path
+    events = {event.event_id: event for event in bundle.events}
+    trajectory = next(
+        item for item in bundle.trajectories
+        if item.parent_trajectory_id is None and any(events[event_id].event_type == "number.assigned" for event_id in item.event_ids)
+    )
+    trajectory.event_ids = [event_id for event_id in trajectory.event_ids if events[event_id].event_type != "number.assigned"]
+    assert any("on a failed port without a new number" in item for item in TELECOM.hard_checks(bundle))

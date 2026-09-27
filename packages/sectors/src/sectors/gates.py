@@ -73,6 +73,9 @@ def complete_spec(sector) -> Gate:
                 problems.append(f"{name} has no {lang} phrase")
         if name not in operations:
             problems.append(f"{name} has no named operation")
+        for follow in spec.follow_up:
+            if follow not in lifecycle.namespace:
+                problems.append(f"{name} follows up with {follow}, which is not a pack event")
     for domain in sector.sub_domains:
         milestones = lifecycle.milestones.get(domain, ())
         if not milestones or not set(milestones) <= set(lifecycle.namespace):
