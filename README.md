@@ -114,7 +114,7 @@ Every record has explicit criteria, an abstain answer that is never a target, an
 Every sequence is scored by five signal scorers (`sectors.scorers`):
 - **outcome:** the journey reaches the pack's goal.
 - **solution rubric:** the goal, no one-off decision left open at the end, and every selected sub-domain reached.
-- **behavior rubric:** no step returns an object to a state it had left, and waits fall in the faster half of each step's range.
+- **behavior rubric:** no step returns an object to a state it had left, and waits fall in the faster half of each step's range, which for a recurring step that has already happened, such as a monthly premium, is its cycle.
 - **process conformance:** each step's policy share against the most likely step's, under the priors or the calibrated shares.
 - **decision score:** at each first outcome decision of a group, the choice's simulated value against the best there.
 

@@ -429,7 +429,8 @@ def _materialize(context: _Context, *, path: Path, branch: tuple[Path, int, floa
         alt_path, split, probability = branch
         anchor = primary[split - 1]
         alt_events = _emit(context, alt_path.types[split:], start=anchor.event_time, advance_first=True,
-                           catalog=catalog, state=dict(snapshots[anchor.event_id]), snapshots=snapshots, journey=journey)
+                           catalog=catalog, state=dict(snapshots[anchor.event_id]), snapshots=snapshots, journey=journey,
+                           before=primary[:split])
         alt_id = f"{trajectory_id}A"
         journey.trajectories.append(
             Trajectory(
@@ -546,7 +547,7 @@ def _materialize_group(context: _Context, *, path: Path, split: int, rollouts: l
             step = rollout.steps[split]
             probability = round(dict(step.options)[step.event_type] / sum(weight for _, weight in step.options), 2)
         events = _emit(context, rollout.types[split:], start=anchor.event_time, advance_first=True, catalog=catalog,
-                       state=dict(snapshots[anchor.event_id]), snapshots=snapshots, journey=journey)
+                       state=dict(snapshots[anchor.event_id]), snapshots=snapshots, journey=journey, before=primary[:split])
         rollout_id = f"{trajectory_id}R{number:02d}"
         journey.trajectories.append(
             Trajectory(
@@ -652,7 +653,9 @@ def _emit(
     state: dict[tuple[str, str], str],
     snapshots: dict[str, dict[tuple[str, str], str]],
     journey: _Journey,
+    before: list[Event] | None = None,
 ) -> list[Event]:
+    """Time and record `types`; `before` are the shared prefix's events, which a recurring event's cycle counts from."""
     pack, rng, ids, steering = context.pack, context.clock, context.ids, context.steering
     # A jurisdiction's currency is the study's choice and wins; then the documents; then the language.
     profile_currency = context.jurisdiction.currency if context.jurisdiction is not None else None
@@ -660,18 +663,24 @@ def _emit(
     cursor = start
     emitted: list[Event] = []
     party = catalog["party"].object_id
+    last = {event.event_type: event.event_time for event in before or ()}
     for position, event_type in enumerate(types):
         spec = pack.lifecycle[event_type]
         if position > 0 or advance_first:
             low, high = spec.dwell_hours
-            if event_type in context.revised:
+            revised = event_type in context.revised
+            if revised:
                 low = max(low, REVISED_MIN_HOURS)
                 high = max(high, low)
             # Observed durations for this step when a data source has enough of them; the pack's range otherwise.
             observed = context.calibration.dwell_hours(rng, types[position - 1] if position else None, event_type) if context.calibration else None
-            hours = max(observed, low) if observed is not None and event_type in context.revised else observed
+            hours = max(observed, low) if observed is not None and revised else observed
+            if hours is None and spec.cycle_hours is not None and event_type in last:
+                hours = _until_due(rng, spec.cycle_hours, last[event_type], cursor)
+                hours = max(hours, REVISED_MIN_HOURS) if revised else hours
             cursor = cursor + max(timedelta(hours=hours if hours is not None else dwell(rng, low, high)), timedelta(seconds=1))
         when = cursor
+        last[event_type] = when
         for kind, _role in pack.roles[event_type]:
             _ensure(pack, kind, when, catalog, steering, ids, journey, context.jurisdiction)
         lag = pack.effective_lag_hours.get(event_type)
@@ -725,6 +734,14 @@ def _emit(
         snapshots[event.event_id] = dict(state)
         emitted.append(event)
     return emitted
+
+
+def _until_due(rng: random.Random, cycle: tuple[float, float], previous: datetime, now: datetime) -> float:
+    """Hours from `now` to a recurring event's next due date: whole cycles on from its previous occurrence."""
+    due = previous
+    while due <= now:
+        due += timedelta(hours=dwell(rng, *cycle))
+    return (due - now).total_seconds() / 3600
 
 
 def _ensure(

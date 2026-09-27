@@ -64,6 +64,17 @@ def test_a_journey_that_stops_with_its_decision_open_is_not_a_solution(scorer):
     assert found["solution_rubric"]["items"]["settled"] == 0.0 and found["solution_rubric"]["items"]["scope"] == 0.0
 
 
+def test_a_recurring_step_is_prompt_against_its_cycle_once_it_has_happened():
+    insurance = get_sector("insurance")
+    walker = Walker(insurance.lifecycle, allowed=insurance.lifecycle.namespace, sub_domains=["billing"])
+    scorer = Scorer(insurance.pack, walker, domains=["billing"], floor=1, cap=24)
+    types = ["policy.bound", "policy.issued", "premium.paid", "premium.paid"]
+    # The first premium follows issue within hours; the next is due a month on.
+    assert scorer.behavior(types, [1.0, 2.0, 30 * 24.0])["items"]["prompt"] == 1.0
+    # A first premium a month after issue is slow, and so is a repeat six weeks after the last.
+    assert scorer.behavior(types, [1.0, 30 * 24.0, 45 * 24.0])["items"]["prompt"] == pytest.approx(1 / 3, abs=1e-4)
+
+
 def test_pass_at_k_is_the_unbiased_estimate():
     assert pass_at_k(4, 1, 1) == 0.25 and pass_at_k(4, 1, 2) == 0.5 and pass_at_k(4, 0, 4) == 0.0 and pass_at_k(4, 4, 1) == 1.0
     assert pass_at_k(5, 2, 3) == pytest.approx(0.9)

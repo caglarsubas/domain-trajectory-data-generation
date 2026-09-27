@@ -13,7 +13,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "insurance-semi-markov-v2"
-PACK_VERSION = "insurance-pack-3"
+PACK_VERSION = "insurance-pack-4"
 
 QU = "quoting"
 UW = "underwriting"
@@ -105,11 +105,12 @@ LIFECYCLE = LifecycleSpec(
             dwell_hours=(0.2, 24.0),
             violation="policy issued before underwriting acceptance and binding",
         ),
+        # The first premium is taken at issue; later ones fall due monthly.
         EventSpec(
             "premium.paid", (BI,),
             requires=(need("policy", "policy", *IN_FORCE),),
             sets=(put("policy", "billing", "paid"),),
-            weight=0.9, repeat=6, outcome="premium_outcome", dwell_hours=(1.0, 72.0),
+            weight=0.9, repeat=6, outcome="premium_outcome", dwell_hours=(1.0, 72.0), cycle_hours=(28 * DAY, 35 * DAY),
             violation="premium paid before policy issue",
         ),
         EventSpec(
