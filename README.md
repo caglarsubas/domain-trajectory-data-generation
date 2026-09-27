@@ -109,6 +109,10 @@ Export turns each decision into typed questions in `decisions.jsonl`:
 
 Every record has explicit criteria, an abstain answer that is never a target, and two variants that share its target and split: keys and options reordered, and the question paraphrased. A decision takes its sample's split as train, calibration (validation), or held out (test or a held-out sub-domain). `decision-record.schema.json` is the JSON Schema every record validates against, versioned with the contract (`decision-record/1`). `prefixes.jsonl` holds a record per trainable assistant turn, the conversation before it and the turn, for prefix-conditioned distillation. The manifest lists the parts each consumer uses, and the export panel marks the run's own. Consumer and target family no longer appear in the prompt text.
 
+## Copies at export
+
+Synthetic does not mean anonymous. At export, every 12-word run of each document the study holds, and of each data-source row long enough to have one (such as a complaint narrative), is indexed. Any exported record that repeats one of those runs is left out: a sample with its prefixes and journey task, an episode with its harness lines and agent task, or a decision record. Words are compared lowercased, whatever the punctuation. The manifest's `copies` section says how many documents and rows were indexed, whether the index hit its cap of a million runs, and what was left out, by part.
+
 ## Signals and evaluation
 
 Every sequence is scored by five signal scorers (`sectors.scorers`):

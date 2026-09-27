@@ -243,6 +243,7 @@ def _generate(db, job: Job, report: Callable) -> str:
 
 def _export(db, job: Job, report: Callable) -> str:
     from app import export as run_export
+    from app.copies import guard_for
     from app.serialize import run_out
     from app.store import run_dir, store_for
     from sectors.registry import get_sector
@@ -261,6 +262,7 @@ def _export(db, job: Job, report: Callable) -> str:
         run_dir(run.id),
         report,
         unaccepted=bool(job.payload.get("unaccepted")),
+        guard=guard_for(db, run),
     )
     megabytes = sum(summary["sizes"].values()) / 1e6
     return f"Exported {summary['counts']['samples']:,} samples ({megabytes:.0f} MB before compression)."

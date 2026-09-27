@@ -141,13 +141,15 @@ def prefix_records(sample: dict, split: str) -> list[dict]:
 class Exporter:
     """Add bundles one at a time; `finish` writes the OCEL document and returns the manifest."""
 
-    def __init__(self, run_id: str, lifecycle, held_out: str | None, open_part, scratch, language: str = "en", signal: str = "outcome") -> None:
+    def __init__(self, run_id: str, lifecycle, held_out: str | None, open_part, scratch, language: str = "en", signal: str = "outcome", guard=None) -> None:
         self.run_id = run_id
         self.lifecycle = lifecycle
         self.held_out = held_out
         self.open_part = open_part
         self.language = language
         self.signal = signal
+        # Uploaded records never leave in an export: a record repeating a run of an upload is left out.
+        self.guard = guard
         self.samples = Sink(open_part("samples.jsonl"))
         self.tasks = Sink(open_part("tasks.jsonl"))
         self.report = Report()
@@ -182,6 +184,12 @@ class Exporter:
         for sample in bundle.samples:
             record = sample.model_dump(mode="json")
             record["split"] = split[sample.sample_id]
+            if self._copied(record):
+                # Its prefixes and its journey task carry the same text, so they stay out with it.
+                self.guard.leave_out("samples.jsonl")
+                self.guard.leave_out("prefixes.jsonl", len(prefix_records(record, record["split"])))
+                self.guard.leave_out("tasks.jsonl")
+                continue
             self.samples.write(_line(record))
             self.split_counts[record["split"]] += 1
             self.counts["samples"] += 1
@@ -197,6 +205,10 @@ class Exporter:
             record = episode.model_dump(mode="json")
             # An episode takes the split of the sample it was built from, so no journey leaks across splits.
             record["split"] = split.get(episode.sample_id or "", "train")
+            if self._copied(record):
+                self.guard.leave_out("episodes.jsonl")
+                self.guard.leave_out("tasks.jsonl")
+                continue
             self.episode_sinks["episodes.jsonl"].write(_line(record))
             self.counts["episodes"] += 1
             self._task(episode_task(record, record["split"]))
@@ -210,7 +222,11 @@ class Exporter:
             # A decision takes the split of its sample, renamed train, calibration, or held out.
             self.counts["decision_points"] += 1
             for item in decision_records(point, split=split.get(point.sample_id or "", "train"), language=self.language):
-                self.decisions.write(_ordered_line(item.model_dump(mode="json")))
+                line = item.model_dump(mode="json")
+                if self._copied(line):
+                    self.guard.leave_out("decisions.jsonl")
+                    continue
+                self.decisions.write(_ordered_line(line))
                 self.counts["decision_records"] += 1
                 self.decision_splits[item.split] += 1
         for record_type, records in (
@@ -231,6 +247,9 @@ class Exporter:
         self.counts["objects"] += len(bundle.objects)
         self.counts["relationships"] += len(bundle.relationships)
         self._ocel(bundle)
+
+    def _copied(self, record: dict) -> bool:
+        return self.guard is not None and self.guard.copied(record)
 
     def _task(self, task: dict) -> None:
         self.tasks.write(_line(task))
@@ -327,7 +346,8 @@ class Exporter:
         )
         files = {name: sink.digest.hexdigest() for name, sink in written}
         sizes = {name: sink.size for name, sink in written}
-        manifest = _manifest(run, sector, cycles, generation or {}, self.counts, self.split_counts, self.held_out, files, sizes, self.decision_splits, report)
+        copies = self.guard.report() if self.guard is not None else {"checked": False}
+        manifest = _manifest(run, sector, cycles, generation or {}, self.counts, self.split_counts, self.held_out, files, sizes, self.decision_splits, report, copies)
         Sink(self.open_part("manifest.json")).write(manifest)
         return {"files": files, "sizes": sizes, "counts": self.counts, "split": self.split_counts}
 
@@ -346,7 +366,7 @@ def _copy(scratch, sink: Sink) -> None:
         sink.write(chunk)
 
 
-def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, files, sizes, decision_splits=None, evaluation=None) -> str:
+def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, files, sizes, decision_splits=None, evaluation=None, copies=None) -> str:
     config = {key: value for key, value in (run.config or {}).items() if key != "credential_id"}
     steering = dict(generation.get("steering") or {})
     limitations = list(LIMITATIONS)
@@ -413,6 +433,10 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
             "agent_episodes": (evaluation or {}).get("agent_episodes"),
             "report_file": "evaluation.json",
         },
+        "copies": {
+            **(copies or {"checked": False}),
+            "note": "A record repeating 12 words in a row from any of the study's uploads is left out; left_out counts them by part. An episode left out takes its harness lines with it.",
+        },
         "consumer_parts": CONSUMER_PARTS,
         "parts_for_this_run": CONSUMER_PARTS.get(config.get("consumer"), CONSUMER_PARTS["post_training"]),
         "judge_cycles": [
@@ -466,11 +490,11 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
     return json.dumps(manifest, sort_keys=True, ensure_ascii=False, indent=1)
 
 
-def build(run, bundle: TrajectoryBundle, sector, cycles: list[dict], held_out: str | None) -> dict[str, str]:
+def build(run, bundle: TrajectoryBundle, sector, cycles: list[dict], held_out: str | None, guard=None) -> dict[str, str]:
     """A small run's parts, in memory."""
     buffers = {name: io.BytesIO() for name in PARTS}
     config = run.config or {}
-    exporter = Exporter(run.id, sector.lifecycle, held_out, lambda name: buffers[name], lambda _name: io.StringIO(), config.get("language", "en"), config.get("signal_mechanism", "outcome"))
+    exporter = Exporter(run.id, sector.lifecycle, held_out, lambda name: buffers[name], lambda _name: io.StringIO(), config.get("language", "en"), config.get("signal_mechanism", "outcome"), guard)
     exporter.add(bundle)
     exporter.finish(run, sector, cycles, run.generation or (bundle.generation.model_dump(mode="json") if bundle.generation else None))
     return {name: buffer.getvalue().decode() for name, buffer in buffers.items()}
@@ -487,7 +511,7 @@ def part_path(root: Path, held_out: str | None, part: str, unaccepted: bool = Fa
     return root / "exports" / export_key(held_out, unaccepted) / f"{part}{suffix}"
 
 
-def write_files(run, store, sector, cycles: list[dict], held_out: str | None, root: Path, report, unaccepted: bool = False) -> dict:
+def write_files(run, store, sector, cycles: list[dict], held_out: str | None, root: Path, report, unaccepted: bool = False, guard=None) -> dict:
     """A large run's parts, written batch by batch as gzip files under the run's directory."""
     target = root / "exports" / export_key(held_out, unaccepted)
     staging = target.with_name(target.name + ".tmp")
@@ -508,7 +532,7 @@ def write_files(run, store, sector, cycles: list[dict], held_out: str | None, ro
 
     try:
         config = run.config or {}
-        exporter = Exporter(run.id, sector.lifecycle, held_out, open_part, scratch, config.get("language", "en"), config.get("signal_mechanism", "outcome"))
+        exporter = Exporter(run.id, sector.lifecycle, held_out, open_part, scratch, config.get("language", "en"), config.get("signal_mechanism", "outcome"), guard)
         names = store.batches()
         for index, bundle in enumerate(store.bundles(), start=1):
             exporter.add(bundle)

@@ -27,18 +27,18 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 | Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 41 to 57 distinct sequences in 64 journeys across the five packs, and every sub-domain reaches its milestones alone and together | Met |
 | Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Event logs in CSV, Parquet, XES, or OCEL 2.0 calibrate any pack. Fitness, precision, and next-step divergence are reported. The catalogue offers banking sources only. | Partly; Slice 10 |
 | Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, a control journey, audit flags, and regeneration from notes. Repeats above temperature 0, study-specific rubrics, and the safety prompt wait on the engine. Turn text is templated narration in English or Turkish. | Partly; Slices 9 and 10 |
-| Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | Groups of up to 16, the shared MiMo rewards with every signal scored, episodes in three harness formats with provider rollouts, and history prefixes. Some sub-domains never yield an accepted group, and narrow scopes draw almost only failures. | Partly; Slice 8 |
+| Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | Groups of up to 16, the shared MiMo rewards with every signal scored, episodes in three harness formats with provider rollouts, and history prefixes. Every sub-domain of every pack yields accepted groups, which the `group_signal` gate enforces, and a journey ends at its natural length in its scope. | Met |
 | Decision scoring | Decision records at branch points: state, options, outcome, score | Decision points with policy shares and simulated values, exported as typed questions under a versioned schema every record validates against | Met |
 | Evaluation | Tasks with verifiers, held-out splits, avg@k and pass@k | Journey and agent tasks with environment, verifiers, and references, reported as avg@k and pass@k by verifier and by policy, including each provider model | Met |
 | Jev-type models | Typed decision records (choice, score, true or false) with calibrated targets | Derived facts precomputed, explicit criteria, an abstain answer, policy-share and simulated-value targets, invariance variants, and train, calibration, and held-out splits | Met |
 | Warm-start material | PDFs, repositories, links, and data sources actually read, with an extraction report | PDF, Word, HTML, Markdown, and OpenAPI or AsyncAPI definitions; links behind an address guard; GitHub repositories; event logs; facts with evidence and review | Met |
 | Warm versus cold guidance | Recommend warm, warn when warm material yields nothing usable, allow cold with acknowledgment | The composer recommends warm, warns when no document is readable, and needs an acknowledgment for cold | Met |
-| Run configuration | Size, length, scope, language, reward, and signal each change the data | Size to 100,000 sequences as jobs, length, scope, language, reward, signal, consumer, and target family all change the data. A minimum length beyond a narrow scope's natural length silently favours failures. | Partly; Slice 8 |
+| Run configuration | Size, length, scope, language, reward, and signal each change the data | Size to 100,000 sequences as jobs, length, scope, language, reward, signal, consumer, and target family all change the data, and the composer warns when most journeys in a scope end before the requested minimum | Met |
 | Admin keys and BYOK | Custody, deletion and rotation, live validation, demo quotas | Custody, deletion, rotation, a live check on save, demo quotas, and a provider-call cap | Met |
 | Own evaluation cycle | Judge calls that succeed, repeat, agree, and drive regeneration | Calls succeed, two models agree or disagree per rubric, and cycles regenerate from notes. Repeats wait on the engine. | Partly; Slice 9 |
 | Visually rich studio | Time axis, process map, variant explorer, sample and group viewer, re-run diff | All of these, plus the judge panel, episode and decision viewers, the signal table, and the export panel with each consumer's parts | Met |
 | Sectors | Banking first, then the others on one schema | Banking, insurance, telecommunications, airline, and hotel, each past the same gates | Met |
-| Synthetic, not copied | Uploads scrubbed before storage, exports checked for verbatim copies of uploaded records | Uploads are scrubbed. Exports are not checked for copies. | Partly; Slice 8 |
+| Synthetic, not copied | Uploads scrubbed before storage, exports checked for verbatim copies of uploaded records | Uploads are scrubbed, and an exported record repeating 12 words in a row from any upload is left out and counted in the manifest | Met |
 
 ## How the pieces fit
 
@@ -95,7 +95,7 @@ These hold across every slice and should not be renegotiated silently.
 - Invariants come first. A run with an impossible transition is never exported, whatever its judge scores.
 - Facts extracted from warm-start material carry their source, the evidence span, and a confidence. Only facts the source states explicitly enter hard rules automatically. Strongly implied facts need the user's approval in the studio.
 - An alternative branch is a simulated alternative, not a causal counterfactual. A decision-level counterfactual pair, which decision-scoring and Jev-type data need, is allowed only relative to the generator's own decision rule and is labeled `counterfactual_basis: generator_policy`.
-- Synthetic does not mean anonymous. Uploaded material is scrubbed before it is stored, and exported data is checked for verbatim copies of uploaded records. The export check is not built yet; it is part of Slice 8.
+- Synthetic does not mean anonymous. Uploaded material is scrubbed before it is stored, and exported data is checked for verbatim copies of uploaded records.
 - Reviewer text never becomes trainable text. Only assistant segments are trainable.
 - Every run records the generator and pack versions, the seed, and the corpus hashes it used, so it can be reproduced.
 - Jev-type is a target family on the same contract, not a trainer.
@@ -103,13 +103,16 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices have shipped, 272 tests cover them, and the data serves all three stated uses. The gaps below were each reproduced against `234ba5b`:
+All eight slices of the first plan have shipped, and so has Slice 8. The suite has 291 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
 
-- **Narrow scopes favour failures.** A journey that runs out of legal events in its scope before the minimum length is redrawn, so only journeys that end early on a failure qualify. With a minimum of six events, airline booking alone passed none of 400 sequences, and hotel booking alone passed 2%.
-- **Some sub-domains carry no group signal.** With groups of four, no group is accepted in insurance quoting, billing, servicing, and complaints, telecom fault management, or airline loyalty, because no rollout there can fail. Hotel check-out and airline baggage accept fewer than one group in ten. Their advantages are all zero.
-- **Exports are not checked for copies of uploaded records**, although the standing constraints require it.
-- **There is no CI.** Pull requests have merged with no checks; the suite runs only where someone runs it.
-- **Cost at scale.** For banking with groups of four, episodes, decision records, and the decision-score signal raise the estimated time to generate 10,000 sequences from about 7 seconds to about 49. This is not yet measured end to end.
+The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed them:
+- **Narrow scopes favoured failures.** A journey now ends at its natural length once it reaches its scope's milestones, so airline booking alone passes 88% of primaries (none before) and hotel booking alone 91% (2% before). The composer warns when most journeys in a scope end before the minimum.
+- **Some sub-domains carried no group signal.** Every sub-domain of every pack now accepts at least a fifth of its groups of four; the lowest accepts 27%. The `group_signal` gate holds every pack to it.
+- **Exports were not checked for copies of uploaded records.** An exported record repeating 12 words in a row from any upload is now left out and counted in the manifest.
+- **There was no CI.** Every pull request now runs the tests and the studio build.
+- **Cost at scale was unmeasured.** A 10,000-sequence banking run with episodes, decision records, and the decision-score signal takes 6.5 seconds, against 4.0 plain.
+
+These remain, for Slices 9 and 10:
 - **The judge.** Engine #115 stopped the empty verdicts. Other engine items are still open, so study-specific rubrics (4B) and repeated judging still wait:
   - evals bypass the engine's scheduler
   - the safety rubric omits the prompt
@@ -138,7 +141,7 @@ Approved on 26 September 2026 (detail in [next-slice.md](next-slice.md)):
 
 | Slice | Goal | Exit criterion |
 |---|---|---|
-| 8. Honest data at every scope (in progress: natural ends, the group-signal gate, and CI are in the first pull request) | Narrow scopes stop favouring failures, every sub-domain yields group signal, exports are checked for copies of uploaded records, CI runs on every pull request, and generation cost at scale is measured and brought down | Every sub-domain of every pack, alone, yields accepted groups in at least a fifth of its groups of four. Airline and hotel booking alone pass at their policies' rates. A planted copy of an uploaded record is caught at export. CI passes on the slice's pull request. |
+| 8. Honest data at every scope (delivered) | Narrow scopes stop favouring failures, every sub-domain yields group signal, exports are checked for copies of uploaded records, CI runs on every pull request, and generation cost at scale is measured and brought down | Every sub-domain of every pack, alone, yields accepted groups in at least a fifth of its groups of four. Airline and hotel booking alone pass at their policies' rates. A planted copy of an uploaded record is caught at export. CI passes on the slice's pull request. |
 | 9. Judge completion, across repositories | In `llm_inference_engine`: a rubric registry API, evals through the scheduler, the safety prompt, repeats above temperature 0, and typed errors. In the studio: study-specific rubrics (4B) and repeated judgments | A rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric |
 | 10. Representative everywhere, and natural text | Catalogue sources for hotels and airlines with adapters, and provider-written turn text checked by code against the skeleton | A hotel run calibrated from the catalogue reports representativeness, and provider-written turns pass the skeleton checks |
 
@@ -248,4 +251,4 @@ Settled on 26 September 2026 for Slices 8 to 10, all as recommended:
 
 ## Stack
 
-FastAPI, SQLAlchemy, and Alembic over Postgres with a SQLite fallback, Pydantic for the contract, and a Next.js App Router studio. Docker Compose runs Postgres, the API, and the studio together. The studio is published on host port 3000 and the API on host port 18000, which `API_HOST_PORT` overrides. Jobs run on the application database (Slice 3), `pypdf` reads PDFs (PyMuPDF is AGPL), and no view has needed a charting library yet. Conformance is computed in-house rather than through PM4Py. CI arrives in Slice 8.
+FastAPI, SQLAlchemy, and Alembic over Postgres with a SQLite fallback, Pydantic for the contract, and a Next.js App Router studio. Docker Compose runs Postgres, the API, and the studio together. The studio is published on host port 3000 and the API on host port 18000, which `API_HOST_PORT` overrides. Jobs run on the application database (Slice 3), `pypdf` reads PDFs (PyMuPDF is AGPL), and no view has needed a charting library yet. Conformance is computed in-house rather than through PM4Py. GitHub Actions runs the tests and the studio build on every pull request.

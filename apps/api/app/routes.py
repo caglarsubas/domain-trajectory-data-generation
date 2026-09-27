@@ -42,6 +42,7 @@ from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_passw
 from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.registry import get_sector
 from app import export as run_export
+from app.copies import guard_for
 from app import jobs
 from app.catalogue import BY_ID as CATALOGUE, ENTRIES, public
 from app.facts import facts_report
@@ -605,7 +606,7 @@ def export_run(
             filename=f"run-{run.id[:8]}{suffix}-{path.name}",
         )
     bundle = TrajectoryBundle.model_validate(run.candidate)
-    parts = run_export.build(run, bundle, sector, run_out(run, db)["cycles"], held_out)
+    parts = run_export.build(run, bundle, sector, run_out(run, db)["cycles"], held_out, guard_for(db, run))
     media = "application/x-ndjson" if part.endswith(".jsonl") else "application/json"
     suffix = f"-heldout-{held_out}" if held_out else ""
     return Response(
