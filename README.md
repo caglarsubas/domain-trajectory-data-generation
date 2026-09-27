@@ -30,6 +30,10 @@ python3 -m uvicorn app.main:app --app-dir apps/api --reload --port 8000
 cd apps/web && npm install && npm run dev
 ```
 
+## CI
+
+GitHub Actions runs the Python suite and the studio build on every pull request and on pushes to `main` (`.github/workflows/ci.yml`). It needs no secrets: the tests mock the inference engine, the providers, and the network.
+
 ## Docker Compose
 
 `docker compose up --build` starts Postgres, the API, and the studio. Open the studio at http://localhost:3000. The API process listens on port 8000 inside the Compose network, and Compose publishes that on host port 18000 so it does not collide with another program already bound to 8000. Set `API_HOST_PORT` to choose a different host port. Tables are created when the API starts.
@@ -130,6 +134,7 @@ A pack is registered, and so offered in the composer, only once it passes the ga
 - **complete_spec:** every event has roles, phrases, and an operation.
 - **legal_sweep:** 150 random configurations break no rule, repeat limit, or length bound.
 - **every_sub_domain:** each sub-domain, alone and together, reaches its milestones.
+- **group_signal:** each sub-domain alone yields accepted groups, with a pass and a fail, in at least a fifth of its groups of four.
 - **diversity:** at least 32 distinct sequences in 64 journeys.
 - **reachable:** every event occurs in a large run.
 - **stable:** a fixed seed reproduces the run.
@@ -161,6 +166,10 @@ Hotels (`hotel-semi-markov-v1`) cover:
 - **Check-out and billing:** the folio settled or disputed after check-out, and a dispute adjusted or rejected.
 - **Loyalty and reviews:** enrolment, points after settlement, and reviews only once the stay has ended.
 - **Complaints:** complaints resolved or escalated.
+
+A journey ends at its natural length when the domain ends it, such as a declined application, or when it has reached a milestone of the run's scope and the scope has nothing more for it, such as a ticketed booking when only booking is selected. A journey that never reaches its scope, such as a flight with no bag in a baggage run, is redrawn. `GET /sectors/{id}/lengths` samples how long journeys in a scope can run, and the composer warns when most of them end before the requested minimum.
+
+Every sub-domain has a failure its industry actually has, so its groups carry signal: insurance quotes can be abandoned, premiums missed until a policy lapses, renewals declined, and complaints rejected; telecom tickets can close without a fix; airline bags can arrive damaged or be lost and miles can go missing; a disputed hotel bill counts as a failed check-out. Priors that keep rare failures visible say so where they are set; a data source calibrates the real rates.
 
 Jurisdiction profiles carry rules per sector in place of KYC: telecom runs are told about number porting and dispute schemes, airline runs about UK261 or SHY-Yolcu passenger rights, and hotel runs about guest registration (UK hotel records, Turkey's Kimlik Bildirim Sistemi) and price and cancellation disclosure.
 

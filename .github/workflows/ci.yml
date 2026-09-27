@@ -1,0 +1,52 @@
+# Every pull request and every push to main runs the Python suite and the studio build.
+# No secrets: the tests mock the inference engine, providers, and the network.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install ".[dev,parquet]"
+      - name: Test
+        run: python -m pytest
+
+  studio:
+    name: Studio build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npx next build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"

@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "airline-semi-markov-v1"
-PACK_VERSION = "airline-pack-1"
+PACK_VERSION = "airline-pack-2"
 
 SB = "shopping_and_booking"
 AC = "ancillaries_and_changes"
@@ -161,14 +161,15 @@ LIFECYCLE = LifecycleSpec(
                 need("order", "boarding", *NOT_BOARDED), need("bag", "bag", None, "dropped"),
             ),
             sets=(put("order", "boarding", "boarded"),),
-            weight=0.955, outcome="boarding_outcome", dwell_hours=(0.5, 4.0),
+            weight=0.91, outcome="boarding_outcome", dwell_hours=(0.5, 4.0),
             violation="boarding before check-in, before a checked bag was dropped, or after the flight left",
         ),
         EventSpec(
             "passenger.no_show", (CB,),
             requires=(need("order", "checkin", "checked_in"), need("flight", "status", *BEFORE_DEPARTURE), need("order", "boarding", *NOT_BOARDED)),
             sets=(put("order", "boarding", "no_show"),),
-            weight=0.03, outcome="boarding_outcome", ends_journey=True, dwell_hours=(0.5, 4.0),
+            # Priors set so boarding groups carry signal; a data source calibrates the real rates.
+            weight=0.07, outcome="boarding_outcome", ends_journey=True, dwell_hours=(0.5, 4.0),
             violation="no-show recorded before check-in",
         ),
         EventSpec(
@@ -179,7 +180,7 @@ LIFECYCLE = LifecycleSpec(
             ),
             sets=(put("order", "boarding", "denied"), put("order", "order", "disrupted"), put("order", "eligible", "yes")),
             # Rare in practice; kept visible so the rebooking and compensation paths are drawn.
-            weight=0.015, outcome="boarding_outcome", dwell_hours=(0.5, 4.0),
+            weight=0.02, outcome="boarding_outcome", dwell_hours=(0.5, 4.0),
             violation="boarding denied before check-in",
         ),
         EventSpec(
@@ -232,29 +233,52 @@ LIFECYCLE = LifecycleSpec(
             "bag.delivered", (BG,),
             requires=(need("bag", "bag", "dropped"), need("flight", "status", "arrived")),
             sets=(put("bag", "bag", "delivered"),),
-            weight=0.95, outcome="baggage_outcome", dwell_hours=(0.2, 1.0),
+            # Mishandling is far rarer in practice, under one bag in a hundred. These priors keep it visible so
+            # baggage groups carry signal; a data source calibrates the real rate.
+            weight=0.85, outcome="baggage_outcome", dwell_hours=(0.2, 1.0),
             violation="bag delivered before the flight arrived",
         ),
         EventSpec(
             "bag.delayed", (BG,),
             requires=(need("bag", "bag", "dropped"), need("flight", "status", "arrived")),
             sets=(put("bag", "bag", "delayed"),),
-            weight=0.05, outcome="baggage_outcome", dwell_hours=(0.2, 1.0),
+            weight=0.09, outcome="baggage_outcome", dwell_hours=(0.2, 1.0),
             violation="bag reported delayed before the flight arrived",
+        ),
+        EventSpec(
+            "bag.damaged", (BG,),
+            requires=(need("bag", "bag", "dropped"), need("flight", "status", "arrived")),
+            sets=(put("bag", "bag", "damaged"),),
+            weight=0.06, outcome="baggage_outcome", dwell_hours=(0.2, 1.0),
+            violation="bag reported damaged before the flight arrived",
         ),
         EventSpec(
             "bag.returned", (BG,),
             requires=(need("bag", "bag", "delayed"),),
             sets=(put("bag", "bag", "returned"),),
-            dwell_hours=(DAY, 5 * DAY),
+            weight=0.85, outcome="trace_outcome", dwell_hours=(DAY, 5 * DAY),
             violation="bag returned without being delayed",
+        ),
+        EventSpec(
+            "bag.lost", (BG,),
+            requires=(need("bag", "bag", "delayed"),),
+            sets=(put("bag", "bag", "lost"),),
+            weight=0.15, outcome="trace_outcome", dwell_hours=(5 * DAY, 21 * DAY),
+            violation="bag declared lost without being delayed",
         ),
         EventSpec(
             "miles.credited", (LY,),
             requires=(need("party", "loyalty", "member"), need("flight", "status", "arrived"), need("order", "miles", None)),
             sets=(put("order", "miles", "credited"),),
-            dwell_hours=(DAY, 14 * DAY),
+            weight=0.88, outcome="miles_outcome", dwell_hours=(DAY, 14 * DAY),
             violation="miles credited before the flight arrived or to a non-member",
+        ),
+        EventSpec(
+            "miles.missing", (LY,),
+            requires=(need("party", "loyalty", "member"), need("flight", "status", "arrived"), need("order", "miles", None)),
+            sets=(put("order", "miles", "missing"),),
+            weight=0.12, outcome="miles_outcome", dwell_hours=(14 * DAY, 30 * DAY),
+            violation="miles reported missing before the flight arrived or for a non-member",
         ),
         EventSpec(
             "compensation.claimed", (DC,),
@@ -304,8 +328,9 @@ LIFECYCLE = LifecycleSpec(
         AC: ("seat.selected", "bag.added", "order.changed", "change.declined", "refund.issued"),
         CB: ("passenger.boarded", "passenger.no_show", "boarding.denied"),
         DC: ("flight.cancelled", "flight.arrived_late", "compensation.paid", "compensation.rejected"),
-        BG: ("bag.delivered", "bag.delayed"),
-        LY: ("loyalty.enrolled", "miles.credited"),
+        BG: ("bag.delivered", "bag.delayed", "bag.damaged"),
+        # Enrolment alone is not the loyalty outcome; the miles for a flight are.
+        LY: ("miles.credited", "miles.missing"),
         CO: ("complaint.received",),
     },
 )
@@ -349,8 +374,11 @@ ROLES = {
     "flight.arrived_late": (("flight", "flight"), ("order", "order")),
     "bag.delivered": (("bag", "bag"), ("flight", "flight")),
     "bag.delayed": (("bag", "bag"), ("flight", "flight")),
+    "bag.damaged": (("bag", "bag"), ("flight", "flight")),
     "bag.returned": (PASSENGER, ("bag", "bag")),
+    "bag.lost": (PASSENGER, ("bag", "bag")),
     "miles.credited": (("party", "member"), ("order", "order")),
+    "miles.missing": (("party", "member"), ("order", "order")),
     "compensation.claimed": (("party", "claimant"), ("claim", "claim"), ("order", "order")),
     "compensation.paid": (("party", "claimant"), ("claim", "claim")),
     "compensation.rejected": (("party", "claimant"), ("claim", "claim")),
@@ -387,8 +415,11 @@ EN = {
     "flight.arrived_late": "The flight arrived more than three hours late.",
     "bag.delivered": "The bag arrived on the belt.",
     "bag.delayed": "The bag did not arrive with the flight.",
+    "bag.damaged": "The bag arrived damaged.",
     "bag.returned": "The delayed bag was delivered to the passenger.",
+    "bag.lost": "The delayed bag was declared lost.",
     "miles.credited": "Miles were credited for the flight.",
+    "miles.missing": "The miles for the flight never arrived.",
     "compensation.claimed": "The passenger claimed compensation.",
     "compensation.paid": "Compensation was paid.",
     "compensation.rejected": "The compensation claim was rejected.",
@@ -424,8 +455,11 @@ TR = {
     "flight.arrived_late": "Uçak üç saatten fazla gecikmeyle indi.",
     "bag.delivered": "Bagaj banttan teslim alındı.",
     "bag.delayed": "Bagaj uçuşla birlikte gelmedi.",
+    "bag.damaged": "Bagaj hasarlı geldi.",
     "bag.returned": "Geciken bagaj yolcuya teslim edildi.",
+    "bag.lost": "Geciken bagaj kayıp ilan edildi.",
     "miles.credited": "Uçuş için mil yüklendi.",
+    "miles.missing": "Uçuşun milleri hiç yüklenmedi.",
     "compensation.claimed": "Yolcu tazminat talep etti.",
     "compensation.paid": "Tazminat ödendi.",
     "compensation.rejected": "Tazminat talebi reddedildi.",
@@ -463,8 +497,11 @@ OPERATIONS = {
     "flight.arrived_late": ("Flight Operations", "Capture"),
     "bag.delivered": ("Baggage Handling", "Evaluate"),
     "bag.delayed": ("Baggage Handling", "Evaluate"),
+    "bag.damaged": ("Baggage Handling", "Evaluate"),
     "bag.returned": ("Baggage Tracing", "Execute"),
+    "bag.lost": ("Baggage Tracing", "Execute"),
     "miles.credited": ("Loyalty", "Capture"),
+    "miles.missing": ("Loyalty", "Capture"),
     "compensation.claimed": ("Passenger Claims", "Initiate"),
     "compensation.paid": ("Passenger Claims", "Execute"),
     "compensation.rejected": ("Passenger Claims", "Execute"),
@@ -481,6 +518,7 @@ TRAJECTORY_TYPES = (
     "compensation_claim",
     "delayed_flight",
     "baggage_issue",
+    "missing_miles",
     "voluntary_cancellation",
     "itinerary_change",
     "complaint_case",
@@ -503,8 +541,10 @@ def classify(types: list[str]) -> str:
         return "compensation_claim"
     if present & {"flight.delayed", "flight.arrived_late"}:
         return "delayed_flight"
-    if "bag.delayed" in present:
+    if present & {"bag.delayed", "bag.damaged"}:
         return "baggage_issue"
+    if "miles.missing" in present:
+        return "missing_miles"
     if "order.cancelled" in present:
         return "voluntary_cancellation"
     if "change.requested" in present:
@@ -517,7 +557,10 @@ def classify(types: list[str]) -> str:
 
 
 FAILED_OUTCOMES = frozenset(
-    {"payment.failed", "order.expired", "passenger.no_show", "order.cancelled", "change.declined", "compensation.rejected", "complaint.escalated"}
+    {
+        "payment.failed", "order.expired", "passenger.no_show", "order.cancelled", "change.declined", "compensation.rejected",
+        "complaint.escalated", "bag.damaged", "bag.lost", "miles.missing",
+    }
 )
 
 
@@ -609,8 +652,11 @@ PACK = PackSpec(
             "flight.arrived_late",
             "bag.delivered",
             "bag.delayed",
+            "bag.damaged",
             "bag.returned",
+            "bag.lost",
             "miles.credited",
+            "miles.missing",
             "compensation.paid",
             "compensation.rejected",
             "complaint.resolved",
@@ -655,8 +701,8 @@ PACK = PackSpec(
     subtype=subtype,
     correctness_drops=("boarding.denied",),
     goal={
-        "en": "The passenger travels as booked or rebooked without a failed outcome: no failed payment, expired or cancelled booking, no-show, declined change, refund after a disruption, late arrival without compensation, rejected claim, undelivered bag, or escalated complaint.",
-        "tr": "Yolcu, başarısız bir sonuç olmadan rezervasyonuyla ya da aktarıldığı uçuşla seyahat eder: başarısız ödeme, süresi dolan veya iptal edilen rezervasyon, uçuşa gelmeme, reddedilen değişiklik, aksaklık sonrası iade, tazminatsız gecikmeli varış, reddedilen talep, teslim edilmeyen bagaj veya üst mercie taşınan şikâyet olmaz.",
+        "en": "The passenger travels as booked or rebooked without a failed outcome: no failed payment, expired or cancelled booking, no-show, declined change, refund after a disruption, late arrival without compensation, rejected claim, damaged, lost, or undelivered bag, missing miles, or escalated complaint.",
+        "tr": "Yolcu, başarısız bir sonuç olmadan rezervasyonuyla ya da aktarıldığı uçuşla seyahat eder: başarısız ödeme, süresi dolan veya iptal edilen rezervasyon, uçuşa gelmeme, reddedilen değişiklik, aksaklık sonrası iade, tazminatsız gecikmeli varış, reddedilen talep, hasarlı, kayıp veya teslim edilmeyen bagaj, yüklenmeyen mil veya üst mercie taşınan şikâyet olmaz.",
     },
     operations=OPERATIONS,
     agent={

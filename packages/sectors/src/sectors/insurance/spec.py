@@ -13,7 +13,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "insurance-semi-markov-v2"
-PACK_VERSION = "insurance-pack-2"
+PACK_VERSION = "insurance-pack-3"
 
 QU = "quoting"
 UW = "underwriting"
@@ -53,8 +53,15 @@ LIFECYCLE = LifecycleSpec(
             "quote.submitted", (QU,),
             requires=(need("quote", "quote", "started"),),
             sets=(put("quote", "quote", "submitted"),),
-            dwell_hours=(0.1, 4.0),
+            weight=0.85, outcome="quote_completion", dwell_hours=(0.1, 4.0),
             violation="quote submitted before it started",
+        ),
+        EventSpec(
+            "quote.abandoned", (QU,),
+            requires=(need("quote", "quote", "started"),),
+            sets=(put("quote", "quote", "abandoned"),),
+            weight=0.15, outcome="quote_completion", ends_journey=True, dwell_hours=(2.0, 7 * DAY),
+            violation="quote abandoned before it started or after it was submitted",
         ),
         EventSpec(
             "underwriting.started", (UW,),
@@ -102,8 +109,22 @@ LIFECYCLE = LifecycleSpec(
             "premium.paid", (BI,),
             requires=(need("policy", "policy", *IN_FORCE),),
             sets=(put("policy", "billing", "paid"),),
-            repeat=6, dwell_hours=(1.0, 72.0),
+            weight=0.9, repeat=6, outcome="premium_outcome", dwell_hours=(1.0, 72.0),
             violation="premium paid before policy issue",
+        ),
+        EventSpec(
+            "premium.missed", (BI,),
+            requires=(need("policy", "policy", *IN_FORCE), need("policy", "billing", None, "paid")),
+            sets=(put("policy", "billing", "missed"),),
+            weight=0.1, repeat=2, outcome="premium_outcome", dwell_hours=(20 * DAY, 40 * DAY),
+            violation="premium missed before policy issue or while one is already missed",
+        ),
+        EventSpec(
+            "policy.lapsed", (BI, PA),
+            requires=(need("policy", "billing", "missed"), need("policy", "policy", *IN_FORCE)),
+            sets=(put("policy", "policy", "lapsed"),),
+            weight=0.5, ends_journey=True, dwell_hours=(14 * DAY, 30 * DAY),
+            violation="policy lapsed without a missed premium",
         ),
         EventSpec(
             "claim.notified", (CL,),
@@ -141,6 +162,13 @@ LIFECYCLE = LifecycleSpec(
             violation="policy changed before issue",
         ),
         EventSpec(
+            "policy.renewal_declined", (PA, SV),
+            requires=(need("policy", "policy", "in_force"),),
+            sets=(put("policy", "policy", "not_renewed"),),
+            weight=0.06, outcome="policy_term", ends_journey=True, dwell_hours=(300 * DAY, 400 * DAY),
+            violation="renewal declined before policy issue",
+        ),
+        EventSpec(
             "policy.cancelled", (PA,),
             requires=(need("policy", "policy", *IN_FORCE),),
             sets=(put("policy", "policy", "cancelled"),),
@@ -158,17 +186,24 @@ LIFECYCLE = LifecycleSpec(
             "complaint.resolved", (CO,),
             requires=(need("complaint", "complaint", "open"),),
             sets=(put("complaint", "complaint", "resolved"),),
-            weight=0.8, dwell_hours=(2 * DAY, 56 * DAY),
+            weight=0.75, outcome="complaint_outcome", dwell_hours=(2 * DAY, 56 * DAY),
             violation="complaint resolved before it was received",
+        ),
+        EventSpec(
+            "complaint.rejected", (CO,),
+            requires=(need("complaint", "complaint", "open"),),
+            sets=(put("complaint", "complaint", "rejected"),),
+            weight=0.25, outcome="complaint_outcome", dwell_hours=(2 * DAY, 56 * DAY),
+            violation="complaint rejected before it was received",
         ),
     ),
     milestones={
-        QU: ("quote.submitted",),
+        QU: ("quote.submitted", "quote.abandoned"),
         UW: ("underwriting.accepted", "underwriting.declined"),
         PA: ("policy.issued",),
-        BI: ("premium.paid",),
+        BI: ("premium.paid", "premium.missed"),
         CL: ("claim.settled", "claim.denied"),
-        SV: ("policy.renewed", "complaint.received"),
+        SV: ("policy.renewed", "policy.renewal_declined", "complaint.received"),
         CO: ("complaint.received",),
     },
 )
@@ -186,6 +221,7 @@ ROLES = {
     "product.viewed": (("party", "prospect"), ("offering", "offering")),
     "quote.started": (("party", "applicant"), ("quote", "quote")),
     "quote.submitted": (("party", "applicant"), ("quote", "quote")),
+    "quote.abandoned": (("party", "applicant"), ("quote", "quote")),
     "underwriting.started": (("party", "applicant"), ("quote", "quote")),
     "underwriting.referred": (("party", "applicant"), ("quote", "quote")),
     "underwriting.accepted": (("party", "applicant"), ("quote", "quote")),
@@ -193,20 +229,25 @@ ROLES = {
     "policy.bound": (("party", "policyholder"), ("policy", "policy"), ("quote", "quote")),
     "policy.issued": (("party", "policyholder"), ("policy", "policy")),
     "premium.paid": (("party", "policyholder"), ("policy", "policy")),
+    "premium.missed": (("party", "policyholder"), ("policy", "policy")),
+    "policy.lapsed": (("party", "policyholder"), ("policy", "policy")),
     "claim.notified": (("party", "claimant"), ("claim", "claim"), ("policy", "policy")),
     "claim.assessed": (("claim", "claim"), ("policy", "policy")),
     "claim.settled": (("claim", "claim"), ("policy", "policy")),
     "claim.denied": (("claim", "claim"), ("policy", "policy")),
     "policy.renewed": (("party", "policyholder"), ("policy", "policy")),
+    "policy.renewal_declined": (("party", "policyholder"), ("policy", "policy")),
     "policy.cancelled": (("party", "policyholder"), ("policy", "policy")),
     "complaint.received": (("party", "complainant"), ("complaint", "case")),
     "complaint.resolved": (("party", "complainant"), ("complaint", "case")),
+    "complaint.rejected": (("party", "complainant"), ("complaint", "case")),
 }
 
 EN = {
     "product.viewed": "The prospect viewed a retail cover.",
     "quote.started": "A quote was started.",
     "quote.submitted": "The quote was submitted.",
+    "quote.abandoned": "The applicant left the quote unfinished.",
     "underwriting.started": "Underwriting started.",
     "underwriting.referred": "Underwriting was referred.",
     "underwriting.accepted": "Underwriting accepted the risk.",
@@ -214,19 +255,24 @@ EN = {
     "policy.bound": "The policy was bound.",
     "policy.issued": "The policy was issued.",
     "premium.paid": "The premium was paid.",
+    "premium.missed": "A premium payment was missed.",
+    "policy.lapsed": "The policy lapsed for non-payment.",
     "claim.notified": "A claim was notified.",
     "claim.assessed": "The claim was assessed.",
     "claim.settled": "The claim was settled.",
     "claim.denied": "The claim was denied.",
     "policy.renewed": "The policy was renewed.",
+    "policy.renewal_declined": "The insurer declined to renew the policy.",
     "policy.cancelled": "The policy was cancelled.",
     "complaint.received": "A complaint was received.",
     "complaint.resolved": "The complaint was resolved.",
+    "complaint.rejected": "The complaint was rejected.",
 }
 TR = {
     "product.viewed": "Aday bir teminat inceledi.",
     "quote.started": "Teklif başladı.",
     "quote.submitted": "Teklif iletildi.",
+    "quote.abandoned": "Başvuru sahibi teklifi yarım bıraktı.",
     "underwriting.started": "Risk değerlendirmesi başladı.",
     "underwriting.referred": "Risk değerlendirmesi incelemeye alındı.",
     "underwriting.accepted": "Risk kabul edildi.",
@@ -234,14 +280,18 @@ TR = {
     "policy.bound": "Poliçe bağlandı.",
     "policy.issued": "Poliçe düzenlendi.",
     "premium.paid": "Prim ödendi.",
+    "premium.missed": "Bir prim ödemesi kaçırıldı.",
+    "policy.lapsed": "Poliçe ödeme yapılmadığı için sona erdi.",
     "claim.notified": "Hasar ihbarı yapıldı.",
     "claim.assessed": "Hasar incelendi.",
     "claim.settled": "Hasar ödendi.",
     "claim.denied": "Hasar reddedildi.",
     "policy.renewed": "Poliçe yenilendi.",
+    "policy.renewal_declined": "Sigorta şirketi poliçeyi yenilemedi.",
     "policy.cancelled": "Poliçe iptal edildi.",
     "complaint.received": "Şikayet kaydı açıldı.",
     "complaint.resolved": "Şikayet çözüldü.",
+    "complaint.rejected": "Şikayet reddedildi.",
 }
 
 # Insurance capability domains, with the action terms the episode builder uses for every pack.
@@ -249,6 +299,7 @@ OPERATIONS = {
     "product.viewed": ("Product Catalog", "Retrieve"),
     "quote.started": ("Quote Management", "Initiate"),
     "quote.submitted": ("Quote Management", "Update"),
+    "quote.abandoned": ("Quote Management", "Control"),
     "underwriting.started": ("Underwriting", "Initiate"),
     "underwriting.referred": ("Underwriting", "Request"),
     "underwriting.accepted": ("Underwriting", "Evaluate"),
@@ -256,17 +307,24 @@ OPERATIONS = {
     "policy.bound": ("Policy Administration", "Initiate"),
     "policy.issued": ("Policy Administration", "Execute"),
     "premium.paid": ("Premium Billing", "Execute"),
+    "premium.missed": ("Premium Billing", "Update"),
+    "policy.lapsed": ("Policy Administration", "Control"),
     "claim.notified": ("Claims Management", "Initiate"),
     "claim.assessed": ("Claims Management", "Evaluate"),
     "claim.settled": ("Claims Management", "Execute"),
     "claim.denied": ("Claims Management", "Execute"),
     "policy.renewed": ("Policy Administration", "Update"),
+    "policy.renewal_declined": ("Policy Administration", "Evaluate"),
     "policy.cancelled": ("Policy Administration", "Control"),
     "complaint.received": ("Customer Case Management", "Initiate"),
     "complaint.resolved": ("Customer Case Management", "Execute"),
+    "complaint.rejected": ("Customer Case Management", "Execute"),
 }
 
 TRAJECTORY_TYPES = (
+    "quote_abandoned",
+    "policy_lapsed",
+    "policy_not_renewed",
     "claim_denied",
     "claim_settled",
     "underwriting_declined",
@@ -280,6 +338,12 @@ TRAJECTORY_TYPES = (
 
 def classify(types: list[str]) -> str:
     present = set(types)
+    if "quote.abandoned" in present:
+        return "quote_abandoned"
+    if "policy.lapsed" in present:
+        return "policy_lapsed"
+    if "policy.renewal_declined" in present:
+        return "policy_not_renewed"
     if "claim.denied" in present:
         return "claim_denied"
     if "claim.settled" in present:
@@ -300,7 +364,11 @@ def classify(types: list[str]) -> str:
 def success(types: list[str]) -> bool:
     if not types:
         return False
-    return not ({"underwriting.declined", "claim.denied", "policy.cancelled"} & set(types))
+    if {"quote.abandoned", "underwriting.declined", "claim.denied", "policy.cancelled", "policy.lapsed", "policy.renewal_declined", "complaint.rejected"} & set(types):
+        return False
+    # A missed premium is recovered only when a later one is paid.
+    premiums = [name for name in types if name in {"premium.paid", "premium.missed"}]
+    return not premiums or premiums[-1] == "premium.paid"
 
 
 PROMPTS = {
@@ -423,7 +491,7 @@ PACK = PackSpec(
         },
     },
     goal={
-        "en": "The journey ends without underwriting declining the application, a denied claim, or a cancelled policy.",
-        "tr": "Yolculuk, başvurunun risk değerlendirmesinde reddedilmesi, reddedilen bir hasar talebi veya iptal edilen bir poliçe olmadan biter.",
+        "en": "The journey ends without a failed outcome: no abandoned quote, declined risk, denied claim, cancelled, lapsed, or unrenewed policy, or rejected complaint; a missed premium is paid later.",
+        "tr": "Yolculuk başarısız bir sonuç olmadan biter: yarım bırakılan teklif, reddedilen risk, reddedilen hasar, iptal edilen, sona eren veya yenilenmeyen poliçe ya da reddedilen şikâyet olmaz; kaçırılan prim sonradan ödenir.",
     },
 )

@@ -75,6 +75,7 @@ function Composer() {
   const [searchNote, setSearchNote] = useState("");
   const [quota, setQuota] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [lengths, setLengths] = useState(null);
 
   useEffect(() => {
     api("/sectors").then((data) => setSectors(data.data)).catch((err) => setError(err.message));
@@ -87,6 +88,16 @@ function Composer() {
     if (!from) api("/projects").then((data) => setProjects(data.data)).catch(() => setProjects([]));
     api("/quota").then((data) => setQuota(data.demo)).catch(() => setQuota(null));
   }, [from]);
+
+  // How long journeys in the chosen scope can run, so a minimum beyond most of them is said before generating.
+  useEffect(() => {
+    if (!form.sector || form.sub_domains.length === 0) return undefined;
+    const timer = setTimeout(() => {
+      const query = new URLSearchParams({ sub_domains: form.sub_domains.join(","), max_events: String(form.max_events || 24) });
+      api(`/sectors/${form.sector}/lengths?${query}`).then(setLengths).catch(() => setLengths(null));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [form.sector, form.sub_domains, form.max_events]);
 
   useEffect(() => {
     if (!from) return;
@@ -155,6 +166,13 @@ function Composer() {
       ? `Demo accounts can start ${quota.daily.runs.limit} runs a day${quota.daily.runs.frees_at ? `; the next one is available at ${quota.daily.runs.frees_at.slice(11, 16)} UTC` : ""}.`
       : null,
   ].filter(Boolean);
+  const scopeLengths = lengths ? Object.entries(lengths.lengths).map(([length, count]) => [Number(length), count]) : [];
+  const scopeTotal = scopeLengths.reduce((sum, [, count]) => sum + count, 0);
+  const shortShare = scopeTotal ? scopeLengths.filter(([length]) => length < form.min_events).reduce((sum, [, count]) => sum + count, 0) / scopeTotal : 0;
+  const longest = scopeLengths.length ? Math.max(...scopeLengths.map(([length]) => length)) : null;
+  const lengthNote = shortShare >= 0.5
+    ? `Most journeys in this scope end before ${form.min_events} events (${Math.round(shortShare * 100)}%${longest != null ? `; the longest run to ${longest}` : ""}). They end at their natural length when the domain or the scope has nothing more for them, so the minimum applies only to journeys that can go on.`
+    : "";
   const slots = useMemo(() => Array.from({ length: Math.min(form.max_events, 32) }, (_, i) => i < form.min_events), [form.max_events, form.min_events]);
 
   async function deepSearch() {
@@ -582,6 +600,7 @@ function Composer() {
                   <input type="number" min="1" value={form.max_assistant_turns} onChange={(e) => patch({ max_assistant_turns: Number(e.target.value) })} />
                 </div>
               </div>
+              {lengthNote ? <p className="warn">{lengthNote}</p> : null}
             </>
           ) : null}
           {step === 2 ? (
@@ -722,6 +741,7 @@ function Composer() {
                   {" "}{quota.daily.deep_searches.used} of {quota.daily.deep_searches.limit} deep searches. Runs hold up to {quota.max_sequences.toLocaleString()} sequences.
                 </p>
               ) : null}
+              {lengthNote ? <p className="warn">{lengthNote}</p> : null}
               {form.start_mode === "warm" && docCount > 0 && readableCount === 0 && !files.length && !links.length ? (
                 <p className="warn">No document can be read yet, so warm-start text will not steer this run.</p>
               ) : null}

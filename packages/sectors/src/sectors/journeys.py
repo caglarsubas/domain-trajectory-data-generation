@@ -308,6 +308,23 @@ def generate_bundle(
     return bundle
 
 
+def natural_lengths(pack: PackSpec, sub_domains: list[str], cap: int, samples: int = 300) -> dict[int, int]:
+    """How long journeys in a scope run when nothing stops them early but the domain or the scope itself.
+
+    Each walk goes on until a journey-ending event, the end of the scope's legal events, or the cap, so the
+    lengths show where a requested minimum can and cannot be met.
+    """
+    lifecycle = pack.lifecycle
+    domains = [name for name in sub_domains if name in lifecycle.sub_domains] or [pack.default_domain]
+    walker = Walker(lifecycle, allowed=allowed_events(lifecycle, domains, set()), sub_domains=domains)
+    rng = _rng(f"lengths|{pack.sector}|{'|'.join(sorted(domains))}|{cap}")
+    found: dict[int, int] = {}
+    for _ in range(samples):
+        length = len(walker.walk(rng, floor=cap, cap=cap).steps)
+        found[length] = found.get(length, 0) + 1
+    return dict(sorted(found.items()))
+
+
 def language_code(language: str) -> str:
     return language.split("-")[0].strip().lower()
 
@@ -349,6 +366,10 @@ def _choose(
 
     A journey the domain ended, such as a declined application, counts at its natural length, as a rollout
     does: redrawing it would make the first sequence of a group almost always one of the long successes.
+    Otherwise a journey must reach a milestone of the run's scope, and then counts once it is long enough or
+    has run out of legal events, such as a ticketed booking when only booking is selected: redrawing that
+    would keep only the journeys that end early on a failure. One that never reaches the scope, such as a
+    flight with no bag in a baggage run, is redrawn.
     """
     best: Path | None = None
     best_score: tuple[bool, bool, int] | None = None
@@ -357,7 +378,7 @@ def _choose(
         kind = pack.classify(path.types)
         wanted = kind not in dropped and (not kept or kind in kept)
         ended = bool(path.steps) and pack.lifecycle[path.types[-1]].ends_journey
-        long_enough = ended or len(path.steps) >= floor
+        long_enough = ended or (walker.reaches_goal(path.types) and (path.exhausted or len(path.steps) >= floor))
         if wanted and long_enough:
             return path
         score = (wanted, long_enough, len(path.steps))
@@ -467,8 +488,9 @@ def _rollouts(
             fits = intent is None or pack.intent(walked.types) in (None, intent)
             wanted = pack.classify(walked.types) not in dropped
             ended = bool(walked.steps) and pack.lifecycle[walked.types[-1]].ends_journey
+            in_scope = walker.reaches_goal(walked.types) and (walked.exhausted or len(walked.steps) >= floor)
             best = walked if best is None else best
-            if fits and wanted and (len(walked.steps) >= floor or ended):
+            if fits and wanted and (ended or in_scope):
                 best = walked
                 break
         assert best is not None
