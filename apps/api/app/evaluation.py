@@ -38,6 +38,11 @@ GATING = ("helpfulness", "correctness", "safety")
 
 # Rubrics the judge scores alongside a code scorer, to measure the judge; they never decide acceptance.
 COMPARED = tuple(JUDGE_PASS)
+# The code verdicts a cycle keeps for each sampled journey: the two above, and the solution and behavior rubrics that
+# a study's own rubrics are compared with.
+CODE_SIGNALS = (*COMPARED, "solution_rubric", "behavior_rubric")
+# A study rubric's verdict passes at the middle of its scale.
+STUDY_PASS = 0.5
 
 # Helpfulness is scored 1 to 5; the others 0 to 1. Normalized scores divide by this.
 SCALE = {"helpfulness": 5.0}
@@ -85,7 +90,7 @@ def code_signals(bundle: TrajectoryBundle, trajectory_id: str) -> dict[str, dict
                 return {
                     name: {"score": float(found["score"]), "passed": bool(found["passed"])}
                     for name, found in sequence.signals.items()
-                    if name in COMPARED
+                    if name in CODE_SIGNALS
                 }
     return {}
 
@@ -205,13 +210,16 @@ def evaluate_journeys(
     repeats: int = 1,
     temperature: float = 0.0,
     compared: dict[str, str] | None = None,
+    study: dict[str, dict] | None = None,
 ) -> dict:
     """Judge a sample of journeys with every model and turn the verdicts into a cycle.
 
     `compared` names the code-comparison rubrics the engine has registered, with their digests; each is asked only
-    of journeys the code scored with it.
+    of journeys the code scored with it. `study` names the study's approved rubrics as registered, with their kind,
+    title, digest, and the code signal each is compared with; each is asked of every journey.
     """
     compared = compared or {}
+    study = study or {}
     errors = [f"{error}" for journey in journeys for error in sector.hard_checks(journey)]
     base = {"reference_quality": reference_quality, "models": models, "sample": [], "scores": {}, "agreement": {}, "flags": [], "canary": None}
     if errors:
@@ -249,6 +257,9 @@ def evaluate_journeys(
             if rubric in compared and rubric in sample[-1]["code"]:
                 question = brief + "\n" + QUESTIONS[rubric].format(label=label)
                 calls.append({**own, "rubric": rubric, "payload": {"prompt": question, "response": text}})
+        for name, info in study.items():
+            question = brief + f"\nScore this {label} journey against the study's {info['kind']} rubric."
+            calls.append({**own, "rubric": name, "payload": {"prompt": question, "response": text}})
         if alternative is not None:
             mine, _ = render_journey(journey, primary.trajectory_id, budget_chars // 2, blind=True)
             other, cut = render_journey(journey, alternative.trajectory_id, budget_chars // 2, blind=True)
@@ -302,10 +313,10 @@ def evaluate_journeys(
                     "canary": call["canary"],
                     "readable": readable,
                     "repeat": repeat,
-                    "rubric_digest": result.get("rubric_digest") or compared.get(call["rubric"]),
+                    "rubric_digest": result.get("rubric_digest") or compared.get(call["rubric"]) or study.get(call["rubric"], {}).get("digest"),
                 }
             )
-    summary = summarize(verdicts, sample, models, thresholds)
+    summary = summarize(verdicts, sample, models, thresholds, study=study)
     if canary is not None:
         canary["results"] = {model: _mean_readable([item for item in verdicts if item["canary"] and item["judge_model"] == model]) for model in models}
     return {
@@ -334,12 +345,16 @@ def _side(value: float, minimum: float) -> bool:
     return value >= minimum
 
 
-def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thresholds: dict[str, float]) -> dict:
+def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thresholds: dict[str, float], study: dict[str, dict] | None = None) -> dict:
     """Per-rubric scores per model, agreement between models, across repeats, and with code, order consistency,
-    audit flags, and the decision."""
+    audit flags, and the decision. `study` maps each study rubric's engine name to its kind, title, and code signal."""
+    study = study or {}
     primary = models[0]
     minimum = {rubric: float(thresholds.get(rubric, DEFAULT_THRESHOLDS[rubric])) for rubric in RUBRICS}
     minimum.update(JUDGE_PASS)
+    minimum.update({name: STUDY_PASS for name in study})
+    # Each judge rubric that has a code counterpart, and the code signal it is set against.
+    against = {rubric: rubric for rubric in COMPARED} | {name: info["signal"] for name, info in study.items()}
     judged = [item for item in verdicts if not item["canary"]]
     # One value per journey, rubric, and model: the mean of its readable repeats. Pairwise combines both orders into
     # the primary journey's preference.
@@ -357,7 +372,7 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
         tid = entry["trajectory_id"]
         for model in models:
             mine = [item for item in judged if item["trajectory_id"] == tid and item["judge_model"] == model]
-            for rubric in ("helpfulness", "correctness", "safety", *COMPARED):
+            for rubric in ("helpfulness", "correctness", "safety", *COMPARED, *study):
                 found = [item for item in mine if item["rubric"] == rubric]
                 if not found:
                     continue
@@ -445,16 +460,17 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
             "mean_spread": round(mean(spreads), 4),
         }
 
-    # Against code: the judge's verdict on conformance and decisions next to the code scorer's, journey by journey.
+    # Against code: the judge's verdict next to the code scorer's, journey by journey: conformance and decisions, and
+    # each study rubric against the code's rubric of its kind.
     code: dict[str, dict] = {}
-    for rubric in COMPARED:
-        scored = [entry for entry in sample if rubric in (entry.get("code") or {})]
+    for rubric, signal in against.items():
+        scored = [entry for entry in sample if signal in (entry.get("code") or {})]
         if not scored or not any(key[1] == rubric for key in per):
             continue
         by_model = {}
         for model in models:
             pairs = [
-                (per[(entry["trajectory_id"], rubric, model)], entry["code"][rubric], entry["trajectory_id"])
+                (per[(entry["trajectory_id"], rubric, model)], entry["code"][signal], entry["trajectory_id"])
                 for entry in scored
                 if per.get((entry["trajectory_id"], rubric, model)) is not None
             ]
@@ -474,12 +490,15 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
         code[rubric] = {
             "code": {
                 "journeys": len(scored),
-                "passed": sum(1 for entry in scored if entry["code"][rubric]["passed"]),
-                "mean": round(mean(entry["code"][rubric]["score"] for entry in scored), 4),
+                "passed": sum(1 for entry in scored if entry["code"][signal]["passed"]),
+                "mean": round(mean(entry["code"][signal]["score"] for entry in scored), 4),
             },
             "models": by_model,
             "judge_pass": minimum[rubric],
+            "signal": signal,
         }
+        if rubric in study:
+            code[rubric].update(kind=study[rubric]["kind"], title=study[rubric]["title"], study=True)
 
     # A broken verdict blocks acceptance only when it leaves a sampled journey unscored for a rubric that decides it;
     # pairwise judges both orders, so one readable order still scores the journey.

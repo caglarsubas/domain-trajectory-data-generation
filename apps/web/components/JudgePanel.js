@@ -6,7 +6,10 @@ const REPORTED = new Set(["pairwise_quality"]);
 const COMPARED = ["process_conformance", "decision_score"];
 const SCALE = { helpfulness: 5 };
 
-function label(name) {
+// A study rubric is named by a hash of its content; it is shown by its kind and title.
+function label(name, names = {}) {
+  const study = names[name];
+  if (study) return `the study's ${study.kind} rubric "${study.title}"`;
   return name.replaceAll("_", " ");
 }
 
@@ -22,22 +25,22 @@ function winner(item) {
   return (item.order === "ab") === firstWon ? "this journey" : "alternative";
 }
 
-function explain(flag) {
+function explain(flag, names) {
   switch (flag.kind) {
     case "likely_false_positive":
       return `${flag.model} passed the control journey, whose events were put out of order. Its correctness verdicts may not see broken journeys.`;
     case "likely_false_negative":
       return `${flag.model} called a journey incorrect that replays legally through the pack's machines.`;
     case "models_disagree":
-      return `The two judges disagree on ${label(flag.rubric)}.`;
+      return `The two judges disagree on ${label(flag.rubric, names)}.`;
     case "order_flip":
       return `${flag.model} preferred whichever journey it read first.`;
     case "unreadable":
-      return `${flag.model} returned no readable verdict for ${label(flag.rubric)}.`;
+      return `${flag.model} returned no readable verdict for ${label(flag.rubric, names)}.`;
     case "repeats_disagree":
-      return `${flag.model}'s repeated verdicts on ${label(flag.rubric)} fell on both sides of its threshold.`;
+      return `${flag.model}'s repeated verdicts on ${label(flag.rubric, names)} fell on both sides of its threshold.`;
     case "code_disagrees":
-      return `${flag.model} and the code scorer disagree on ${label(flag.rubric)}.`;
+      return `${flag.model} and the code scorer disagree on ${label(flag.rubric, names)}.`;
     default:
       return flag.kind;
   }
@@ -102,6 +105,8 @@ export default function JudgePanel({ cycle, onPick }) {
   const code = cycle.agreement?.code || {};
   const judging = cycle.judging;
   const repeated = Object.keys(repeats).length > 0;
+  const names = Object.fromEntries(Object.entries(judging?.rubrics || {}).filter(([, info]) => info.source === "study"));
+  const againstCode = [...COMPARED.filter((rubric) => code[rubric]), ...Object.keys(code).filter((rubric) => code[rubric].study)];
   const grouped = {};
   for (const flag of cycle.flags || []) {
     const key = `${flag.kind}|${flag.model}|${flag.rubric}`;
@@ -176,7 +181,7 @@ export default function JudgePanel({ cycle, onPick }) {
               </tr>
             </thead>
             <tbody>
-              {COMPARED.filter((rubric) => code[rubric]).map((rubric) => {
+              {againstCode.map((rubric) => {
                 const found = code[rubric];
                 const judge = (model) => {
                   const item = found.models?.[model];
@@ -184,8 +189,11 @@ export default function JudgePanel({ cycle, onPick }) {
                 };
                 return (
                   <tr key={rubric}>
-                    <td>{label(rubric)}</td>
-                    <td>{found.code.passed} of {found.code.journeys} pass; mean {shown(found.code.mean)}</td>
+                    <td>{found.study ? `Study ${found.kind}: ${found.title}` : label(rubric)}</td>
+                    <td>
+                      <div>{found.code.passed} of {found.code.journeys} pass; mean {shown(found.code.mean)}</div>
+                      {found.study ? <small className="second">the code&apos;s {found.kind} rubric</small> : null}
+                    </td>
                     <td>{judge(primary)}</td>
                     {second ? <td>{judge(second)}</td> : null}
                     {repeated ? <td>{stability(repeats[rubric]?.[primary])}</td> : null}
@@ -219,7 +227,7 @@ export default function JudgePanel({ cycle, onPick }) {
         <ul className="judge-flags">
           {flags.map((flag) => (
             <li key={`${flag.kind}|${flag.model}|${flag.rubric}`} data-kind={flag.kind}>
-              {explain(flag)}
+              {explain(flag, names)}
               {flag.kind !== "likely_false_positive" ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
             </li>
           ))}
@@ -251,7 +259,7 @@ export default function JudgePanel({ cycle, onPick }) {
                 {calls(verdictsFor(entry.trajectory_id)).map((row, index) => (
                   <tr key={index}>
                     <td>{row.judge_model}</td>
-                    <td>{label(row.rubric)}{row.order ? ` (${row.order === "ab" ? "this journey first" : "alternative first"})` : ""}</td>
+                    <td>{label(row.rubric, names)}{row.order ? ` (${row.order === "ab" ? "this journey first" : "alternative first"})` : ""}</td>
                     <td>{repeatScores(row)}</td>
                     <td>{row.repeats.map((item) => item.parsed?.justification || item.parsed?.reason || "").find(Boolean) || ""}</td>
                   </tr>

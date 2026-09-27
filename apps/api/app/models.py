@@ -156,6 +156,31 @@ class EvalVerdict(Base):
     rubric_digest: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
+class StudyRubric(Base):
+    """A solution or behavior rubric for one study: proposed by the judge from a group of journeys, edited and
+    approved by the owner, then registered with the engine and asked in the study's cycles."""
+
+    __tablename__ = "study_rubrics"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    # proposed, approved, or retired when another rubric of its kind was approved.
+    status: Mapped[str] = mapped_column(String(16), default="proposed")
+    title: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text, default="")
+    criteria: Mapped[list] = mapped_column(JSON, default=list)
+    # What a journey scoring 5, 3, and 1 shows.
+    anchors: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Where the proposal came from: the run, the journeys the judge read, the passages, the judge, and its raw answer.
+    source: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    edited: Mapped[int] = mapped_column(Integer, default=0)
+    approved_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Job(Base):
     """Work that outlives a request: generating, exporting, or judging a run, or a deep search for a study."""
 

@@ -489,3 +489,11 @@ label.check input { width: auto; margin: 0; }
 .decision-bar { display: inline-block; width: 64px; height: 6px; margin-right: 6px; background: var(--line); border-radius: 3px; vertical-align: middle; overflow: hidden; }
 .decision-bar i { display: block; height: 100%; background: var(--ink); }
 @media (max-width: 800px) { .episode-grid { grid-template-columns: 1fr; } }
+.study-rubrics .rubric-card { background: white; border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; margin: 10px 0; }
+.study-rubrics .rubric-card[data-status="retired"] { opacity: 0.6; }
+.study-rubrics .rubric-card[data-status="approved"] { border-color: var(--ink); }
+.study-rubrics .rubric-card ul { margin: 4px 0 8px; padding-left: 20px; }
+.study-rubrics .rubric-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.study-rubrics .rubric-actions button { width: auto; }
+.study-rubrics .rubric-editor { display: grid; gap: 8px; }
+.study-rubrics .rubric-editor label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }

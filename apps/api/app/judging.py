@@ -12,11 +12,11 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import runtime
+from app import runtime, study_rubrics
 from app.evaluation import code_signals, evaluate_journeys
 from app.retrieval import reference as reference_passages
-from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable, RubricsUnsupported
-from app.judge_rubrics import CODE_RUBRICS
+from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable, RubricLimitReached, RubricsUnsupported
+from app.judge_rubrics import CODE_RUBRICS, STUDY_KINDS
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Run
 from app.settings import Settings
 from app.store import DbStore, store_for
@@ -61,6 +61,75 @@ def sample_entries(entries: list[dict], size: int, seed: str) -> list[dict]:
     return picked
 
 
+def study_brief(db: Session, run: Run, cfg: Settings, sector) -> tuple[str, list[dict]]:
+    """The judge's brief for a run's study, with the warm-start passages chosen for it, and those passages."""
+    items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id)))
+    cold = run.config["start_mode"] == "cold"
+    passages, chosen = ("", []) if cold else reference_passages(items, sector, run.config["sub_domains"], budget=cfg.judge_reference_chars)
+    brief = sector.judge_brief(
+        sub_domains=run.config["sub_domains"],
+        language=run.config["language"],
+        corpus_excerpt=passages,
+        cold_start=cold,
+        jurisdiction=run.config.get("jurisdiction") or "neutral",
+    )
+    return brief, chosen
+
+
+class LazyJudge:
+    """Connect to the engine only when a call needs it; a run that fails its hard checks never does."""
+
+    def __init__(self, cfg: Settings) -> None:
+        self.cfg = cfg
+        self.created: list[InferenceEngineClient] = []
+
+    def _target(self):
+        if runtime.judge is not None:
+            return runtime.judge
+        if not self.created:
+            self.created.append(judge_client(self.cfg))
+        return self.created[0]
+
+    def run_eval(self, **kwargs):
+        return self._target().run_eval(**kwargs)
+
+    def _method(self, name: str):
+        method = getattr(self._target(), name, None)
+        if method is None:
+            raise RubricsUnsupported("This judge does not accept rubrics.")
+        return method
+
+    def register_rubric(self, definition):
+        return self._method("register_rubric")(definition)
+
+    def list_rubrics(self):
+        return self._method("list_rubrics")()
+
+    def delete_rubric(self, name):
+        return self._method("delete_rubric")(name)
+
+    def close(self) -> None:
+        for client in self.created:
+            client.close()
+
+
+def register(judge, definition: dict, db: Session) -> str:
+    """Register a rubric and return the engine's digest. When the platform tenant is full, remove the study rubrics
+    no study has approved any more and try once more."""
+    from app.study_rubrics import PREFIX, active_names
+
+    try:
+        return judge.register_rubric(definition)["digest"]
+    except RubricLimitReached:
+        keep = active_names(db) | {definition["name"]}
+        stale = [item["name"] for item in judge.list_rubrics() if item.get("source") == "tenant" and item["name"].startswith(PREFIX) and item["name"] not in keep]
+        if not stale:
+            raise
+        for name in stale:
+            judge.delete_rubric(name)
+        return judge.register_rubric(definition)["digest"]
+
+
 def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     """Judge a sample of the run's journeys, record the cycle and its verdicts, and return the cycle."""
     if run.cycle_count >= int(run.config["max_cycles"]):
@@ -74,37 +143,8 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     cycle_index = run.cycle_count + 1
     entries = sample_entries(found.entries(), cfg.judge_sample_size, f"{run.id}|{cycle_index}")
     journeys = [TrajectoryBundle.model_validate(found.journey(entry["trajectory_id"])) for entry in entries]
-    items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id)))
     cold = run.config["start_mode"] == "cold"
-    passages, chosen = ("", []) if cold else reference_passages(items, sector, run.config["sub_domains"], budget=cfg.judge_reference_chars)
-    brief = sector.judge_brief(
-        sub_domains=run.config["sub_domains"],
-        language=run.config["language"],
-        corpus_excerpt=passages,
-        cold_start=cold,
-        jurisdiction=run.config.get("jurisdiction") or "neutral",
-    )
-    created: list[InferenceEngineClient] = []
-
-    class _Lazy:
-        """Connect to the engine only when a rubric needs it; a run that fails its hard checks never does."""
-
-        def _target(self):
-            if runtime.judge is not None:
-                return runtime.judge
-            if not created:
-                created.append(judge_client(cfg))
-            return created[0]
-
-        def run_eval(self, **kwargs):
-            return self._target().run_eval(**kwargs)
-
-        def register_rubric(self, definition):
-            register = getattr(self._target(), "register_rubric", None)
-            if register is None:
-                raise RubricsUnsupported("This judge does not accept rubrics.")
-            return register(definition)
-
+    brief, chosen = study_brief(db, run, cfg, sector)
     reference = "weak" if cold else "corpus"
     repeats = cfg.judge_repeats
     judging = {
@@ -113,21 +153,36 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
         "rubrics": {},
         "notes": [],
     }
-    lazy = _Lazy()
+    lazy = LazyJudge(cfg)
     try:
         compared: dict[str, str] = {}
+        study: dict[str, dict] = {}
         if not whole:
-            # Register the code-comparison rubrics this sample can be compared on; an engine without tenant rubrics
-            # still judges the rest.
+            # Register the code-comparison rubrics this sample can be compared on, and the study's approved rubrics; an
+            # engine without tenant rubrics still judges the rest.
             wanted = {name for journey, entry in zip(journeys, entries) for name in code_signals(journey, entry["trajectory_id"])}
-            for name in sorted(wanted & set(CODE_RUBRICS)):
-                try:
-                    compared[name] = lazy.register_rubric(CODE_RUBRICS[name])["digest"]
-                except RubricsUnsupported as exc:
-                    judging["notes"].append(f"{exc.message} The judge did not score {', '.join(sorted(wanted & set(CODE_RUBRICS)))}.")
-                    compared = {}
-                    break
+            approved = study_rubrics.for_project(db, run.project_id, statuses=("approved",))
+            try:
+                for name in sorted(wanted & set(CODE_RUBRICS)):
+                    compared[name] = register(lazy, CODE_RUBRICS[name], db)
+                for row in approved:
+                    definition = study_rubrics.definition(row, sector.label)
+                    study[definition["name"]] = {
+                        "kind": row.kind,
+                        "title": row.title,
+                        "signal": STUDY_KINDS[row.kind]["signal"],
+                        "rubric_id": row.id,
+                        "digest": register(lazy, definition, db),
+                    }
+            except RubricsUnsupported as exc:
+                skipped = sorted(wanted & set(CODE_RUBRICS)) + [f"the study's {row.kind} rubric" for row in approved]
+                judging["notes"].append(f"{exc.message} The judge did not score {', '.join(skipped)}.")
+                compared, study = {}, {}
             judging["rubrics"] = {name: {"source": "tenant", "digest": digest} for name, digest in compared.items()}
+            judging["rubrics"].update(
+                {name: {"source": "study", "digest": info["digest"], "kind": info["kind"], "title": info["title"], "rubric_id": info["rubric_id"]} for name, info in study.items()}
+            )
+            judging["study"] = sorted(study)
         if whole:
             result = {
                 "hard_check_passed": False, "hard_check_errors": whole, "reference_quality": reference, "accepted": False,
@@ -148,12 +203,12 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 repeats=repeats,
                 temperature=judging["temperature"],
                 compared=compared,
+                study=study,
             )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
     finally:
-        for client in created:
-            client.close()
+        lazy.close()
     cycle = EvalCycle(
         run_id=run.id,
         cycle_index=cycle_index,

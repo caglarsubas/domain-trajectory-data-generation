@@ -21,6 +21,7 @@ DAILY = {
     "runs": ("generate", "run", "runs"),
     "judge_cycles": ("evaluate", "judge cycle", "judge cycles"),
     "deep_searches": ("deep_search", "deep search", "deep searches"),
+    "rubric_proposals": ("propose_rubrics", "rubric proposal", "rubric proposals"),
 }
 
 
@@ -29,6 +30,7 @@ def limits(cfg: Settings) -> dict:
         "runs": cfg.demo_runs_per_day,
         "judge_cycles": cfg.demo_judge_cycles_per_day,
         "deep_searches": cfg.demo_deep_searches_per_day,
+        "rubric_proposals": cfg.demo_rubric_proposals_per_day,
         "max_sequences": cfg.demo_max_sequences,
         "max_provider_calls": cfg.demo_max_provider_calls,
     }

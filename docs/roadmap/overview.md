@@ -35,7 +35,7 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 | Warm versus cold guidance | Recommend warm, warn when warm material yields nothing usable, allow cold with acknowledgment | The composer recommends warm, warns when no document is readable, and needs an acknowledgment for cold | Met |
 | Run configuration | Size, length, scope, language, reward, and signal each change the data | Size to 100,000 sequences as jobs, length, scope, language, reward, signal, consumer, and target family all change the data, and the composer warns when most journeys in a scope end before the requested minimum | Met |
 | Admin keys and BYOK | Custody, deletion and rotation, live validation, demo quotas | Custody, deletion, rotation, a live check on save, demo quotas, and a provider-call cap | Met |
-| Own evaluation cycle | Judge calls that succeed, repeat, agree, and drive regeneration | Calls succeed and repeat three times per model, agreement is reported across models and across repeats, the judge is scored against the code on conformance and decisions, and cycles regenerate from notes. Study-specific rubrics are next. | Partly; Slice 9 |
+| Own evaluation cycle | Judge calls that succeed, repeat, agree, and drive regeneration | Calls succeed and repeat three times per model, agreement is reported across models and across repeats, the judge is scored against the code on conformance, decisions, and study rubrics it proposes from a group and the owner approves, and cycles regenerate from notes | Met |
 | Visually rich studio | Time axis, process map, variant explorer, sample and group viewer, re-run diff | All of these, plus the judge panel, episode and decision viewers, the signal table, and the export panel with each consumer's parts | Met |
 | Sectors | Banking first, then the others on one schema | Banking, insurance, telecommunications, airline, and hotel, each past the same gates | Met |
 | Synthetic, not copied | Uploads scrubbed before storage, exports checked for verbatim copies of uploaded records | Uploads are scrubbed, and an exported record repeating 12 words in a row from any upload is left out and counted in the manifest | Met |
@@ -103,7 +103,7 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so has Slice 8. The suite has 317 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
+All eight slices of the first plan have shipped, and so have Slices 8 and 9. The suite has 325 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
 
 The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed them:
 - **Narrow scopes favoured failures.** A journey now ends at its natural length once it reaches its scope's milestones, so airline booking alone passes 88% of primaries (none before) and hotel booking alone 91% (2% before). The composer warns when most journeys in a scope end before the minimum.
@@ -112,8 +112,9 @@ The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed t
 - **There was no CI.** Every pull request now runs the tests and the studio build.
 - **Cost at scale was unmeasured.** A 10,000-sequence banking run with episodes, decision records, and the decision-score signal takes 6.5 seconds, against 4.0 plain.
 
-These remain, for Slices 9 and 10:
-- **The judge.** Engine #120 closed the engine items: judge calls are scheduled, the safety rubric sees the prompt, tenants register rubrics over the API, judgments repeat above temperature 0, and eval errors are typed. The studio now repeats every rubric three times per model and scores the judge against the code on conformance and decisions. Study-specific rubrics (4B) are next.
+Slice 9 completed the judge. Engine #120 schedules judge calls, shows the safety rubric the prompt, registers tenant rubrics over the API, repeats judgments above temperature 0, and types eval errors. The studio repeats every rubric three times per model, scores the judge against the code on conformance and decisions, and lets the judge propose a study's solution and behavior rubrics from a group of its journeys, which the owner edits and approves before they are registered and asked in the study's cycles.
+
+These remain, for Slice 10:
 - **Representative beyond banking** depends on logs a user uploads; the catalogue has no telecom, airline, hotel, or insurance source.
 - **Text is templated narration** in English and Turkish. Provider-written turn text, which the first decision allows, is not built.
 
@@ -137,7 +138,7 @@ Approved on 26 September 2026 (detail in [next-slice.md](next-slice.md)):
 | Slice | Goal | Exit criterion |
 |---|---|---|
 | 8. Honest data at every scope (delivered) | Narrow scopes stop favouring failures, every sub-domain yields group signal, exports are checked for copies of uploaded records, CI runs on every pull request, and generation cost at scale is measured and brought down | Every sub-domain of every pack, alone, yields accepted groups in at least a fifth of its groups of four. Airline and hotel booking alone pass at their policies' rates. A planted copy of an uploaded record is caught at export. CI passes on the slice's pull request. |
-| 9. Judge completion, across repositories | In `llm_inference_engine`: a rubric registry API, evals through the scheduler, the safety prompt, repeats above temperature 0, and typed errors. In the studio: study-specific rubrics (4B) and repeated judgments | A rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric |
+| 9. Judge completion, across repositories (delivered) | In `llm_inference_engine`: a rubric registry API, evals through the scheduler, the safety prompt, repeats above temperature 0, and typed errors. In the studio: study-specific rubrics (4B) and repeated judgments | A rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric |
 | 10. Representative everywhere, and natural text | Catalogue sources for hotels and airlines with adapters, and provider-written turn text checked by code against the skeleton | A hotel run calibrated from the catalogue reports representativeness, and provider-written turns pass the skeleton checks |
 
 ### Slice 0. Rotate credentials and fix the judge wiring
