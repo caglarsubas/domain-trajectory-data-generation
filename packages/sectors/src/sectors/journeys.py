@@ -47,6 +47,14 @@ LANG_CURRENCY = {
     "pt": "EUR",
 }
 
+# An event's own details in its sentence: the amount, and for a repeat, the time since the last one.
+# Without them a recurring payment reads the same every time and its turns repeat word for word.
+SPANS = {
+    "en": (("minute", "minutes"), ("hour", "hours"), ("day", "days")),
+    "tr": (("dakika", "dakika"), ("saat", "saat"), ("gün", "gün")),
+}
+SINCE = {"en": "{span} after the previous one", "tr": "bir öncekinden {span} sonra"}
+
 
 @dataclass(frozen=True)
 class Amount:
@@ -125,11 +133,13 @@ class _Ids:
 class _Member:
     """One sequence of a group: the events it narrates and how it scores."""
 
-    def __init__(self, types: list[str], trajectory_id: str, hours: list[float]) -> None:
+    def __init__(self, types: list[str], trajectory_id: str, hours: list[float], details: list[str] | None = None) -> None:
         self.types = types
         self.trajectory_id = trajectory_id
         # Waits before each step after the first, which the behavior rubric reads.
         self.hours = hours
+        # Per event, the amount and time since the same event last happened; empty when it has neither.
+        self.details = details or [""] * len(types)
 
 
 class _Journey:
@@ -569,7 +579,49 @@ def _swap_prefix(record_id: str, old: str, new: str) -> str:
 
 def _member(context: _Context, types: list[str], trajectory_id: str, events: list[Event]) -> _Member:
     hours = [(later.event_time - earlier.event_time).total_seconds() / 3600 for earlier, later in zip(events, events[1:])]
-    return _Member(types, trajectory_id, hours)
+    return _Member(types, trajectory_id, hours, _details(context.lang, events))
+
+
+def _money(lang: str, amount: float, currency: str) -> str:
+    text = f"{amount:,.2f}"
+    if lang == "tr":
+        text = text.replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"{text} {currency}"
+
+
+def _span(lang: str, hours: float) -> str:
+    units = SPANS.get(lang, SPANS["en"])
+    minutes = max(1, round(hours * 60))
+    if minutes < 60:
+        count, unit = minutes, units[0]
+    elif hours < 48:
+        count, unit = round(hours), units[1]
+    else:
+        count, unit = round(hours / 24), units[2]
+    return f"{count} {unit[0] if count == 1 else unit[1]}"
+
+
+def _details(lang: str, events: list[Event]) -> list[str]:
+    last: dict[str, datetime] = {}
+    details = []
+    for event in events:
+        parts = []
+        if event.amount is not None and event.currency:
+            parts.append(_money(lang, event.amount, event.currency))
+        previous = last.get(event.event_type)
+        if previous is not None:
+            span = _span(lang, (event.event_time - previous).total_seconds() / 3600)
+            parts.append(SINCE.get(lang, SINCE["en"]).format(span=span))
+        last[event.event_type] = event.event_time
+        details.append(", ".join(parts))
+    return details
+
+
+def _narrate(phrase: str, detail: str) -> str:
+    if not detail:
+        return phrase
+    body = phrase[:-1] if phrase.endswith(".") else phrase
+    return f"{body} ({detail})."
 
 
 # Relative likelihood of a journey starting on each weekday (Monday first) and in each hour.
@@ -772,7 +824,8 @@ def _group_sample(context: _Context, members: list[_Member]) -> Sample:
             Segment(segment_id=ids.take("G"), role="system", text=system, trainable=False),
             Segment(segment_id=ids.take("G"), role="user", text=opening, trainable=False),
         ]
-        for index, turn in enumerate(_turns([phrases[item] for item in member.types], context.turns)):
+        sentences = [_narrate(phrases[item], detail) for item, detail in zip(member.types, member.details)]
+        for index, turn in enumerate(_turns(sentences, context.turns)):
             if index:
                 segments.append(
                     Segment(segment_id=ids.take("G"), role="user", text=words.choice(pack.follow_ups[context.lang]), trainable=False)

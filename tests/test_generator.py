@@ -366,3 +366,34 @@ def test_helpfulness_revision_keeps_the_outcomes_the_domain_ends_early(group_siz
     assert failed(revised) >= failed(plain) / 2
     assert any("application.declined" in types for types in revised)
     assert all(len(types) >= 7 or BANKING_LIFECYCLE[types[-1]].ends_journey for types in revised)
+
+
+
+def _assistant_text(sequence):
+    return " ".join(segment.text for context in sequence.contexts for segment in context.segments if segment.role == "assistant")
+
+
+@pytest.mark.parametrize(
+    "language, money, since",
+    [
+        ("en", lambda amount: f"{amount:,.2f} GBP", "after the previous one"),
+        ("tr", lambda amount: f"{amount:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".") + " TRY", "bir öncekinden"),
+    ],
+)
+def test_repeated_events_are_narrated_with_their_own_details(language, money, since):
+    bundle = _bundle(sub_domains=["deposits"], language=language, target_trajectory_count=16, event_budget=None, max_events=24, seed="details")
+    events = {event.event_id: event for event in bundle.events}
+    trajectories = {item.trajectory_id: item for item in bundle.trajectories}
+    repeated = 0
+    for sample in bundle.samples:
+        for sequence in sample.sequences:
+            segments = [segment for context in sequence.contexts for segment in context.segments]
+            assert not any(segment.flagged_reason == "repeated_turn" for segment in segments)
+            text = _assistant_text(sequence)
+            funded = [events[item] for item in trajectories[sequence.trajectory_id].event_ids if events[item].event_type == "account.funded"]
+            for event in funded:
+                assert money(event.amount) in text, text
+            if len(funded) > 1:
+                repeated += 1
+                assert since in text, text
+    assert repeated > 0
