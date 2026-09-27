@@ -85,3 +85,15 @@ def test_each_new_failure_outcome_misses_the_goal(sector_id, failed, recovered):
     assert not pack.success(failed)
     if recovered:
         assert pack.success(recovered)
+
+
+def test_progress_names_each_stage_after_the_journeys_are_drawn():
+    from app.generation import _stage
+    from sectors.journeys import STAGE
+
+    messages = []
+    _run("banking", ["onboarding_and_kyc"], target_trajectory_count=4, group_size=2, episodes=True, decisions=True,
+         signal_mechanism="decision_score", progress=lambda done, total, message="": messages.append(message))
+    stages = [message for message in messages if message.startswith(STAGE)]
+    assert [_stage(message).split()[0] for message in stages] == ["Scoring", "Building", "Recording"]
+    assert _stage("Drew 1 of 4 journeys.") == "Drew 1 of 4 journeys."

@@ -57,7 +57,12 @@ Progress, 27 September 2026: the first pull request covers tasks 1, 2, and 4. Wi
 - insurance, telecom, airline, and hotel gain the failure outcomes that make their groups carry signal
 - CI runs on every pull request
 
-Airline booking alone now passes 88% of primaries against 0% before, hotel booking alone 91% against 2%, and the lowest sub-domain across the five packs accepts 27% of its groups. The second pull request covers tasks 3 and 5.
+Airline booking alone now passes 88% of primaries against 0% before, hotel booking alone 91% against 2%, and the lowest sub-domain across the five packs accepts 27% of its groups.
+
+The second pull request, completing the slice, covers tasks 3 and 5:
+- **Copies at export.** The exporter indexes 12-word runs of every upload and data-source row, leaves out any record that repeats one, and counts what it left out in the manifest.
+- **Cost.** The walker compiles each event's guards once, which cuts a full-feature 256-sequence batch from 0.92 to 0.52 seconds with the same journeys. Progress messages name the stage.
+- **End-to-end timing.** A 10,000-sequence banking run with episodes, decision records, and the decision-score signal takes 6.5 seconds against 4.0 plain, 1.6 times, within the target of three. The review's estimate of 49 seconds had extrapolated one cold batch; decision values are cached per policy, so later batches reuse them.
 
 1. **Natural end.** The walker marks a walk that ran out of legal events as exhausted, and `_choose` and `_rollouts` count it as long enough, as they count a journey-ending event.
    - The composer shows each scope's typical length before generating, and warns when the minimum is beyond it. The standing constraint says caps and substitutions are shown before generation.

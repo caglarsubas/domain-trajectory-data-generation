@@ -21,6 +21,7 @@ from app.calibrate import study_calibration
 from app.facts import facts_report, steering_for
 from app.models import CorpusItem, EvalCycle, Project, Run
 from app.store import BATCH_SEQUENCES, MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, batch_name, batch_path, journey_entries, run_dir, store_for, write_json
+from sectors.journeys import STAGE
 from sectors.overview import OverviewAccumulator, overview_of, variant_id
 from sectors.quality import QualityAccumulator
 from sectors.registry import get_sector
@@ -148,6 +149,14 @@ def _decision_totals(summed: dict | None) -> dict | None:
     return found
 
 
+def _stage(message: str) -> str:
+    """A stage message as a job shows it: "Stage: building episodes." becomes "Building episodes." """
+    if not message.startswith(STAGE):
+        return message
+    text = message.removeprefix(STAGE)
+    return text[:1].upper() + text[1:]
+
+
 def decisions_on(config: dict) -> bool:
     if config.get("decisions") is not None:
         return bool(config["decisions"])
@@ -162,7 +171,7 @@ def is_large(config: dict) -> bool:
 
 def candidate_for_run(db: Session, config: dict, *, project_id: str, feedback_rows: list, parent: Run | None, progress=None):
     sector, kwargs, items = prepare(db, config, project_id=project_id, feedback_rows=feedback_rows, parent=parent)
-    bundle = sector.generate(**kwargs, progress=progress)
+    bundle = sector.generate(**kwargs, progress=lambda done, total, message="": progress(done, total, _stage(message)))
     errors = sector.hard_checks(bundle)
     if errors:
         raise HTTPException(status_code=500, detail=f"generated trajectory failed {sector.id} checks")
@@ -267,7 +276,9 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
                 materialization_cap=groups * size,
                 id_prefix=f"{name}.",
                 progress=lambda done, _total, message="": progress(
-                    min(before + (done if not accepted_mode else 0), goal), goal, f"Batch {len(state['done']) + 1}: {before:,} of {goal:,} {'accepted groups' if accepted_mode else 'drawn'}."
+                    min(before + (done if not accepted_mode else 0), goal), goal,
+                    f"Batch {len(state['done']) + 1}: {before:,} of {goal:,} {'accepted groups' if accepted_mode else 'drawn'}"
+                    + (f", {message.removeprefix(STAGE)}" if message.startswith(STAGE) else "."),
                 ),
             )
             errors = sector.hard_checks(bundle)

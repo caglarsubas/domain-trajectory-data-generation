@@ -33,6 +33,8 @@ from sectors.quality import quality_report
 from sectors.scorers import PASS_AT, Scorer, pass_at_k
 
 STUDIO_TRAJECTORY_CAP = 64
+# Progress messages that name a stage after the journeys are drawn start with this, so a batched run can show them.
+STAGE = "Stage: "
 REVISED_MIN_HOURS = 24.0 * 7
 PATH_ATTEMPTS = 40
 
@@ -257,6 +259,7 @@ def generate_bundle(
     samples = [_group_sample(context, group) for journey in built for group in journey.groups]
     groups = [group for journey in built for group in journey.groups]
     # Decision values are simulated only when the signal or the decision records need them.
+    report(len(built), limit, f"{STAGE}scoring {sum(len(group) for group in groups):,} sequences with every signal.")
     scorer = Scorer(pack, walker, domains=domains, floor=floor, cap=cap, decisions=decisions or signal_mechanism == "decision_score")
     reward_summary = score_samples(samples, groups, reward_mechanism, signal_mechanism, scorer)
     events = [event for journey in built for event in journey.events]
@@ -293,12 +296,14 @@ def generate_bundle(
     if episodes:
         from sectors.episodes import build_episodes, summarize
 
+        report(len(built), limit, f"{STAGE}building episodes.")
         bundle.episodes = build_episodes(pack, bundle, language=language, seed=seed, operations=operations)
         bundle.generation.episodes = summarize(bundle.episodes)
     if decisions:
         from sectors.decisions import build_decisions, summarize as summarize_decisions
 
         # Values are simulated on their own random streams, so recording decisions changes no journey.
+        report(len(built), limit, f"{STAGE}recording decisions.")
         bundle.decisions = build_decisions(pack, bundle, walker, floor=floor, cap=cap, language=language)
         bundle.generation.decisions = summarize_decisions(bundle.decisions)
     if calibrated is not None:

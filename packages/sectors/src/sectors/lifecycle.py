@@ -226,6 +226,11 @@ class Walker:
             if name in self.kept:
                 weight *= KEPT_EVENT_WEIGHT
             self.weights[name] = weight
+        # Each allowed event's repeat limit and guards, compiled once: options() runs for every step of every walk.
+        self._checks = tuple(
+            (name, lifecycle[name].repeat, tuple(((guard.kind, guard.dimension), frozenset(guard.states)) for guard in lifecycle[name].requires))
+            for name in allowed
+        )
         self.goals: list[tuple[str, ...]] = []
         for domain in lifecycle.sub_domains:
             if domain not in sub_domains:
@@ -241,11 +246,15 @@ class Walker:
 
     def options(self, state: State, counts: dict[str, int], *, first: bool = False) -> list[tuple[str, float]]:
         found = []
-        for name in self.allowed:
-            spec = self.lifecycle[name]
-            if counts.get(name, 0) >= spec.repeat or not satisfied(spec, state):
+        weights = self.weights
+        for name, repeat, guards in self._checks:
+            if counts.get(name, 0) >= repeat:
                 continue
-            found.append((name, self.weights[name]))
+            for key, states in guards:
+                if state.get(key) not in states:
+                    break
+            else:
+                found.append((name, weights[name]))
         if first:
             openings = [item for item in found if self.lifecycle[item[0]].opening]
             return openings or found
