@@ -3,6 +3,7 @@
 const RUBRICS = ["helpfulness", "correctness", "safety", "pairwise_quality"];
 // Pairwise compares a journey with its own alternative; it is reported and does not decide acceptance.
 const REPORTED = new Set(["pairwise_quality"]);
+const COMPARED = ["process_conformance", "decision_score"];
 const SCALE = { helpfulness: 5 };
 
 function label(name) {
@@ -33,6 +34,10 @@ function explain(flag) {
       return `${flag.model} preferred whichever journey it read first.`;
     case "unreadable":
       return `${flag.model} returned no readable verdict for ${label(flag.rubric)}.`;
+    case "repeats_disagree":
+      return `${flag.model}'s repeated verdicts on ${label(flag.rubric)} fell on both sides of its threshold.`;
+    case "code_disagrees":
+      return `${flag.model} and the code scorer disagree on ${label(flag.rubric)}.`;
     default:
       return flag.kind;
   }
@@ -65,11 +70,38 @@ export function ScoreMeters({ cycle }) {
   );
 }
 
+function stability(item) {
+  return item?.calls ? `${item.stable} of ${item.calls} stable` : "—";
+}
+
+// One row per call: its repeats' scores side by side, and the first reason given.
+function calls(verdicts) {
+  const rows = [];
+  const byKey = {};
+  for (const item of verdicts) {
+    const key = `${item.judge_model}|${item.rubric}|${item.order || ""}`;
+    if (!byKey[key]) {
+      byKey[key] = { ...item, repeats: [] };
+      rows.push(byKey[key]);
+    }
+    byKey[key].repeats.push(item);
+  }
+  return rows;
+}
+
+function repeatScores(row) {
+  return row.repeats.map((item) => (!item.readable ? "unreadable" : item.order ? winner(item) : shown(item.score))).join(" · ");
+}
+
 export default function JudgePanel({ cycle, onPick }) {
   if (!cycle || !cycle.models?.length || !cycle.sample?.length) return null;
   const [primary, second] = cycle.models;
   const agreement = cycle.agreement?.by_rubric || {};
   const order = cycle.agreement?.order_consistency || {};
+  const repeats = cycle.agreement?.repeats || {};
+  const code = cycle.agreement?.code || {};
+  const judging = cycle.judging;
+  const repeated = Object.keys(repeats).length > 0;
   const grouped = {};
   for (const flag of cycle.flags || []) {
     const key = `${flag.kind}|${flag.model}|${flag.rubric}`;
@@ -85,8 +117,12 @@ export default function JudgePanel({ cycle, onPick }) {
         <small>
           {cycle.sample.length} journeys judged by {primary}{second ? ` and ${second}` : ""}
           {cycle.sample.some((entry) => entry.truncated) ? "; some were shortened to fit the prompt budget" : ""}.
+          {judging?.repeats > 1 ? ` Each rubric was asked ${judging.repeats} times per model at temperature ${judging.temperature}.` : ""}
         </small>
       </div>
+      {(judging?.notes || []).map((note) => (
+        <p className="lede" key={note}>{note}</p>
+      ))}
       {cycle.reference?.length ? (
         <p className="lede">
           The brief carried {cycle.reference.length} warm-start {cycle.reference.length === 1 ? "passage" : "passages"} chosen for this study, from{" "}
@@ -100,7 +136,8 @@ export default function JudgePanel({ cycle, onPick }) {
             <th>Rubric</th>
             <th>{primary}</th>
             {second ? <th>{second}</th> : null}
-            {second ? <th>Agreement</th> : null}
+            {second ? <th>Across models</th> : null}
+            {repeated ? <th>Across repeats</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -112,10 +149,53 @@ export default function JudgePanel({ cycle, onPick }) {
               {second ? (
                 <td>{agreement[rubric]?.journeys ? `${agreement[rubric].agree} of ${agreement[rubric].journeys} journeys` : "—"}</td>
               ) : null}
+              {repeated ? (
+                <td>
+                  <div>{stability(repeats[rubric]?.[primary])}</div>
+                  {second ? <small className="second">{second}: {stability(repeats[rubric]?.[second])}</small> : null}
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
       </table>
+      {Object.keys(code).length ? (
+        <>
+          <p className="lede">
+            The judge also scored what code already scores. The code's verdict stays the signal; this measures the judge and does not
+            decide acceptance.
+          </p>
+          <table className="target-table">
+            <thead>
+              <tr>
+                <th>Judge against code</th>
+                <th>Code</th>
+                <th>{primary}</th>
+                {second ? <th>{second}</th> : null}
+                {repeated ? <th>Across repeats</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {COMPARED.filter((rubric) => code[rubric]).map((rubric) => {
+                const found = code[rubric];
+                const judge = (model) => {
+                  const item = found.models?.[model];
+                  return item?.journeys ? `${shown(item.mean)}; agrees on ${item.agree} of ${item.journeys}` : "—";
+                };
+                return (
+                  <tr key={rubric}>
+                    <td>{label(rubric)}</td>
+                    <td>{found.code.passed} of {found.code.journeys} pass; mean {shown(found.code.mean)}</td>
+                    <td>{judge(primary)}</td>
+                    {second ? <td>{judge(second)}</td> : null}
+                    {repeated ? <td>{stability(repeats[rubric]?.[primary])}</td> : null}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      ) : null}
       {Object.values(order).some((item) => item.journeys) ? (
         <p className="lede">
           Pairwise, asked in both orders:{" "}
@@ -163,17 +243,17 @@ export default function JudgePanel({ cycle, onPick }) {
                 <tr>
                   <th>Model</th>
                   <th>Rubric</th>
-                  <th>Score</th>
+                  <th>{repeated ? "Scores by repeat" : "Score"}</th>
                   <th>Why</th>
                 </tr>
               </thead>
               <tbody>
-                {verdictsFor(entry.trajectory_id).map((item, index) => (
+                {calls(verdictsFor(entry.trajectory_id)).map((row, index) => (
                   <tr key={index}>
-                    <td>{item.judge_model}</td>
-                    <td>{label(item.rubric)}{item.order ? ` (${item.order === "ab" ? "this journey first" : "alternative first"})` : ""}</td>
-                    <td>{!item.readable ? "unreadable" : item.order ? winner(item) : shown(item.score)}</td>
-                    <td>{item.parsed?.justification || item.parsed?.reason || ""}</td>
+                    <td>{row.judge_model}</td>
+                    <td>{label(row.rubric)}{row.order ? ` (${row.order === "ab" ? "this journey first" : "alternative first"})` : ""}</td>
+                    <td>{repeatScores(row)}</td>
+                    <td>{row.repeats.map((item) => item.parsed?.justification || item.parsed?.reason || "").find(Boolean) || ""}</td>
                   </tr>
                 ))}
               </tbody>

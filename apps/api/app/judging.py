@@ -13,9 +13,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import runtime
-from app.evaluation import evaluate_journeys
+from app.evaluation import code_signals, evaluate_journeys
 from app.retrieval import reference as reference_passages
-from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
+from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable, RubricsUnsupported
+from app.judge_rubrics import CODE_RUBRICS
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Run
 from app.settings import Settings
 from app.store import DbStore, store_for
@@ -88,15 +89,45 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     class _Lazy:
         """Connect to the engine only when a rubric needs it; a run that fails its hard checks never does."""
 
-        def run_eval(self, **kwargs):
+        def _target(self):
             if runtime.judge is not None:
-                return runtime.judge.run_eval(**kwargs)
+                return runtime.judge
             if not created:
                 created.append(judge_client(cfg))
-            return created[0].run_eval(**kwargs)
+            return created[0]
+
+        def run_eval(self, **kwargs):
+            return self._target().run_eval(**kwargs)
+
+        def register_rubric(self, definition):
+            register = getattr(self._target(), "register_rubric", None)
+            if register is None:
+                raise RubricsUnsupported("This judge does not accept rubrics.")
+            return register(definition)
 
     reference = "weak" if cold else "corpus"
+    repeats = cfg.judge_repeats
+    judging = {
+        "repeats": repeats,
+        "temperature": cfg.judge_temperature if repeats > 1 else 0.0,
+        "rubrics": {},
+        "notes": [],
+    }
+    lazy = _Lazy()
     try:
+        compared: dict[str, str] = {}
+        if not whole:
+            # Register the code-comparison rubrics this sample can be compared on; an engine without tenant rubrics
+            # still judges the rest.
+            wanted = {name for journey, entry in zip(journeys, entries) for name in code_signals(journey, entry["trajectory_id"])}
+            for name in sorted(wanted & set(CODE_RUBRICS)):
+                try:
+                    compared[name] = lazy.register_rubric(CODE_RUBRICS[name])["digest"]
+                except RubricsUnsupported as exc:
+                    judging["notes"].append(f"{exc.message} The judge did not score {', '.join(sorted(wanted & set(CODE_RUBRICS)))}.")
+                    compared = {}
+                    break
+            judging["rubrics"] = {name: {"source": "tenant", "digest": digest} for name, digest in compared.items()}
         if whole:
             result = {
                 "hard_check_passed": False, "hard_check_errors": whole, "reference_quality": reference, "accepted": False,
@@ -110,10 +141,13 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 brief=brief,
                 reference_quality=reference,
                 thresholds=run.config["thresholds"],
-                judge=_Lazy(),
+                judge=lazy,
                 models=judge_models(cfg),
                 budget_tokens=cfg.judge_prompt_tokens,
                 progress=progress,
+                repeats=repeats,
+                temperature=judging["temperature"],
+                compared=compared,
             )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
@@ -138,6 +172,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
         flags=result["flags"],
         canary=result["canary"],
         reference=chosen,
+        judging=judging if result["called_judge"] else None,
     )
     db.add(cycle)
     db.flush()
@@ -154,6 +189,8 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 trajectory_id=verdict["trajectory_id"],
                 pair_order=verdict["order"],
                 canary=1 if verdict["canary"] else 0,
+                repeat_index=verdict.get("repeat", 0),
+                rubric_digest=verdict.get("rubric_digest"),
             )
         )
     run.cycle_count += 1

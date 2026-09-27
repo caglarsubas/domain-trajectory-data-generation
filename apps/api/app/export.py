@@ -451,6 +451,7 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
                 "agreement": cycle.get("agreement", {}),
                 "flags": cycle.get("flags", []),
                 "canary": cycle.get("canary"),
+                "judging": cycle.get("judging"),
                 "verdicts": [
                     {
                         "rubric": verdict["rubric"],
@@ -459,6 +460,8 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
                         "trajectory_id": verdict.get("trajectory_id"),
                         "order": verdict.get("order"),
                         "canary": verdict.get("canary", False),
+                        "repeat": verdict.get("repeat", 0),
+                        "rubric_digest": verdict.get("rubric_digest"),
                     }
                     for verdict in cycle["verdicts"]
                 ],

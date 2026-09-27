@@ -132,6 +132,7 @@ def run_out(run: Run, db: Session) -> dict:
                 "flags": cycle.flags or [],
                 "canary": cycle.canary,
                 "reference": cycle.reference or [],
+                "judging": cycle.judging,
                 "headline_score": headline_score(cycle, verdicts),
                 "verdicts": [
                     {
@@ -145,6 +146,8 @@ def run_out(run: Run, db: Session) -> dict:
                         "trajectory_id": row.trajectory_id,
                         "order": row.pair_order,
                         "canary": bool(row.canary),
+                        "repeat": row.repeat_index or 0,
+                        "rubric_digest": row.rubric_digest,
                     }
                     for row in verdicts
                 ],

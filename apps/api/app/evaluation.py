@@ -2,8 +2,12 @@
 
 Each sampled journey is rendered with its amounts, state changes, and the sample's text, within a prompt
 budget. Every rubric is asked of each judge model, and pairwise quality in both orders, so the cycle can
-report agreement between models and position bias. A copy of one journey with its events put out of
+report agreement between models and position bias. Each call can be repeated above temperature 0, so the
+cycle also reports how far each judge agrees with itself. A copy of one journey with its events put out of
 order, which the pack's own replay rejects, checks that the judge can tell a broken journey at all.
+
+The judge also scores process conformance and the decision score, which code already scores for every
+journey; the cycle reports how often judge and code agree, and those two never decide acceptance.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from statistics import mean
 from trajectory_contract.models import TrajectoryBundle
 
 from app.judge import Judge
+from app.judge_rubrics import JUDGE_PASS, QUESTIONS
 
 UNREADABLE = "_unreadable"
 
@@ -24,11 +29,15 @@ DEFAULT_THRESHOLDS = {
     "pairwise_quality": 0.5,
 }
 
+# The judge's own rubrics, asked of every sampled journey.
 RUBRICS = ("helpfulness", "correctness", "safety", "pairwise_quality")
 # The rubrics that decide acceptance and write revision notes. Pairwise compares a journey with its own
 # alternative branch; both replay legally, so an unbiased judge sits near 0.5 and a 0.5 bar is a coin flip.
 # It is scored and reported, and decides nothing.
 GATING = ("helpfulness", "correctness", "safety")
+
+# Rubrics the judge scores alongside a code scorer, to measure the judge; they never decide acceptance.
+COMPARED = tuple(JUDGE_PASS)
 
 # Helpfulness is scored 1 to 5; the others 0 to 1. Normalized scores divide by this.
 SCALE = {"helpfulness": 5.0}
@@ -66,6 +75,19 @@ def outcome_of(bundle: TrajectoryBundle, trajectory_id: str) -> str | None:
             if sequence.trajectory_id == trajectory_id and sequence.outcome:
                 return sequence.outcome
     return None
+
+
+def code_signals(bundle: TrajectoryBundle, trajectory_id: str) -> dict[str, dict]:
+    """The code scorers' verdicts on a journey, for the signals the judge can also score."""
+    for sample in bundle.samples:
+        for sequence in sample.sequences:
+            if sequence.trajectory_id == trajectory_id and sequence.signals:
+                return {
+                    name: {"score": float(found["score"]), "passed": bool(found["passed"])}
+                    for name, found in sequence.signals.items()
+                    if name in COMPARED
+                }
+    return {}
 
 
 def render_journey(bundle: TrajectoryBundle, trajectory_id: str, budget_chars: int = 24_000, blind: bool = False) -> tuple[str, bool]:
@@ -180,8 +202,16 @@ def evaluate_journeys(
     models: list[str],
     budget_tokens: int = 8000,
     progress=None,
+    repeats: int = 1,
+    temperature: float = 0.0,
+    compared: dict[str, str] | None = None,
 ) -> dict:
-    """Judge a sample of journeys with every model and turn the verdicts into a cycle."""
+    """Judge a sample of journeys with every model and turn the verdicts into a cycle.
+
+    `compared` names the code-comparison rubrics the engine has registered, with their digests; each is asked only
+    of journeys the code scored with it.
+    """
+    compared = compared or {}
     errors = [f"{error}" for journey in journeys for error in sector.hard_checks(journey)]
     base = {"reference_quality": reference_quality, "models": models, "sample": [], "scores": {}, "agreement": {}, "flags": [], "canary": None}
     if errors:
@@ -202,6 +232,7 @@ def evaluate_journeys(
                 "events": len(primary.event_ids),
                 "truncated": truncated,
                 "alternative": alternative.trajectory_id if alternative else None,
+                "code": code_signals(journey, primary.trajectory_id),
             }
         )
         own = {"trajectory_id": primary.trajectory_id, "order": None, "canary": False}
@@ -214,6 +245,10 @@ def evaluate_journeys(
             }
         )
         calls.append({**own, "rubric": "safety", "payload": {"prompt": "Confirm the journey is synthetic and holds no real personal or account identifiers.", "response": text}})
+        for rubric in COMPARED:
+            if rubric in compared and rubric in sample[-1]["code"]:
+                question = brief + "\n" + QUESTIONS[rubric].format(label=label)
+                calls.append({**own, "rubric": rubric, "payload": {"prompt": question, "response": text}})
         if alternative is not None:
             mine, _ = render_journey(journey, primary.trajectory_id, budget_chars // 2, blind=True)
             other, cut = render_journey(journey, alternative.trajectory_id, budget_chars // 2, blind=True)
@@ -244,31 +279,35 @@ def evaluate_journeys(
         if progress is not None:
             what = "a control journey" if call["canary"] else call["rubric"].replace("_", " ")
             progress(index, len(planned), f"{model}: {what} ({index + 1} of {len(planned)}).")
-        result = judge.run_eval(rubric=call["rubric"], judge_model=model, **call["payload"])
-        readable = result.get("readable", True)
-        parsed = dict(result.get("parsed") or {})
-        if not readable:
-            parsed[UNREADABLE] = True
-        verdicts.append(
-            {
-                "rubric": call["rubric"],
-                "score": float(result["score"]),
-                "parsed": parsed,
-                "raw": result.get("raw", ""),
-                "judge_model": model,
-                "served_by": result.get("judge_model") or model,
-                "duration_ms": result.get("duration_ms", 0),
-                "trajectory_id": call["trajectory_id"],
-                "order": call["order"],
-                "canary": call["canary"],
-                "readable": readable,
-            }
-        )
+        result = judge.run_eval(rubric=call["rubric"], judge_model=model, repeats=repeats, temperature=temperature, **call["payload"])
+        # One entry per repeat; a judge that answers once is one repeat.
+        answers = result.get("verdicts") or [result]
+        for repeat, answer in enumerate(answers):
+            readable = answer.get("readable", True)
+            parsed = dict(answer.get("parsed") or {})
+            if not readable:
+                parsed[UNREADABLE] = True
+            verdicts.append(
+                {
+                    "rubric": call["rubric"],
+                    "score": float(answer["score"]),
+                    "parsed": parsed,
+                    "raw": answer.get("raw", ""),
+                    "judge_model": model,
+                    "served_by": result.get("judge_model") or model,
+                    # The call's duration covers every repeat, so it is recorded once.
+                    "duration_ms": result.get("duration_ms", 0) if repeat == 0 else 0,
+                    "trajectory_id": call["trajectory_id"],
+                    "order": call["order"],
+                    "canary": call["canary"],
+                    "readable": readable,
+                    "repeat": repeat,
+                    "rubric_digest": result.get("rubric_digest") or compared.get(call["rubric"]),
+                }
+            )
     summary = summarize(verdicts, sample, models, thresholds)
     if canary is not None:
-        canary["results"] = {
-            item["judge_model"]: (item["score"] if item["readable"] else None) for item in verdicts if item["canary"]
-        }
+        canary["results"] = {model: _mean_readable([item for item in verdicts if item["canary"] and item["judge_model"] == model]) for model in models}
     return {
         **base,
         **summary,
@@ -286,44 +325,65 @@ def _justification(verdict: dict) -> str:
     return str(parsed.get("justification") or parsed.get("reason") or verdict.get("raw") or "").strip()
 
 
+def _mean_readable(items: list[dict]) -> float | None:
+    values = [item["score"] for item in items if item["readable"]]
+    return round(mean(values), 4) if values else None
+
+
+def _side(value: float, minimum: float) -> bool:
+    return value >= minimum
+
+
 def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thresholds: dict[str, float]) -> dict:
-    """Per-rubric scores per model, agreement between models, order consistency, audit flags, and the decision."""
+    """Per-rubric scores per model, agreement between models, across repeats, and with code, order consistency,
+    audit flags, and the decision."""
     primary = models[0]
     minimum = {rubric: float(thresholds.get(rubric, DEFAULT_THRESHOLDS[rubric])) for rubric in RUBRICS}
+    minimum.update(JUDGE_PASS)
     judged = [item for item in verdicts if not item["canary"]]
-    # One value per journey, rubric, and model; pairwise combines both orders into the primary journey's preference.
+    # One value per journey, rubric, and model: the mean of its readable repeats. Pairwise combines both orders into
+    # the primary journey's preference.
     per: dict[tuple[str, str, str], float | None] = {}
+    # Repeats of one call, as the primary journey's value: a journey for most rubrics, one order for pairwise.
+    units: dict[tuple[str, str], list[dict]] = {}
     consistency: dict[str, dict] = {model: {"journeys": 0, "consistent": 0} for model in models}
     flags: list[dict] = []
+
+    def unit(tid: str, rubric: str, model: str, values: list[float]) -> None:
+        if len(values) >= 2:
+            units.setdefault((rubric, model), []).append({"trajectory_id": tid, "values": values})
+
     for entry in sample:
         tid = entry["trajectory_id"]
         for model in models:
             mine = [item for item in judged if item["trajectory_id"] == tid and item["judge_model"] == model]
-            for rubric in ("helpfulness", "correctness", "safety"):
-                found = next((item for item in mine if item["rubric"] == rubric), None)
-                if found is None:
+            for rubric in ("helpfulness", "correctness", "safety", *COMPARED):
+                found = [item for item in mine if item["rubric"] == rubric]
+                if not found:
                     continue
-                per[(tid, rubric, model)] = found["score"] if found["readable"] else None
-                if not found["readable"]:
+                values = [item["score"] for item in found if item["readable"]]
+                per[(tid, rubric, model)] = round(mean(values), 4) if values else None
+                unit(tid, rubric, model, values)
+                if not values:
                     flags.append({"kind": "unreadable", "trajectory_id": tid, "rubric": rubric, "model": model})
-            ab = next((item for item in mine if item["rubric"] == "pairwise_quality" and item["order"] == "ab"), None)
-            ba = next((item for item in mine if item["rubric"] == "pairwise_quality" and item["order"] == "ba"), None)
-            if ab is None and ba is None:
+            ab = [item for item in mine if item["rubric"] == "pairwise_quality" and item["order"] == "ab"]
+            ba = [item for item in mine if item["rubric"] == "pairwise_quality" and item["order"] == "ba"]
+            if not ab and not ba:
                 continue
-            values = []
-            if ab is not None and ab["readable"]:
-                values.append(ab["score"])
-            if ba is not None and ba["readable"]:
-                values.append(1.0 - ba["score"])
-            per[(tid, "pairwise_quality", model)] = round(mean(values), 4) if values else None
-            if ab is not None and ba is not None and ab["readable"] and ba["readable"]:
+            first = [item["score"] for item in ab if item["readable"]]
+            # In the reversed order the primary journey is B, so its preference is 1 minus the score.
+            second = [1.0 - item["score"] for item in ba if item["readable"]]
+            per[(tid, "pairwise_quality", model)] = round(mean(first + second), 4) if first + second else None
+            unit(tid, "pairwise_quality", model, first)
+            unit(tid, "pairwise_quality", model, second)
+            if first and second:
                 consistency[model]["journeys"] += 1
                 # The same journey should win in both orders: A first, then B.
-                same = abs(ab["score"] - (1.0 - ba["score"])) < 0.01
+                same = abs(mean(first) - mean(second)) < 0.01
                 consistency[model]["consistent"] += int(same)
                 if not same:
                     flags.append({"kind": "order_flip", "trajectory_id": tid, "rubric": "pairwise_quality", "model": model})
-            elif (ab is not None and not ab["readable"]) or (ba is not None and not ba["readable"]):
+            elif (ab and not first) or (ba and not second):
                 flags.append({"kind": "unreadable", "trajectory_id": tid, "rubric": "pairwise_quality", "model": model})
     for entry in sample:
         for model in models:
@@ -331,9 +391,11 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
             if value is not None and value < minimum["correctness"]:
                 # Every sampled journey replays legally through the pack's machines, so a failing verdict is likely the judge's error.
                 flags.append({"kind": "likely_false_negative", "trajectory_id": entry["trajectory_id"], "rubric": "correctness", "model": model})
-    for item in verdicts:
-        if item["canary"] and item["readable"] and item["score"] >= minimum["correctness"]:
-            flags.append({"kind": "likely_false_positive", "trajectory_id": item["trajectory_id"], "rubric": "correctness", "model": item["judge_model"]})
+    for model in models:
+        control = _mean_readable([item for item in verdicts if item["canary"] and item["judge_model"] == model])
+        if control is not None and control >= minimum["correctness"]:
+            tid = next(item["trajectory_id"] for item in verdicts if item["canary"])
+            flags.append({"kind": "likely_false_positive", "trajectory_id": tid, "rubric": "correctness", "model": model})
 
     asked = [rubric for rubric in RUBRICS if any(key[1] == rubric for key in per)]
     scores: dict[str, dict[str, float | None]] = {}
@@ -365,7 +427,61 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
                     flags.append({"kind": "models_disagree", "trajectory_id": entry["trajectory_id"], "rubric": rubric, "model": f"{primary} vs {second}"})
     order = {model: {**value, "rate": round(value["consistent"] / value["journeys"], 4) if value["journeys"] else None} for model, value in consistency.items()}
 
-    # A broken verdict blocks acceptance only when it leaves a sampled journey unscored for its rubric;
+    # Across repeats: a call is stable when every readable repeat falls on the same side of the rubric's threshold.
+    repeats: dict[str, dict[str, dict]] = {}
+    for (rubric, model), found in units.items():
+        stable = 0
+        spreads = []
+        for item in found:
+            sides = {_side(value, minimum[rubric]) for value in item["values"]}
+            stable += int(len(sides) == 1)
+            if len(sides) > 1:
+                flags.append({"kind": "repeats_disagree", "trajectory_id": item["trajectory_id"], "rubric": rubric, "model": model})
+            spreads.append(normalized(rubric, max(item["values"])) - normalized(rubric, min(item["values"])))
+        repeats.setdefault(rubric, {})[model] = {
+            "calls": len(found),
+            "stable": stable,
+            "rate": round(stable / len(found), 4),
+            "mean_spread": round(mean(spreads), 4),
+        }
+
+    # Against code: the judge's verdict on conformance and decisions next to the code scorer's, journey by journey.
+    code: dict[str, dict] = {}
+    for rubric in COMPARED:
+        scored = [entry for entry in sample if rubric in (entry.get("code") or {})]
+        if not scored or not any(key[1] == rubric for key in per):
+            continue
+        by_model = {}
+        for model in models:
+            pairs = [
+                (per[(entry["trajectory_id"], rubric, model)], entry["code"][rubric], entry["trajectory_id"])
+                for entry in scored
+                if per.get((entry["trajectory_id"], rubric, model)) is not None
+            ]
+            agree = 0
+            for judge_value, found, tid in pairs:
+                same = _side(judge_value, minimum[rubric]) == found["passed"]
+                agree += int(same)
+                if not same:
+                    flags.append({"kind": "code_disagrees", "trajectory_id": tid, "rubric": rubric, "model": model})
+            by_model[model] = {
+                "journeys": len(pairs),
+                "mean": round(mean(value for value, _, _ in pairs), 4) if pairs else None,
+                "agree": agree,
+                "rate": round(agree / len(pairs), 4) if pairs else None,
+                "mean_gap": round(mean(abs(value - found["score"]) for value, found, _ in pairs), 4) if pairs else None,
+            }
+        code[rubric] = {
+            "code": {
+                "journeys": len(scored),
+                "passed": sum(1 for entry in scored if entry["code"][rubric]["passed"]),
+                "mean": round(mean(entry["code"][rubric]["score"] for entry in scored), 4),
+            },
+            "models": by_model,
+            "judge_pass": minimum[rubric],
+        }
+
+    # A broken verdict blocks acceptance only when it leaves a sampled journey unscored for a rubric that decides it;
     # pairwise judges both orders, so one readable order still scores the journey.
     gating = [rubric for rubric in asked if rubric in GATING]
     unscored_primary = any(value is None for (tid, rubric, model), value in per.items() if model == primary and rubric in GATING)
@@ -385,7 +501,7 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
         notes.append(f"{rubric} {value:g} below {minimum[rubric]:g}. {reason}".strip())
     return {
         "scores": scores,
-        "agreement": {"by_rubric": agreement, "order_consistency": order},
+        "agreement": {"by_rubric": agreement, "order_consistency": order, "repeats": repeats, "code": code},
         "flags": flags,
         "accepted": accepted,
         "revision_notes": notes,

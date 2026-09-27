@@ -93,7 +93,9 @@ The second pull request, completing the slice, covers tasks 3 and 5:
 - CI passes on the slice's pull request.
 - The 10,000-sequence run with every consumer feature finishes within three times the plain run.
 
-## Queued: Slice 9, judge completion across repositories
+## In progress: Slice 9, judge completion across repositories
+
+Done so far: the engine work (engine #120), repeated judgments, and the judge-side conformance and decision rubrics. 4B is next.
 
 Work in `llm_inference_engine` first (decision 7):
 - a rubric registry that accepts rubrics over an authenticated API and persists them per tenant

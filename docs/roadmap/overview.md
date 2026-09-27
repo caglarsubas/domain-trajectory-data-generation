@@ -35,7 +35,7 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 | Warm versus cold guidance | Recommend warm, warn when warm material yields nothing usable, allow cold with acknowledgment | The composer recommends warm, warns when no document is readable, and needs an acknowledgment for cold | Met |
 | Run configuration | Size, length, scope, language, reward, and signal each change the data | Size to 100,000 sequences as jobs, length, scope, language, reward, signal, consumer, and target family all change the data, and the composer warns when most journeys in a scope end before the requested minimum | Met |
 | Admin keys and BYOK | Custody, deletion and rotation, live validation, demo quotas | Custody, deletion, rotation, a live check on save, demo quotas, and a provider-call cap | Met |
-| Own evaluation cycle | Judge calls that succeed, repeat, agree, and drive regeneration | Calls succeed, two models agree or disagree per rubric, and cycles regenerate from notes. Repeats wait on the engine. | Partly; Slice 9 |
+| Own evaluation cycle | Judge calls that succeed, repeat, agree, and drive regeneration | Calls succeed and repeat three times per model, agreement is reported across models and across repeats, the judge is scored against the code on conformance and decisions, and cycles regenerate from notes. Study-specific rubrics are next. | Partly; Slice 9 |
 | Visually rich studio | Time axis, process map, variant explorer, sample and group viewer, re-run diff | All of these, plus the judge panel, episode and decision viewers, the signal table, and the export panel with each consumer's parts | Met |
 | Sectors | Banking first, then the others on one schema | Banking, insurance, telecommunications, airline, and hotel, each past the same gates | Met |
 | Synthetic, not copied | Uploads scrubbed before storage, exports checked for verbatim copies of uploaded records | Uploads are scrubbed, and an exported record repeating 12 words in a row from any upload is left out and counted in the manifest | Met |
@@ -103,7 +103,7 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so has Slice 8. The suite has 291 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
+All eight slices of the first plan have shipped, and so has Slice 8. The suite has 317 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
 
 The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed them:
 - **Narrow scopes favoured failures.** A journey now ends at its natural length once it reaches its scope's milestones, so airline booking alone passes 88% of primaries (none before) and hotel booking alone 91% (2% before). The composer warns when most journeys in a scope end before the minimum.
@@ -113,12 +113,7 @@ The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed t
 - **Cost at scale was unmeasured.** A 10,000-sequence banking run with episodes, decision records, and the decision-score signal takes 6.5 seconds, against 4.0 plain.
 
 These remain, for Slices 9 and 10:
-- **The judge.** Engine #115 stopped the empty verdicts. Other engine items are still open, so study-specific rubrics (4B) and repeated judging still wait:
-  - evals bypass the engine's scheduler
-  - the safety rubric omits the prompt
-  - rubrics register only in-process
-  - judging runs once at temperature 0
-  - eval errors are untyped
+- **The judge.** Engine #120 closed the engine items: judge calls are scheduled, the safety rubric sees the prompt, tenants register rubrics over the API, judgments repeat above temperature 0, and eval errors are typed. The studio now repeats every rubric three times per model and scores the judge against the code on conformance and decisions. Study-specific rubrics (4B) are next.
 - **Representative beyond banking** depends on logs a user uploads; the catalogue has no telecom, airline, hotel, or insurance source.
 - **Text is templated narration** in English and Turkish. Provider-written turn text, which the first decision allows, is not built.
 
@@ -216,15 +211,15 @@ Every slice ships the view that makes its change visible. Views are drawn in pla
 
 ## Cross-repository dependencies
 
-In `llm_inference_engine`, checked at `5e91407` on 26 September 2026. Slice 9 takes the open items on.
+In `llm_inference_engine`, checked at `0b7e660` on 27 September 2026. Engine #120 closed the items Slice 9 took on.
 
 | Item | Status |
 |---|---|
-| `/v1/evals/run` bypasses the tenant scheduler, so judge load queues inside Ollama where the engine cannot see it | Open |
-| The safety rubric's template leaves out the prompt, so the trajectory app's safety instruction never reaches the judge | Open |
-| Custom rubrics can be registered only in-process; `process_conformance`, `decision_score`, and study-specific rubrics need a file-based or API registry | Open; blocks 4B |
-| The judge runs at temperature 0 with one call per request; agreement needs repeats above temperature 0 | Open; the studio already swaps pairwise order itself |
-| A timeout or an over-long prompt on the eval route comes back as a generic 500 | Open; only a `ValueError` maps to 400 |
+| `/v1/evals/run` bypasses the tenant scheduler, so judge load queues inside Ollama where the engine cannot see it | Resolved by engine #120: each judge call takes a scheduler slot |
+| The safety rubric's template leaves out the prompt, so the trajectory app's safety instruction never reaches the judge | Resolved by engine #120 |
+| Custom rubrics can be registered only in-process; `process_conformance`, `decision_score`, and study-specific rubrics need a file-based or API registry | Resolved by engine #120: tenants register declarative rubrics over the API, kept per tenant |
+| The judge runs at temperature 0 with one call per request; agreement needs repeats above temperature 0 | Resolved by engine #120: `n` repeats above temperature 0 |
+| A timeout or an over-long prompt on the eval route comes back as a generic 500 | Resolved by engine #120: 504 `generation_timeout` and 400 `context_length_exceeded` |
 | `/v1/models` reports each model's trained window, but Ollama serves 32,768 tokens | Worked around: the studio's judge budget is 8,000 tokens |
 | Verdicts came back empty for longer prompts, because a reasoning judge spent its 512 output tokens thinking | Resolved by engine #115, which asks the judge to answer without thinking |
 | The default judge model is `llama3.2:3b` | Worked around: the studio names `qwen3.8:27b` and `gemma4:26b` on every call |

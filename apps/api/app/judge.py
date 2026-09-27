@@ -30,6 +30,13 @@ class JudgeUnavailable(RuntimeError):
         return self.message
 
 
+class RubricsUnsupported(JudgeUnavailable):
+    """The judge cannot register rubrics: an engine without tenant rubrics, or a judge with no registry."""
+
+    def __init__(self, message: str, request_id: str = "") -> None:
+        super().__init__(502, message, request_id)
+
+
 class Judge(Protocol):
     def run_eval(
         self,
@@ -40,7 +47,11 @@ class Judge(Protocol):
         expected: str | None = None,
         response_b: str | None = None,
         judge_model: str | None = None,
+        repeats: int = 1,
+        temperature: float = 0.0,
     ) -> dict[str, Any]: ...
+
+    def register_rubric(self, definition: dict[str, Any]) -> dict[str, Any]: ...
 
 
 def normalize_base_url(value: str) -> str:
@@ -62,7 +73,8 @@ def normalize_base_url(value: str) -> str:
 
 
 class InferenceEngineClient:
-    """Calls llm_inference_engine POST /v1/evals/run. The bearer token is the tenant key."""
+    """Calls llm_inference_engine's /v1/evals routes. The bearer token is the tenant key, so the rubrics it
+    registers belong to the platform tenant."""
 
     def __init__(
         self,
@@ -101,7 +113,10 @@ class InferenceEngineClient:
         expected: str | None = None,
         response_b: str | None = None,
         judge_model: str | None = None,
+        repeats: int = 1,
+        temperature: float = 0.0,
     ) -> dict[str, Any]:
+        """One verdict, or `repeats` of them at `temperature` with seeds 0, 1, 2, ...; the first is also the top level."""
         body: dict[str, Any] = {"rubric": rubric, "prompt": prompt, "response": response, "seed": 0}
         if judge_model or self.judge_model:
             body["judge_model"] = judge_model or self.judge_model
@@ -109,28 +124,50 @@ class InferenceEngineClient:
             body["expected"] = expected
         if response_b is not None:
             body["response_b"] = response_b
-        result = self._post(body)
+        if repeats > 1:
+            body["n"] = repeats
+            body["temperature"] = temperature
+        result = self._post("/v1/evals/run", body)
         try:
             payload = result.json()
-            verdict = payload["verdict"]
-            raw = verdict.get("raw") or ""
+            # An engine without repeats returns only `verdict`; that is one repeat, whatever was asked.
+            verdicts = [_verdict(item) for item in payload.get("verdicts") or [payload["verdict"]]]
             return {
-                "score": float(verdict["score"]),
-                "parsed": verdict.get("parsed") or {},
-                "raw": raw,
-                # The engine scores an unparseable verdict as 0; that is not a real score.
-                "readable": verdict.get("parse_status") != "failed" and bool(raw.strip()),
+                **verdicts[0],
+                "verdicts": verdicts,
                 "judge_model": payload.get("judge_model") or "",
                 "duration_ms": float(payload.get("duration_ms") or 0),
+                "rubric_digest": payload.get("rubric_digest"),
             }
+        except (ValueError, KeyError, TypeError, IndexError) as exc:
+            raise JudgeUnavailable(502, "The judge returned a response the studio could not read.", _request_id(result)) from exc
+
+    def register_rubric(self, definition: dict[str, Any]) -> dict[str, Any]:
+        """Register or replace a rubric for the platform tenant. Returns its name and the engine's digest of it."""
+        result = self._post("/v1/evals/rubrics", definition, missing="The judge's engine does not accept rubrics. It needs llm_inference_engine with tenant rubrics.")
+        try:
+            payload = result.json()
+            return {"name": payload["name"], "digest": payload["digest"]}
         except (ValueError, KeyError, TypeError) as exc:
             raise JudgeUnavailable(502, "The judge returned a response the studio could not read.", _request_id(result)) from exc
 
-    def _post(self, body: dict[str, Any]) -> httpx.Response:
+    def delete_rubric(self, name: str) -> bool:
+        """Remove one of the platform tenant's rubrics. False when the engine did not have it."""
+        try:
+            result = self._client.delete(f"/v1/evals/rubrics/{name}", headers={"Authorization": f"Bearer {self._api_key}"})
+        except httpx.HTTPError as exc:
+            raise JudgeUnavailable(503, "The judge could not be reached. Check INFERENCE_ENGINE_BASE_URL.") from exc
+        if result.status_code == 404:
+            return False
+        if result.is_success:
+            return True
+        raise self._failure(result)
+
+    def _post(self, path: str, body: dict[str, Any], missing: str | None = None) -> httpx.Response:
         for attempt in range(2):
             try:
                 result = self._client.post(
-                    "/v1/evals/run",
+                    path,
                     headers={"Authorization": f"Bearer {self._api_key}"},
                     json=body,
                 )
@@ -145,23 +182,59 @@ class InferenceEngineClient:
                     continue
             if result.is_success:
                 return result
+            if missing and result.status_code in {404, 405} and _engine_type(result) is None:
+                raise RubricsUnsupported(missing, _request_id(result))
             raise self._failure(result)
         raise AssertionError("unreachable")
 
     def _failure(self, result: httpx.Response) -> JudgeUnavailable:
         request_id = _request_id(result)
         status = result.status_code
+        kind = _engine_type(result)
         if status in {401, 403}:
             return JudgeUnavailable(502, "The judge rejected the platform key. Check INFERENCE_ENGINE_API_KEY.", request_id)
         if status in {429, 503}:
             return JudgeUnavailable(503, "The judge is busy or starting. Try again shortly.", request_id)
         if status == 504:
-            return JudgeUnavailable(504, "The judge timed out.", request_id)
+            seconds = _engine_detail(result).get("timeout_seconds")
+            after = f" after {seconds:g} seconds" if isinstance(seconds, int | float) else ""
+            return JudgeUnavailable(504, f"The judge timed out{after}.", request_id)
+        if kind == "context_length_exceeded":
+            detail = _engine_detail(result)
+            needed, window = detail.get("requested_tokens"), detail.get("context_window")
+            sizes = f" It needed {needed} tokens of a {window}-token window." if needed and window else ""
+            return JudgeUnavailable(502, f"A journey did not fit the judge's context window.{sizes} Lower JUDGE_PROMPT_TOKENS.", request_id)
         reason = _engine_message(result).replace(self._api_key, "[redacted]")
         return JudgeUnavailable(502, f"The judge failed with {status}: {reason}", request_id)
 
     def close(self) -> None:
         self._client.close()
+
+
+def _verdict(item: dict[str, Any]) -> dict[str, Any]:
+    raw = item.get("raw") or ""
+    return {
+        "score": float(item["score"]),
+        "parsed": item.get("parsed") or {},
+        "raw": raw,
+        # The engine scores an unparseable verdict as 0; that is not a real score.
+        "readable": item.get("parse_status") != "failed" and bool(raw.strip()),
+    }
+
+
+def _engine_detail(result: httpx.Response) -> dict[str, Any]:
+    try:
+        payload = result.json()
+    except ValueError:
+        return {}
+    detail = payload.get("detail") if isinstance(payload, dict) else None
+    return detail if isinstance(detail, dict) else {}
+
+
+def _engine_type(result: httpx.Response) -> str | None:
+    """The engine's typed error, such as `context_length_exceeded`; None for a bare HTTP error like an unknown route."""
+    kind = _engine_detail(result).get("type")
+    return str(kind) if kind else None
 
 
 def _request_id(result: httpx.Response) -> str:
