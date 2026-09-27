@@ -93,9 +93,9 @@ The second pull request, completing the slice, covers tasks 3 and 5:
 - CI passes on the slice's pull request.
 - The 10,000-sequence run with every consumer feature finishes within three times the plain run.
 
-## In progress: Slice 9, judge completion across repositories
+## Delivered: Slice 9, judge completion across repositories
 
-Done so far: the engine work (engine #120), repeated judgments, and the judge-side conformance and decision rubrics. 4B is next.
+Delivered by engine #120, #48, and the 4B pull request that follows it. Study rubrics are reported beside the code's solution and behavior rubrics and do not decide acceptance, for the reason pairwise does not (#47): a stratified sample holds failed journeys on purpose.
 
 Work in `llm_inference_engine` first (decision 7):
 - a rubric registry that accepts rubrics over an authenticated API and persists them per tenant
@@ -111,7 +111,7 @@ Then, in the studio:
 
 Exit: a rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric.
 
-## Queued: Slice 10, representative everywhere and natural text
+## Next: Slice 10, representative everywhere and natural text
 
 - **Hotel calibration:** a catalogue adapter for the Hotel booking demand dataset (decision 10). Cancellations, no-shows, and lead times calibrate the hotel pack's guarantee, cancellation, and arrival outcomes and their durations.
 - **Airline calibration:** an adapter for the Bureau of Transportation Statistics on-time performance data. Delay and cancellation rates and delay lengths calibrate the airline pack's disruption outcomes.

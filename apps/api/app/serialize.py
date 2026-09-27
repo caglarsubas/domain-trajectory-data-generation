@@ -200,6 +200,40 @@ def run_out(run: Run, db: Session) -> dict:
         "generation": _generation(run),
         "job": job_out(latest_for(db, run.id)),
         "judge_job": job_out(latest_for(db, run.id, "evaluate")),
+        **_study_state(run, db, cycles[-1] if cycles else None),
+    }
+
+
+def judged(cycle: EvalCycle | None) -> bool:
+    """A cycle that reached a decision: the hard checks failed, or the primary judge read every rubric that decides it."""
+    from app.evaluation import GATING
+
+    if cycle is None:
+        return False
+    if not cycle.hard_check_passed:
+        return True
+    if cycle.models:
+        # Pairwise, the code comparisons, and study rubrics are reported; an unreadable one does not reopen the run.
+        return not any(
+            flag.get("kind") == "unreadable" and flag.get("model") == cycle.models[0] and flag.get("rubric") in GATING
+            for flag in cycle.flags or []
+        )
+    return True
+
+
+def _study_state(run: Run, db: Session, cycle: EvalCycle | None) -> dict:
+    """Whether the judge has read the run, the study's rubrics, and whether approved ones wait for a cycle."""
+    from app import study_rubrics
+    from app.jobs import latest_for
+    from sectors.registry import get_sector
+
+    label = get_sector(run.config.get("sector", "banking")).label
+    rows = study_rubrics.for_project(db, run.project_id)
+    return {
+        "judged": judged(cycle),
+        "study_rubrics": [study_rubrics.rubric_out(row, label) for row in rows],
+        "study_rubrics_pending": judged(cycle) and study_rubrics.pending(db, run, cycle, label),
+        "proposal_job": job_out(latest_for(db, run.id, "propose_rubrics")),
     }
 
 

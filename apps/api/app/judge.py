@@ -37,6 +37,13 @@ class RubricsUnsupported(JudgeUnavailable):
         super().__init__(502, message, request_id)
 
 
+class RubricLimitReached(JudgeUnavailable):
+    """The platform tenant holds as many rubrics as the engine allows."""
+
+    def __init__(self, message: str, request_id: str = "") -> None:
+        super().__init__(502, message, request_id)
+
+
 class Judge(Protocol):
     def run_eval(
         self,
@@ -151,6 +158,19 @@ class InferenceEngineClient:
         except (ValueError, KeyError, TypeError) as exc:
             raise JudgeUnavailable(502, "The judge returned a response the studio could not read.", _request_id(result)) from exc
 
+    def list_rubrics(self) -> list[dict[str, Any]]:
+        """The built-in rubrics and the platform tenant's own, as the engine lists them."""
+        try:
+            result = self._client.get("/v1/evals/rubrics", headers={"Authorization": f"Bearer {self._api_key}"})
+        except httpx.HTTPError as exc:
+            raise JudgeUnavailable(503, "The judge could not be reached. Check INFERENCE_ENGINE_BASE_URL.") from exc
+        if not result.is_success:
+            raise self._failure(result)
+        try:
+            return list(result.json()["data"])
+        except (ValueError, KeyError, TypeError) as exc:
+            raise JudgeUnavailable(502, "The judge returned a response the studio could not read.", _request_id(result)) from exc
+
     def delete_rubric(self, name: str) -> bool:
         """Remove one of the platform tenant's rubrics. False when the engine did not have it."""
         try:
@@ -199,6 +219,9 @@ class InferenceEngineClient:
             seconds = _engine_detail(result).get("timeout_seconds")
             after = f" after {seconds:g} seconds" if isinstance(seconds, int | float) else ""
             return JudgeUnavailable(504, f"The judge timed out{after}.", request_id)
+        if kind == "rubric_limit_reached":
+            limit = _engine_detail(result).get("limit")
+            return RubricLimitReached(f"The judge's engine holds its limit of {limit} rubrics for this platform.", request_id)
         if kind == "context_length_exceeded":
             detail = _engine_detail(result)
             needed, window = detail.get("requested_tokens"), detail.get("context_window")

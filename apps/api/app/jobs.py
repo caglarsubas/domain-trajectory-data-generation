@@ -279,6 +279,30 @@ def _evaluate(db, job: Job, report: Callable) -> str:
     return f"Cycle {cycle.cycle_index} judged: {verdict}."
 
 
+def _propose_rubrics(db, job: Job, report: Callable) -> str:
+    from app.judge import JudgeUnavailable
+    from app.judging import LazyJudge, register
+    from app.settings import load_settings
+    from app.study_rubrics import ProposalError, propose
+
+    run = db.get(Run, job.run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="the run was deleted")
+    cfg = load_settings()
+    judge = LazyJudge(cfg)
+    try:
+        created = propose(db, run, cfg, judge, register=lambda definition: register(judge, definition, db), progress=report)
+    except ProposalError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except JudgeUnavailable as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
+    finally:
+        judge.close()
+    job.result = {"rubric_ids": [row.id for row in created]}
+    studied = len((created[0].source or {}).get("trajectory_ids") or [])
+    return f"The judge proposed {len(created)} rubrics from {studied} journeys. Review them before they are used."
+
+
 def _deep_search(db, job: Job, report: Callable) -> str:
     from app.models import Project
     from app.research import deep_search_for_project
@@ -315,7 +339,15 @@ def _calibrate(db, job: Job, report: Callable) -> str:
     return f"Calibrated from {item.name}: {job.result['cases']:,} cases."
 
 
-HANDLERS: dict[str, Callable] = {"generate": _generate, "export": _export, "evaluate": _evaluate, "deep_search": _deep_search, "fetch": _fetch, "calibrate": _calibrate}
+HANDLERS: dict[str, Callable] = {
+    "generate": _generate,
+    "export": _export,
+    "evaluate": _evaluate,
+    "propose_rubrics": _propose_rubrics,
+    "deep_search": _deep_search,
+    "fetch": _fetch,
+    "calibrate": _calibrate,
+}
 
 
 class Worker:

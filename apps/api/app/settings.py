@@ -36,6 +36,7 @@ class Settings:
     judge_reference_chars: int = 6000
     demo_max_provider_calls: int = 100
     judge_repeats: int = 3
+    demo_rubric_proposals_per_day: int = 5
     judge_temperature: float = 0.7
 
 
@@ -64,6 +65,7 @@ def load_settings() -> Settings:
         demo_max_sequences=_count("DEMO_MAX_SEQUENCES", 2000),
         demo_judge_cycles_per_day=_count("DEMO_JUDGE_CYCLES_PER_DAY", 10),
         demo_deep_searches_per_day=_count("DEMO_DEEP_SEARCHES_PER_DAY", 3),
+        demo_rubric_proposals_per_day=_count("DEMO_RUBRIC_PROPOSALS_PER_DAY", 5),
         # The second opinion; set it empty to judge with the primary model alone.
         second_judge_model=os.environ.get("INFERENCE_ENGINE_SECOND_JUDGE_MODEL", "gemma4:26b").strip(),
         judge_sample_size=max(_count("JUDGE_SAMPLE_SIZE", 6), 1),

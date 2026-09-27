@@ -49,6 +49,25 @@ The cycle's `agreement.code` gives, per rubric, the code's pass count and mean, 
 
 The cycle's `judging` records the repeats, their temperature, and each registered rubric's engine digest; each verdict of a registered rubric carries that `rubric_digest`. An engine without tenant rubrics still judges the other rubrics, and `judging.notes` says what was skipped.
 
+## Study rubrics
+
+The judge can propose a solution and a behavior rubric for a study, after the code's solution and behavior rubrics:
+
+- **What it reads.** From a run of the study, one group: a primary and its rollouts, with both outcomes when the group has them, up to four journeys. A run without groups gives four journeys taken across kinds and outcomes. The judge reads them with the study brief and its warm-start passages.
+- **How it is asked.** Through `/v1/evals/run` with `rubric_proposal`, a rubric the studio registers for the platform tenant, so a reasoning judge answers without thinking, in JSON, inside a scheduler slot. Each rubric comes back as a title, a description, three to five checkable criteria, what a journey scoring 5, 3, and 1 shows, and the judge's `fit`: how clearly the group differs on those criteria. Text past the limits is trimmed.
+- **Where it runs.** `POST /runs/{run_id}/rubric-proposals` starts a `propose_rubrics` job; demo accounts get `DEMO_RUBRIC_PROPOSALS_PER_DAY` (5). A proposal records the run, the journeys and their outcomes, the passages' sources, the judge, and its raw answer. A new proposal replaces the study's untouched proposals and keeps edited and approved ones.
+
+The owner reviews them in the study rubrics panel under the judge panel, or with `GET`, `PATCH`, and `DELETE /projects/{project_id}/rubrics/{rubric_id}` and `POST .../approve`:
+
+- An edit is checked: a title of up to 80 characters, a description, criteria, and anchors of up to 300 each, and two to six criteria. An edited rubric is proposed again until it is approved, so what the judge asks is always what was approved.
+- Approving a rubric retires the study's approved rubric of the same kind.
+
+An approved rubric is a declarative engine rubric. Its engine name is `study_<kind>_` followed by a hash of its content, so an edit makes a new rubric and every verdict's `rubric_digest` names the text that judged it. Each cycle of the study registers its approved rubrics and asks them of every sampled journey, with repeats. The cycle reports them in `agreement.code` next to the code's rubric of their kind (`signal`, `kind`, `title`), with agreement across models and across repeats. A study rubric's verdict passes at 0.5, a 3 of 5.
+
+Study rubrics do not decide acceptance. A stratified sample holds failed journeys on purpose, and a rubric about the resulting state would reject good runs for them, as pairwise did. A run the judge has read can be judged again once the study approves a rubric its latest cycle did not ask; the run's `study_rubrics_pending` says so.
+
+When the platform tenant holds the engine's limit of rubrics, registration removes the tenant's study rubrics that no study still approves, then tries once more.
+
 The engine's typed errors reach the studio as explanations: a journey too long for the judge's context window names the tokens it needed and suggests lowering `JUDGE_PROMPT_TOKENS`, and a timeout gives the engine's limit.
 
 Human notes are separate. A note targets the run, one trajectory, or one event, with stance `keep`, `revise`, or `drop`. Re-run copies the configuration, `parent_run_id`, and the selected note ids, then regenerates events from those notes and from any revision notes on the parent. A dropped event type is left out of the next bundle. A revised event type is delayed. A kept event type is retained when it still fits the length limit.

@@ -288,3 +288,9 @@ Follow-up to #45, whose narration showed premiums paid hours apart. A recurring 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/47
 
 A regenerated telecom run failed acceptance on pairwise quality alone: every sampled journey that ended in failure lost to its alternative, because the judge read each journey's kind and outcome. Pairwise now reads both journeys blind, with no id, kind, outcome, or alternative label, under a question that counts a declined or abandoned journey as valid as a completed one. Replayed blind, failed journeys still lost for being shorter, and a journey and its alternative both replay legally, so an unbiased judge sits near 0.5. Helpfulness, correctness, and safety now decide acceptance and revision notes; pairwise is still scored, checked for order flips and agreement, and shown as reported only.
+
+## 48. Repeat every judgment three times per model and score the judge against the code
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/48
+
+Slice 9, first studio part, on engine #120. Each judge call asks for three verdicts at temperature 0.7 (`JUDGE_REPEATS`, `JUDGE_TEMPERATURE`), stored one per repeat, and a journey's score is the mean of its readable repeats. Each cycle reports agreement across repeats next to agreement across models: per rubric and model, the calls whose repeats all fall on one side of the threshold, and their mean spread. The studio registers `process_conformance` and `decision_score` as the platform tenant's rubrics, asks the judge both for every journey the code scored, and reports the judge's agreement with the code; they never decide acceptance. Each cycle records the repeats and every registered rubric's engine digest, and over-long prompts and timeouts read as explanations.

@@ -193,6 +193,7 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
         "temperature": 0.7,
         "rubrics": {name: {"source": "tenant", "digest": f"sha256:{name}"} for name in ("decision_score", "process_conformance")},
         "notes": [],
+        "study": [],
     }
     assert {call["repeats"] for call in judge.calls} == {3} and {call["temperature"] for call in judge.calls} == {0.7}
     asked = {call["rubric"] for call in judge.calls}

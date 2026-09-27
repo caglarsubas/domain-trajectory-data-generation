@@ -10,8 +10,12 @@ import EpisodeViewer from "../../../../components/EpisodeViewer";
 import DecisionViewer from "../../../../components/DecisionViewer";
 import SignalTable from "../../../../components/SignalTable";
 import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
+import StudyRubrics from "../../../../components/StudyRubrics";
 import RunDiff from "../../../../components/RunDiff";
 import { GroupViewer, ProcessMap, QualityCard, VariantList, formatHours, journeyOverview, laneLabel, shortLabel, typeSummary } from "../../../../components/RunViews";
+
+// The rubrics that decide acceptance; pairwise, the code comparisons, and study rubrics are reported.
+const GATING = ["helpfulness", "correctness", "safety"];
 
 const PAGE = 100;
 
@@ -112,11 +116,12 @@ export default function RunPage() {
 
   const pending = run && ["queued", "generating"].includes(run.status);
   const judging = ["queued", "running"].includes(run?.judge_job?.status);
+  const proposing = ["queued", "running"].includes(run?.proposal_job?.status);
   useEffect(() => {
-    if (!pending && !judging) return undefined;
+    if (!pending && !judging && !proposing) return undefined;
     const timer = setTimeout(() => load(params.id).catch((err) => setError(err.message)), 1000);
     return () => clearTimeout(timer);
-  }, [pending, judging, run, params.id]);
+  }, [pending, judging, proposing, run, params.id]);
 
   const ready = ["generated", "evaluated"].includes(run?.status);
 
@@ -205,11 +210,11 @@ export default function RunPage() {
   const event = selection?.event ? layout.events[selection.event] : null;
   const transitions = event ? layout.transitions.filter((item) => item.event_id === event.event_id) : [];
   const cycle = run.cycles.at(-1);
-  // The primary judge's unreadable rubrics; older cycles held one verdict per rubric.
+  // The primary judge's unreadable rubrics among those that decide acceptance; older cycles held one verdict per rubric.
   const unreadable = [
     ...new Set(
       (cycle?.models?.length
-        ? (cycle.flags || []).filter((flag) => flag.kind === "unreadable" && flag.model === cycle.models[0])
+        ? (cycle.flags || []).filter((flag) => flag.kind === "unreadable" && flag.model === cycle.models[0] && GATING.includes(flag.rubric))
         : (cycle?.verdicts || []).filter((verdict) => verdict.readable === false)
       ).map((item) => item.rubric.replaceAll("_", " "))
     ),
@@ -292,9 +297,11 @@ export default function RunPage() {
 
   const round = run.config.regeneration?.round || 1;
   // A cycle is final once the hard checks failed or the primary judge read every rubric; only an unread one is judged again.
-  const judgedFully = Boolean(
-    cycle && (!cycle.hard_check_passed || !(cycle.models?.length && (cycle.flags || []).some((flag) => flag.kind === "unreadable" && flag.model === cycle.models[0])))
+  // The API decides this; only the rubrics that decide acceptance count.
+  const judgedFully = run.judged ?? Boolean(
+    cycle && (!cycle.hard_check_passed || !(cycle.models?.length && (cycle.flags || []).some((flag) => flag.kind === "unreadable" && flag.model === cycle.models[0] && GATING.includes(flag.rubric))))
   );
+  const canUseRubrics = judgedFully && run.study_rubrics_pending && run.cycle_count < run.config.max_cycles;
   const canRegenerate = judgedFully && !cycle.accepted && round < run.config.max_cycles;
   const judgeJob = run.judge_job;
   // judge_job is the latest attempt, so a failure there is the last word until the judge is asked again.
@@ -322,6 +329,11 @@ export default function RunPage() {
         ) : canRegenerate ? (
           <button className="primary" type="button" onClick={regenerate} disabled={busy}>
             {busy ? "Regenerating" : "Regenerate from notes"}
+          </button>
+        ) : null}
+        {canUseRubrics ? (
+          <button className={canRegenerate ? "ghost" : "primary"} type="button" onClick={evaluate} disabled={busy || judging}>
+            {busy ? "Asking" : judging ? "Judging" : "Judge with the study rubrics"}
           </button>
         ) : null}
         <Link className="ghost" href={rerunHref} style={{ display: "inline-block" }}>Run again</Link>
@@ -412,6 +424,7 @@ export default function RunPage() {
           document.querySelector(".stage")?.scrollIntoView({ behavior: "smooth", block: "start" });
         }}
       />
+      {ready ? <StudyRubrics run={run} onChange={() => load(run.id)} /> : null}
       <QualityCard quality={run.generation?.quality} />
       {pack && overview && overview.journeys > 1 ? (
         <div className="overview">

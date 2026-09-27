@@ -15,9 +15,8 @@ from sqlalchemy.orm import Session, defer
 from datetime import datetime, timezone
 
 from app.db import get_db
-from app.evaluation import GATING
 from app.generation import ACCEPTANCE_CEILING
-from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Job, Project, Run
+from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Job, Project, Run, StudyRubric
 from app.providers import PROVIDERS, KeyCheck, check_key, get_provider
 from app import quotas
 from app.schemas import (
@@ -37,8 +36,9 @@ from app.schemas import (
     RegisterBody,
     RerunBody,
     RunBody,
+    StudyRubricEdit,
 )
-from app import runtime
+from app import runtime, study_rubrics
 from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_password, issue_token, read_token, verify_password
 from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.registry import get_sector
@@ -49,7 +49,7 @@ from app.catalogue import BY_ID as CATALOGUE, ENTRIES, public
 from app.facts import facts_report
 from app.ingest import safe_name
 from sectors.jurisdictions import PROFILES, get_jurisdiction
-from app.serialize import corpus_out, job_out, project_out, run_out, run_summary
+from app.serialize import corpus_out, job_out, judged, project_out, run_out, run_summary
 from app.store import MAX_RUN_SEQUENCES, SMALL_RUN_SEQUENCES, DbStore, run_dir, store_for
 from app.service import config_from_body, require_project, require_run, rerun_config
 from app.settings import Settings, load_settings
@@ -805,21 +805,6 @@ def run_diff(run_id: str, account: AccountDep, db: Db) -> dict:
     return diff_runs(db, require_run(db, run.parent_run_id, account), run)
 
 
-def judged(cycle: EvalCycle | None) -> bool:
-    """A cycle that reached a decision: the hard checks failed, or the primary judge read every rubric."""
-    if cycle is None:
-        return False
-    if not cycle.hard_check_passed:
-        return True
-    if cycle.models:
-        # Only the rubrics that decide acceptance count; pairwise and the code-comparison rubrics are reported.
-        return not any(
-            flag.get("kind") == "unreadable" and flag.get("model") == cycle.models[0] and flag.get("rubric") in GATING
-            for flag in cycle.flags or []
-        )
-    return True
-
-
 def _require_run_quota(db: Session, account: Account, cfg: Settings, config: dict) -> None:
     sequences = int(config["target_trajectory_count"]) * int(config.get("group_size") or 1)
     if config.get("target_kind") == "accepted_groups":
@@ -876,7 +861,10 @@ def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: 
     current = jobs.latest_for(db, run.id, "evaluate")
     if current is not None and current.status in jobs.ACTIVE:
         raise HTTPException(status_code=409, detail="the judge is already working on this run")
-    if body.candidate is None and judged(_latest_cycle(run, db)):
+    latest = _latest_cycle(run, db)
+    label = get_sector(run.config["sector"]).label
+    # A study rubric approved since the last cycle is a new question, so the same journeys may be judged again for it.
+    if body.candidate is None and judged(latest) and not study_rubrics.pending(db, run, latest, label):
         raise HTTPException(
             status_code=409,
             detail="The judge has already read this run. Regenerate from its notes instead of judging the same journeys again.",
@@ -890,3 +878,62 @@ def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: 
     _raise_if_refused(db, job)
     db.refresh(run)
     return run_out(run, db)
+
+
+@router.post("/runs/{run_id}/rubric-proposals")
+def propose_rubrics(run_id: str, account: AccountDep, db: Db, cfg: Cfg) -> dict:
+    """The judge proposes a solution and a behavior rubric for the run's study from a group of the run's journeys."""
+    run = require_run(db, run_id, account)
+    _require_generated(run)
+    busy = db.scalars(
+        select(Job).where(Job.project_id == run.project_id, Job.kind == "propose_rubrics", Job.status.in_(jobs.ACTIVE))
+    ).first()
+    if busy is not None:
+        raise HTTPException(status_code=409, detail="The judge is already proposing rubrics for this study.")
+    quotas.require_daily(db, account, cfg, "rubric_proposals")
+    job = jobs.enqueue(db, kind="propose_rubrics", owner_id=account.id, run_id=run.id, project_id=run.project_id, payload={})
+    _raise_if_refused(db, job)
+    db.refresh(run)
+    return run_out(run, db)
+
+
+def _require_rubric(db: Session, project_id: str, rubric_id: str, account: Account) -> tuple[Project, StudyRubric]:
+    project = require_project(db, project_id, account)
+    rubric = db.get(StudyRubric, rubric_id)
+    if rubric is None or rubric.project_id != project.id:
+        raise HTTPException(status_code=404, detail="rubric not found")
+    return project, rubric
+
+
+@router.get("/projects/{project_id}/rubrics")
+def list_study_rubrics(project_id: str, account: AccountDep, db: Db) -> dict:
+    project = require_project(db, project_id, account)
+    label = get_sector(project.sector).label
+    return {"data": [study_rubrics.rubric_out(row, label) for row in study_rubrics.for_project(db, project.id)]}
+
+
+@router.patch("/projects/{project_id}/rubrics/{rubric_id}")
+def edit_study_rubric(project_id: str, rubric_id: str, body: StudyRubricEdit, account: AccountDep, db: Db) -> dict:
+    project, rubric = _require_rubric(db, project_id, rubric_id, account)
+    try:
+        study_rubrics.edit(rubric, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"The rubric was not saved: {exc}.") from exc
+    db.commit()
+    return study_rubrics.rubric_out(rubric, get_sector(project.sector).label)
+
+
+@router.post("/projects/{project_id}/rubrics/{rubric_id}/approve")
+def approve_study_rubric(project_id: str, rubric_id: str, account: AccountDep, db: Db) -> dict:
+    """Approve a rubric for the study's next cycles; an approved rubric of the same kind is retired."""
+    project, rubric = _require_rubric(db, project_id, rubric_id, account)
+    study_rubrics.approve(db, rubric, account.id)
+    db.commit()
+    return study_rubrics.rubric_out(rubric, get_sector(project.sector).label)
+
+
+@router.delete("/projects/{project_id}/rubrics/{rubric_id}", status_code=204)
+def delete_study_rubric(project_id: str, rubric_id: str, account: AccountDep, db: Db) -> None:
+    _, rubric = _require_rubric(db, project_id, rubric_id, account)
+    db.delete(rubric)
+    db.commit()

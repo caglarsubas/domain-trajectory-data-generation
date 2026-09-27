@@ -196,3 +196,12 @@ class DeepSearchBody(BaseModel):
 
 class EvaluateBody(BaseModel):
     candidate: dict[str, Any] | None = None
+
+
+class StudyRubricEdit(BaseModel):
+    """An owner's edit of a study rubric. Omitted fields stay; the rubric is proposed again until approved."""
+
+    title: str | None = Field(default=None, max_length=200)
+    description: str | None = Field(default=None, max_length=1000)
+    criteria: list[str] | None = Field(default=None, max_length=20)
+    anchors: dict[str, str] | None = None
