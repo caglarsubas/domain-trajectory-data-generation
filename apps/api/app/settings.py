@@ -35,6 +35,8 @@ class Settings:
     judge_prompt_tokens: int = 8000
     judge_reference_chars: int = 6000
     demo_max_provider_calls: int = 100
+    judge_repeats: int = 3
+    judge_temperature: float = 0.7
 
 
 def load_settings() -> Settings:
@@ -70,6 +72,10 @@ def load_settings() -> Settings:
         # How much retrieved warm-start text the judge's brief carries.
         judge_reference_chars=min(max(_count("JUDGE_REFERENCE_CHARS", 6000), 500), 40000),
         demo_max_provider_calls=_count("DEMO_MAX_PROVIDER_CALLS", 100),
+        # Each rubric is judged this many times per model, so a cycle can report how far a judge agrees with itself.
+        judge_repeats=min(max(_count("JUDGE_REPEATS", 3), 1), 5),
+        # Repeats sample above temperature 0; at 0 every repeat would return the same verdict.
+        judge_temperature=_temperature("JUDGE_TEMPERATURE", 0.7),
     )
 
 
@@ -81,6 +87,19 @@ def _count(name: str, default: int) -> int:
         return max(int(raw), 0)
     except ValueError as exc:
         raise SettingsError(f"{name} must be a whole number") from exc
+
+
+def _temperature(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise SettingsError(f"{name} must be a number") from exc
+    if not 0 < value <= 2:
+        raise SettingsError(f"{name} must be above 0 and at most 2")
+    return value
 
 
 def check_startup(cfg: Settings) -> None:

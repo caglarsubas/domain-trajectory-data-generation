@@ -265,8 +265,26 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/43
 
 Slice 8, first part. A walk that runs out of legal events in its scope is marked exhausted, and a journey now counts when the domain ended it or it reached a milestone of the run's scope and is long enough or exhausted; one that never reaches its scope is redrawn. Airline booking alone passes 88% of primaries (0% before) and hotel booking alone 91% (2%). `GET /sectors/{id}/lengths` samples how long a scope's journeys can run, and the composer warns when most end before the minimum. A `group_signal` gate needs each sub-domain alone to yield accepted groups in a fifth of its groups of four, and packs gained the failures their industries have: abandoned quotes, missed premiums and lapse, declined renewals, and rejected complaints in insurance; tickets closed without a fix in telecom; damaged and lost bags and missing miles in airlines; and a disputed bill as a failed hotel check-out. The lowest sub-domain now accepts 27% of its groups. GitHub Actions runs the Python suite and the studio build on every pull request.
 
+## 44. Leave records that copy an upload out of exports, and measure and trim generation cost, completing Slice 8
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/44
+
+Slice 8, second and last part. Every export builds a guard from the study's uploads, indexing each 12-word run of documents, fetched links, deep-search reports, and data-source rows of 12 or more words, read plain, gzipped, or from Parquet. A sample that repeats one is left out with its prefixes and journey task, an episode with its harness lines and agent task, and a decision record on its own, in small downloads and large export jobs alike; the manifest's `copies` section counts what was left out by part. A 10,000-sequence banking run with episodes, decision records, and the decision-score signal takes 6.5 seconds against 4.0 plain, within the exit criterion of three times, since decision values are cached per policy and the walker compiles its legality checks once. Generation progress names the stage it is in.
+
 ## 45. Narrate each event with its amount and the time since it last happened
 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/45
 
 Every event read as its pack's fixed phrase, so recurring events repeated assistant turns word for word: 624 `repeated_turn` flags in a 640-sequence banking export and 395 in an insurance one. A sentence now adds the event's amount in the run's currency and, for a repeat, the time since the previous one, in English and Turkish, as in "The premium was paid (319.84 GBP, 28 hours after the previous one)." Journeys and seeds are unchanged. The timings it made visible showed premiums paid hours apart, which the next pull request fixes.
+
+## 46. Space recurring payments a billing cycle apart
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/46
+
+Follow-up to #45, whose narration showed premiums paid hours apart. A recurring event can now carry `cycle_hours`: its first occurrence follows the step before it as before, and each repeat falls due a cycle after the previous one, counted across a simulated alternative's shared prefix. Premiums move from a median 5.4 days apart to 33.7 (`insurance-pack-4`), telecom bills from 45 to 32 (`telecom-pack-3`), and banking repayments and pay-ins follow their cycles (`banking-pack-5`); airline and hotel are unchanged. The behavior rubric judges a repeat's wait against its cycle. About a quarter of repeats are still more than a cycle apart, where the step before them took longer than a cycle.
+
+## 47. Judge pairwise blind and report it without letting it decide acceptance
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/47
+
+A regenerated telecom run failed acceptance on pairwise quality alone: every sampled journey that ended in failure lost to its alternative, because the judge read each journey's kind and outcome. Pairwise now reads both journeys blind, with no id, kind, outcome, or alternative label, under a question that counts a declined or abandoned journey as valid as a completed one. Replayed blind, failed journeys still lost for being shorter, and a journey and its alternative both replay legally, so an unbiased judge sits near 0.5. Helpfulness, correctness, and safety now decide acceptance and revision notes; pairwise is still scored, checked for order flips and agreement, and shown as reported only.

@@ -132,6 +132,8 @@ class EvalCycle(Base):
     canary: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # The warm-start passages the judge read, by source and passage number.
     reference: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # How the judge was asked: repeats and their temperature, the registered rubrics and their digests, and notes.
+    judging: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class EvalVerdict(Base):
@@ -149,6 +151,9 @@ class EvalVerdict(Base):
     trajectory_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pair_order: Mapped[str | None] = mapped_column(String(4), nullable=True)
     canary: Mapped[int] = mapped_column(Integer, default=0)
+    # Which repeat of its call this verdict is, from 0, and the engine's digest of a registered rubric.
+    repeat_index: Mapped[int] = mapped_column(Integer, default=0)
+    rubric_digest: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
 class Job(Base):

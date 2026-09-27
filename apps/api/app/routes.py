@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, defer
 from datetime import datetime, timezone
 
 from app.db import get_db
+from app.evaluation import GATING
 from app.generation import ACCEPTANCE_CEILING
 from app.models import Account, CorpusItem, Credential, EvalCycle, EvalVerdict, Feedback, Job, Project, Run
 from app.providers import PROVIDERS, KeyCheck, check_key, get_provider
@@ -811,7 +812,11 @@ def judged(cycle: EvalCycle | None) -> bool:
     if not cycle.hard_check_passed:
         return True
     if cycle.models:
-        return not any(flag.get("kind") == "unreadable" and flag.get("model") == cycle.models[0] for flag in cycle.flags or [])
+        # Only the rubrics that decide acceptance count; pairwise and the code-comparison rubrics are reported.
+        return not any(
+            flag.get("kind") == "unreadable" and flag.get("model") == cycle.models[0] and flag.get("rubric") in GATING
+            for flag in cycle.flags or []
+        )
     return True
 
 

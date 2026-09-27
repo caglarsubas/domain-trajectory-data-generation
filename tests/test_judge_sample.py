@@ -24,7 +24,7 @@ class ScriptedJudge:
         self.correctness_seen = {PRIMARY: 0, SECOND: 0}
         self.helpfulness_seen = {PRIMARY: 0, SECOND: 0}
 
-    def run_eval(self, *, rubric, prompt, response, expected=None, response_b=None, judge_model=None):
+    def run_eval(self, *, rubric, prompt, response, expected=None, response_b=None, judge_model=None, **_):
         self.calls.append({"rubric": rubric, "model": judge_model, "response": response, "response_b": response_b})
         second = judge_model == SECOND
         if rubric == "helpfulness":
@@ -99,7 +99,7 @@ def test_pairwise_shows_both_journeys_blind_and_does_not_reward_success(client, 
     prompts, shown_journeys = [], []
 
     class Recording:
-        def run_eval(self, *, rubric, prompt, response, expected=None, response_b=None, judge_model=None):
+        def run_eval(self, *, rubric, prompt, response, expected=None, response_b=None, judge_model=None, **_):
             if rubric == "pairwise_quality":
                 prompts.append(prompt)
                 shown_journeys.extend([response, response_b])
