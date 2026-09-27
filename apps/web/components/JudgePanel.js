@@ -1,6 +1,8 @@
 "use client";
 
 const RUBRICS = ["helpfulness", "correctness", "safety", "pairwise_quality"];
+// Pairwise compares a journey with its own alternative; it is reported and does not decide acceptance.
+const REPORTED = new Set(["pairwise_quality"]);
 const SCALE = { helpfulness: 5 };
 
 function label(name) {
@@ -56,6 +58,7 @@ export function ScoreMeters({ cycle }) {
           <strong>{shown(row.primary)}</strong>
           <div className="bar"><i style={{ width: `${row.primary == null ? 0 : Math.min(100, (row.primary / (SCALE[row.rubric] || 1)) * 100)}%` }} /></div>
           {models[1] ? <small className="second">{models[1]}: {shown(row.second)}</small> : null}
+          {REPORTED.has(row.rubric) ? <small className="second">Reported only; does not decide acceptance.</small> : null}
         </div>
       ))}
     </div>
