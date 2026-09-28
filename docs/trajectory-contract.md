@@ -40,7 +40,7 @@ Rewards come from `packages/sectors/src/sectors/rewards.py`, shared by every pac
 - `groupwise_advantage_redistribution` gives each passing sequence a quality factor, its S_sol × S_beh over the best in the group, rescales the passing advantages so their sum is conserved (the factor is capped at 2), and re-centres the group.
 - `group_relative_length_penalty` discounts passing sequences longer than the median passing length, by up to 0.5 when a sequence is twice as long, and only when more than half the group passes.
 - `segment_penalty` applies MiMo's segment-level penalty across the run, masking flagged turns in positive sequences and weighting them in negative ones while conserving each sign's total.
-- An assistant segment written by a provider model instead of the pack's template names it in `written_by` (`provider:<model>`); template turns leave it empty.
+- An assistant segment written by a provider model instead of the pack's template names it in `written_by` (`provider:<model>`) and keeps the template it replaced in `template`; template turns leave both empty. A written turn the judge finds unfaithful in every repeat goes back to its template, and both fields are emptied.
 - Penalty rules (`empty_turn`, `repeated_turn`, `overlong_turn`) flag turns in `flagged_reason`. They start in record-only mode: flagged and counted, but no reward, mask, or advantage changes until a rule is switched to a masking strategy.
 - The cascade drops a context with no surviving trainable turn, zeroes a sequence with no surviving context, and rejects a sample with no surviving sequence. `group_accepted` is false for all-pass and all-fail groups, as MiMo's dynamic sampler filters them, and empty for a group of one, which carries no group-relative signal.
 

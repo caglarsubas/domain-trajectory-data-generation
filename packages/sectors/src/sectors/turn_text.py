@@ -1,17 +1,20 @@
 """Provider-written turn text (decision 11): the skeleton a writer gets, and the checks every turn must pass.
 
 The generator narrates each journey from the pack's phrase tables. On request, a provider model writes the assistant's
-turns instead, from a skeleton: the customer's opening and follow-ups, and for each turn the events it covers in order,
-each with its template sentence, its amount, and its wait (since the previous event, or since the same event last happened). The model answers one
-sentence per event, labelled with the event, and code checks every turn:
+turns instead, a whole group in one call, from a skeleton: the group's opening, and for each sequence its follow-ups and,
+for each turn, the events it covers in order, each with its template sentence, its amount, and its wait (since the
+previous event, or since the same event last happened). The model answers one sentence per event, labelled with the
+event, and code checks every turn:
 
 - every event of the turn, in order, and nothing else;
 - the amount of each event that has one, and no other number but the ones the skeleton gives;
 - no identifier, email address, or link the skeleton does not give;
 - the run's language.
 
-A turn that fails keeps its template, and so does one that copies its template word for word: it was not written. This module never calls a provider: the caller passes a writer, which takes a
-sequence's skeleton and returns the model's turns, or None when it made no call.
+A turn that fails keeps its template, and so does one that copies its template word for word: it was not written. A
+written turn keeps the template it replaced, so a turn the judge later finds unfaithful can go back to it. This module
+never calls a provider: the caller passes a writer, which takes a group's skeleton and returns the model's turns for each
+sequence, or None when it made no call.
 """
 
 from __future__ import annotations
@@ -52,16 +55,34 @@ class SequencePlan:
     turns: list[TurnPlan]
 
     def skeleton(self) -> dict:
-        """What the writer sends to the model: the conversation's frame and each turn's events, nothing else."""
+        """What the writer sends to the model for this sequence: its follow-ups and each turn's events, nothing else."""
         return {
-            "language": self.language,
-            "opening": self.opening,
             "follow_ups": self.follow_ups,
             "turns": [
                 [{key: event[key] for key in ("event", "template", "amount", "since") if event.get(key)} for event in turn.events]
                 for turn in self.turns
             ],
         }
+
+    @property
+    def events(self) -> int:
+        return sum(len(turn.events) for turn in self.turns)
+
+
+@dataclass
+class GroupPlan:
+    """A group's sequences, which share their opening and prompt and are written in one call."""
+
+    language: str
+    opening: str
+    sequences: list[SequencePlan]
+
+    def skeleton(self) -> dict:
+        return {"language": self.language, "opening": self.opening, "sequences": [plan.skeleton() for plan in self.sequences]}
+
+    @property
+    def events(self) -> int:
+        return sum(plan.events for plan in self.sequences)
 
 
 def plan(sequence, member, phrases: dict[str, str], lang: str) -> SequencePlan:
@@ -187,30 +208,36 @@ def _plain(text: str) -> str:
     return re.sub(r"[^\w]+", " ", text.lower()).strip()
 
 
-Writer = Callable[[SequencePlan], "dict | None"]
+Writer = Callable[[GroupPlan], "dict | None"]
 
 
 def rewrite(samples: list, groups: list, phrases: dict[str, str], lang: str, writer: Writer) -> dict:
-    """Offer each sequence to the writer, keep every turn that passes the checks, and report what happened.
+    """Offer each group to the writer, keep every turn that passes the checks, and report what happened.
 
-    The writer returns {"turns": [[{"event", "text"}, ...], ...], "written_by": label}, or None when it made no call.
+    The writer returns {"sequences": [{"turns": [[{"event", "text"}, ...], ...]}, ...], "written_by": label}, one entry
+    per sequence in order, or None when it made no call.
     """
     report = {"sequences": 0, "asked": 0, "turns": 0, "written": 0, "kept_template": 0, "reasons": {}, "written_by": None}
     for sample, members in zip(samples, groups):
-        for sequence, member in zip(sample.sequences, members):
-            report["sequences"] += 1
-            skeleton = plan(sequence, member, phrases, lang)
-            answer = writer(skeleton)
-            if answer is None:
-                continue
-            report["asked"] += 1
-            report["written_by"] = report["written_by"] or answer.get("written_by")
-            written = answer.get("turns")
+        plans = [plan(sequence, member, phrases, lang) for sequence, member in zip(sample.sequences, members)]
+        report["sequences"] += len(plans)
+        if not plans:
+            continue
+        answer = writer(GroupPlan(language=lang, opening=plans[0].opening, sequences=plans))
+        if answer is None:
+            continue
+        report["asked"] += len(plans)
+        report["written_by"] = report["written_by"] or answer.get("written_by")
+        answered = answer.get("sequences")
+        for position, skeleton in enumerate(plans):
+            found = answered[position] if isinstance(answered, list) and position < len(answered) else None
+            written = found.get("turns") if isinstance(found, dict) else found
             for index, turn in enumerate(skeleton.turns):
                 report["turns"] += 1
                 candidate = written[index] if isinstance(written, list) and index < len(written) else None
                 reason, text = check_turn(turn, candidate, lang)
                 if reason is None:
+                    turn.segment.template = turn.segment.text
                     turn.segment.text = text
                     turn.segment.written_by = answer.get("written_by")
                     report["written"] += 1

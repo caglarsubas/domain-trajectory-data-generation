@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from app import runtime
-from app.agents import AgentError, ProviderAgent, TextBudget, TextWriter, _turns_from
+from app.agents import AgentError, ProviderAgent, TextBudget, TextWriter, _sequences_from
 from sectors.registry import get_sector
 from sectors.turn_text import TurnPlan, check_turn, language_ok
 from test_api import _auth, _project, _ready_key, _run
@@ -27,17 +27,18 @@ def _faithful(plan) -> list:
 
 
 class Recorder:
-    """A writer that answers every sequence, faithfully unless told to spoil a turn."""
+    """A writer that answers every group, faithfully unless told to spoil a turn."""
 
     def __init__(self, spoil=None):
         self.plans, self.spoil = [], spoil
 
-    def __call__(self, plan):
-        self.plans.append(plan)
-        turns = _faithful(plan)
-        if self.spoil:
-            turns = self.spoil(turns, plan)
-        return {"turns": turns, "written_by": "provider:test-model"}
+    def __call__(self, group):
+        self.plans.append(group)
+        answers = []
+        for plan in group.sequences:
+            turns = _faithful(plan)
+            answers.append({"turns": self.spoil(turns, plan) if self.spoil else turns})
+        return {"sequences": answers, "written_by": "provider:test-model"}
 
 
 def _assistant(bundle):
@@ -93,16 +94,21 @@ def test_events_must_come_in_order_and_turkish_numbers_count():
 # ---------------------------------------------------------------------------
 
 
-def test_the_skeleton_gives_each_turns_events_in_the_templates_order():
+def test_one_skeleton_gives_a_whole_group_each_turns_events_in_the_templates_order():
     writer = Recorder()
     bundle = BANKING.generate(**SETTINGS, writer=writer)
-    plan = writer.plans[0]
+    group = writer.plans[0]
+    sample = bundle.samples[0]
+    assert len(writer.plans) == len(bundle.samples) and [plan.sequence_id for plan in group.sequences] == [item.sequence_id for item in sample.sequences]
     kinds = {event.event_id: event.event_type for event in bundle.events}
-    trajectory = next(item for item in bundle.trajectories if item.trajectory_id == plan.trajectory_id)
-    assert [event["event"] for turn in plan.turns for event in turn.events] == [kinds[item] for item in trajectory.event_ids]
-    skeleton = plan.skeleton()
-    assert skeleton["language"] == "en" and skeleton["opening"] and len(skeleton["turns"]) == len(plan.turns) <= 3
-    assert set(skeleton["turns"][0][0]) <= {"event", "template", "amount", "since"}
+    for plan in group.sequences:
+        trajectory = next(item for item in bundle.trajectories if item.trajectory_id == plan.trajectory_id)
+        assert [event["event"] for turn in plan.turns for event in turn.events] == [kinds[item] for item in trajectory.event_ids]
+    skeleton = group.skeleton()
+    assert skeleton["language"] == "en" and skeleton["opening"] and len(skeleton["sequences"]) == SETTINGS["group_size"]
+    first = skeleton["sequences"][0]
+    assert set(first) == {"follow_ups", "turns"} and len(first["turns"]) == len(group.sequences[0].turns) <= 3
+    assert set(first["turns"][0][0]) <= {"event", "template", "amount", "since"}
     # The skeleton carries synthetic facts only: no object id reaches the model.
     assert not any(obj.object_id in json.dumps(skeleton) for obj in bundle.objects)
 
@@ -113,6 +119,9 @@ def test_written_turns_replace_the_template_and_journeys_stay_as_drawn():
     assert [item.event_ids for item in written.trajectories] == [item.event_ids for item in plain.trajectories]
     turns = _assistant(written)
     assert all(segment.written_by == "provider:test-model" and segment.text.startswith("As an update,") for segment in turns)
+    # Each written turn keeps the template it replaced, and the plain run's turns have none.
+    assert [segment.template for segment in turns] == [segment.text for segment in _assistant(plain)]
+    assert all(segment.template is None for segment in _assistant(plain))
     report = written.generation.text
     assert report["written"] == report["turns"] == len(turns) and report["kept_template"] == 0 and report["asked"] == report["sequences"]
     # Scored after writing: token estimates count the written text.
@@ -135,6 +144,7 @@ def test_a_turn_that_fails_keeps_its_template():
     assert report["kept_template"] > 0 and report["reasons"] == {"invented_identifier": report["kept_template"]}
     kept = [segment for segment in _assistant(written) if segment.written_by is None]
     assert len(kept) == report["kept_template"] and set(segment.text for segment in kept) <= set(segment.text for segment in _assistant(plain))
+    assert all(segment.template is None for segment in kept)
 
 
 # ---------------------------------------------------------------------------
@@ -149,27 +159,34 @@ class FakeWriterAgent:
         self.provider, self.key, self.model, self.fail = provider, key, model or "text-model", fail
         self.prompts = []
 
-    def write(self, system, prompt):
-        self.prompts.append((system, prompt))
+    def write(self, system, prompt, tokens=8000):
+        self.prompts.append((system, prompt, tokens))
         if self.fail:
             raise AgentError("openai answered 500: boom")
         skeleton = json.loads(prompt.split("\n", 1)[1])
-        turns = [[{"event": event["event"], "text": "As an update, " + event["template"][0].lower() + event["template"][1:]} for event in turn] for turn in skeleton["turns"]]
-        return json.dumps({"turns": turns})
+        sequences = [
+            {"turns": [[{"event": event["event"], "text": "As an update, " + event["template"][0].lower() + event["template"][1:]} for event in turn] for turn in item["turns"]]}
+            for item in skeleton["sequences"]
+        ]
+        return json.dumps({"sequences": sequences})
 
 
-def test_the_writer_spends_one_call_per_sequence_and_stops_at_its_budget():
+def test_the_writer_spends_one_call_per_group_and_stops_at_its_budget():
     agent = FakeWriterAgent()
     budget = TextBudget(limit=3)
     bundle = BANKING.generate(**SETTINGS, writer=TextWriter(agent, budget, "Banking"))
     sequences = sum(len(sample.sequences) for sample in bundle.samples)
-    assert budget.used == 3 == len(agent.prompts) and budget.skipped == sequences - 3
+    size = SETTINGS["group_size"]
+    assert len(bundle.samples) > 3 and budget.used == 3 == len(agent.prompts) and budget.skipped == sequences - 3 * size
     assert budget.as_dict()["stopped_by"] == "budget"
-    system, prompt = agent.prompts[0]
-    assert "banking" in system and "English" in system and "State every amount exactly as given" in system
+    system, prompt, tokens = agent.prompts[0]
+    assert "banking" in system and "English" in system and "State every amount exactly as given" in system and "one group" in system
     assert prompt.startswith("Skeleton:\n")
+    # The completion allowance grows with the group's events.
+    events = sum(len(turn) for item in json.loads(prompt.split("\n", 1)[1])["sequences"] for turn in item["turns"])
+    assert tokens == 8000 + 60 * events
     written = [segment for segment in _assistant(bundle) if segment.written_by == "provider:text-model"]
-    assert written and bundle.generation.text["asked"] == 3
+    assert written and bundle.generation.text["asked"] == 3 * size
 
 
 def test_repeated_provider_errors_stop_the_writer():
@@ -180,10 +197,13 @@ def test_repeated_provider_errors_stop_the_writer():
     assert all(segment.written_by is None for segment in _assistant(bundle)) and bundle.generation.text["asked"] == 0
 
 
-def test_the_writers_answer_is_read_in_either_shape():
-    assert _turns_from('Sure: {"turns": [[{"event": "a.b", "text": "x"}]]}') == [[{"event": "a.b", "text": "x"}]]
-    assert _turns_from('{"turns": [{"sentences": [{"event": "a.b", "text": "x"}]}]}') == [[{"event": "a.b", "text": "x"}]]
-    assert _turns_from("no json here") is None and _turns_from('{"other": 1}') is None
+def test_the_writers_answer_is_read_in_every_shape():
+    turn = [{"event": "a.b", "text": "x"}]
+    assert _sequences_from('Sure: {"sequences": [{"turns": [[{"event": "a.b", "text": "x"}]]}, {"turns": []}]}') == [{"turns": [turn]}, {"turns": []}]
+    assert _sequences_from('{"sequences": [{"turns": [{"sentences": [{"event": "a.b", "text": "x"}]}]}]}') == [{"turns": [turn]}]
+    # A group of one may come back as a bare sequence.
+    assert _sequences_from('{"turns": [[{"event": "a.b", "text": "x"}]]}') == [{"turns": [turn]}]
+    assert _sequences_from("no json here") is None and _sequences_from('{"other": 1}') is None
 
 
 @pytest.mark.parametrize("provider", ["openai", "anthropic", "google"])
@@ -206,7 +226,7 @@ def test_each_provider_is_asked_for_json(provider, monkeypatch):
     elif provider == "anthropic":
         assert seen["path"] == "/v1/messages" and seen["body"]["system"] == "system"
     else:
-        assert seen["path"].endswith(":generateContent") and seen["body"]["generationConfig"] == {"responseMimeType": "application/json"}
+        assert seen["path"].endswith(":generateContent") and seen["body"]["generationConfig"] == {"responseMimeType": "application/json", "maxOutputTokens": 8000}
     assert "sk-writer-test-0001" not in json.dumps(seen["body"])
 
 
@@ -247,9 +267,10 @@ def test_a_run_writes_its_turn_text_on_its_own_key(client, tmp_path, monkeypatch
         run = _run(client, headers, project_id, credential_id, provider_text=True, **options).json()
     finally:
         runtime.agent_factory = None
-    assert run["config"]["provider_text"] is True and run["config"]["provider_text_budget"] == 12
+    # One call per prompt writes its group of two.
+    assert run["config"]["provider_text"] is True and run["config"]["provider_text_budget"] == 6
     text = run["generation"]["text"]
-    assert text["provider"]["calls"] == text["asked"] == text["sequences"] == 12
+    assert text["provider"]["calls"] == 6 and text["asked"] == text["sequences"] == 12
     assert text["written"] == text["turns"] and text["written_share"] == 1.0 and text["written_by"] == "provider:text-model"
     assert factory.keys == [("openai", "sk-provider-text-0001")]
     assert "sk-provider-text-0001" not in json.dumps(run)
@@ -267,9 +288,9 @@ def test_demo_runs_count_written_text_against_their_provider_calls(client, tmp_p
     monkeypatch.setenv("DEMO_MAX_PROVIDER_CALLS", "10")
     headers, project_id = _study(client, "provider-text-demo@example.com", kind="demo")
     key = _ready_key(client, headers)
-    over = _run(client, headers, project_id, key, target_trajectory_count=6, group_size=2, provider_text=True)
+    over = _run(client, headers, project_id, key, target_trajectory_count=12, group_size=2, provider_text=True)
     assert over.status_code == 422 and "at most 10 provider calls" in over.json()["detail"]
-    capped = _run(client, headers, project_id, key, target_trajectory_count=6, group_size=2, provider_text=True, provider_text_budget=8)
+    capped = _run(client, headers, project_id, key, target_trajectory_count=12, group_size=2, provider_text=True, provider_text_budget=8)
     assert capped.status_code == 200 and capped.json()["config"]["provider_text_budget"] == 8
 
 
@@ -292,5 +313,5 @@ def test_a_large_run_spends_one_text_budget_across_its_batches(client, tmp_path,
         runtime.agent_factory = None
     text = run["generation"]["text"]
     assert run["generation"]["storage"]["batches"] > 1
-    assert text["provider"]["calls"] == 25 == text["asked"] and text["sequences"] == 120 and text["provider"]["skipped_sequences"] == 95
+    assert text["provider"]["calls"] == 25 and text["asked"] == 50 and text["sequences"] == 120 and text["provider"]["skipped_sequences"] == 70
     assert text["written"] > 0 and re.fullmatch(r"provider:\S+", text["written_by"])

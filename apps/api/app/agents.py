@@ -33,10 +33,16 @@ BASES = {
     "xai": ("XAI_BASE_URL", "https://api.x.ai"),
 }
 CALLS_PER_ROLLOUT = 2
-# Completion tokens a writer call may use, thinking included.
+# Completion tokens a writer call may use, thinking included: a floor for thinking, and enough per event for its sentence
+# and the JSON around it, up to a ceiling for the largest groups.
 WRITER_TOKENS = 8000
+WRITER_TOKENS_PER_EVENT = 60
+WRITER_TOKENS_MAX = 32000
 MAX_ERRORS = 3
 TIMEOUT = 60.0
+# A writer call waits as long as its completion allowance could take at a slow provider's pace, within a ceiling.
+WRITER_TOKENS_PER_SECOND = 25
+WRITER_TIMEOUT_MAX = 900.0
 
 
 class AgentError(Exception):
@@ -76,9 +82,9 @@ class ProviderAgent:
         self.provider, self.key, self.model = provider, key, model or default_model(provider)
         self.transport = transport
 
-    def _post(self, path: str, headers: dict, body: dict) -> dict:
+    def _post(self, path: str, headers: dict, body: dict, timeout: float = TIMEOUT) -> dict:
         try:
-            with httpx.Client(base_url=_base(self.provider), transport=self.transport, timeout=TIMEOUT) as client:
+            with httpx.Client(base_url=_base(self.provider), transport=self.transport, timeout=timeout) as client:
                 response = client.post(path, headers=headers, json=body)
         except httpx.HTTPError as exc:
             raise AgentError(f"{self.provider} could not be reached") from exc
@@ -138,25 +144,26 @@ class ProviderAgent:
         parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts")) or []
         return Reply(" ".join(part.get("text", "") for part in parts if "text" in part).strip())
 
-    def write(self, system: str, prompt: str) -> str:
-        """A plain completion asked to answer in JSON: the writer's one call per sequence."""
+    def write(self, system: str, prompt: str, tokens: int = WRITER_TOKENS) -> str:
+        """A plain completion asked to answer in JSON: the writer's one call per group."""
+        timeout = min(max(TIMEOUT, tokens / WRITER_TOKENS_PER_SECOND), WRITER_TIMEOUT_MAX)
         if self.provider in {"openai", "xai"}:
             messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
             # A reasoning model spends its completion tokens thinking first; a short default would leave no answer.
-            body = {"model": self.model, "messages": messages, "response_format": {"type": "json_object"}, "max_completion_tokens": WRITER_TOKENS}
-            data = self._post("/v1/chat/completions", {"Authorization": f"Bearer {self.key}"}, body)
+            body = {"model": self.model, "messages": messages, "response_format": {"type": "json_object"}, "max_completion_tokens": tokens}
+            data = self._post("/v1/chat/completions", {"Authorization": f"Bearer {self.key}"}, body, timeout)
             return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
         if self.provider == "anthropic":
-            body = {"model": self.model, "max_tokens": 4096, "system": system, "messages": [{"role": "user", "content": prompt}]}
-            data = self._post("/v1/messages", self._anthropic_headers(), body)
+            body = {"model": self.model, "max_tokens": tokens, "system": system, "messages": [{"role": "user", "content": prompt}]}
+            data = self._post("/v1/messages", self._anthropic_headers(), body, timeout)
             return " ".join(block.get("text", "") for block in data.get("content") or [] if block.get("type") == "text").strip()
         if self.provider == "google":
             body = {
                 "systemInstruction": {"parts": [{"text": system}]},
                 "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": {"responseMimeType": "application/json"},
+                "generationConfig": {"responseMimeType": "application/json", "maxOutputTokens": tokens},
             }
-            data = self._post(f"/v1beta/models/{self.model}:generateContent", {"x-goog-api-key": self.key}, body)
+            data = self._post(f"/v1beta/models/{self.model}:generateContent", {"x-goog-api-key": self.key}, body, timeout)
             parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts")) or []
             return " ".join(part.get("text", "") for part in parts if "text" in part).strip()
         raise AgentError(f"no writer for {self.provider}")
@@ -320,15 +327,16 @@ def add_provider_rollouts(episodes: list[dict], agent, per_episode: int, budget:
 
 LANGUAGES = {"en": "English", "tr": "Turkish"}
 WRITER_SYSTEM = (
-    "You write the assistant's turns in a customer-service conversation for a synthetic {sector} dataset, in {language}. "
-    "The skeleton gives the customer's opening and follow-ups, and for each assistant turn the events it reports, in order, "
-    "each with a template sentence, its amount, and its wait: since the previous event, or since the same event last happened. "
-    "Write one natural sentence per event, "
-    "in the order given, as the assistant speaking to the customer in the second person, in your own words: the template "
-    "only states the fact, so do not copy it. State every amount exactly as given. Add no "
-    "other number, date, name, account or reference number, email address, or link, and do not write the event names. "
-    'Return only JSON: {{"turns": [[{{"event": "<event name>", "text": "<one sentence>"}}, ...], ...]}}, one inner list per '
-    "turn, in order."
+    "You write the assistant's turns in customer-service conversations for a synthetic {sector} dataset, in {language}. "
+    "The skeleton is one group: conversations that open with the same customer message and share their first events "
+    "before they part. It gives the opening, and for each sequence its follow-ups and, for each assistant turn, the events "
+    "it reports, in order, each with a template sentence, its amount, and its wait: since the previous event, or since the "
+    "same event last happened. Write one natural sentence per event, in the order given, as the assistant speaking to the "
+    "customer in the second person, in your own words: the template only states the fact, so do not copy it, and state "
+    "only that fact: no other outcome, cause, or event. State every amount exactly as given. Add no other number, date, "
+    "name, account or reference number, email address, or link, and do not write the event names. "
+    'Return only JSON: {{"sequences": [{{"turns": [[{{"event": "<event name>", "text": "<one sentence>"}}, ...], ...]}}, ...]}}, '
+    "one entry per sequence and one inner list per turn, in order."
 )
 
 
@@ -354,7 +362,7 @@ class TextBudget:
 
 
 class TextWriter:
-    """Writes a sequence's assistant turns from its skeleton with one provider call, within the run's budget."""
+    """Writes a group's assistant turns from its skeleton with one provider call, within the run's budget."""
 
     def __init__(self, agent, budget: TextBudget, sector: str) -> None:
         self.agent, self.budget, self.sector = agent, budget, sector
@@ -362,27 +370,35 @@ class TextWriter:
 
     def __call__(self, plan) -> dict | None:
         if not self.budget.open:
-            self.budget.skipped += 1
+            self.budget.skipped += len(plan.sequences)
             return None
         skeleton = plan.skeleton()
         system = WRITER_SYSTEM.format(sector=self.sector.lower(), language=LANGUAGES.get(plan.language, plan.language))
         prompt = "Skeleton:\n" + json.dumps(skeleton, ensure_ascii=False, indent=1)
+        tokens = min(WRITER_TOKENS + WRITER_TOKENS_PER_EVENT * plan.events, WRITER_TOKENS_MAX)
         try:
             # Every attempted call counts, failed ones too: the provider may bill them.
             self.budget.used += 1
-            text = self.agent.write(system, prompt)
+            text = self.agent.write(system, prompt, tokens)
         except AgentError as exc:
             self.budget.errors += 1
             self.budget.last_error = str(exc)
             return None
-        turns = _turns_from(text)
-        if turns is None:
+        sequences = _sequences_from(text)
+        if sequences is None:
             self.budget.unreadable += 1
-        return {"turns": turns or [], "written_by": self.label}
+        return {"sequences": sequences or [], "written_by": self.label}
 
 
-def _turns_from(text: str) -> list | None:
-    """The model's turns: a list per turn of {"event", "text"}, accepting {"sentences": [...]} per turn too."""
+def _turns(turns) -> list | None:
+    """A sequence's turns: a list per turn of {"event", "text"}, accepting {"sentences": [...]} per turn too."""
+    if not isinstance(turns, list):
+        return None
+    return [turn.get("sentences") if isinstance(turn, dict) else turn for turn in turns]
+
+
+def _sequences_from(text: str) -> list | None:
+    """The model's turns for each sequence of the group, accepting a bare {"turns": ...} for a group of one."""
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
         return None
@@ -390,7 +406,9 @@ def _turns_from(text: str) -> list | None:
         found = json.loads(text[start : end + 1])
     except ValueError:
         return None
-    turns = found.get("turns") if isinstance(found, dict) else None
-    if not isinstance(turns, list):
+    if not isinstance(found, dict):
         return None
-    return [turn.get("sentences") if isinstance(turn, dict) else turn for turn in turns]
+    if isinstance(found.get("sequences"), list):
+        return [{"turns": _turns(item.get("turns") if isinstance(item, dict) else item) or []} for item in found["sequences"]]
+    turns = _turns(found.get("turns"))
+    return None if turns is None else [{"turns": turns}]

@@ -69,12 +69,13 @@ def test_every_sentence_is_a_phrasing_of_its_event_with_its_own_details(language
 
 
 def test_the_writer_gets_the_sentences_the_sequence_holds():
-    plans = []
-    _bundle(writer=lambda skeleton: plans.append(skeleton))
-    assert plans
-    for skeleton in plans:
-        for turn in skeleton.turns:
-            assert " ".join(event["template"] for event in turn.events) == turn.template
+    groups = []
+    _bundle(writer=lambda group: groups.append(group))
+    assert groups
+    for group in groups:
+        for skeleton in group.sequences:
+            for turn in skeleton.turns:
+                assert " ".join(event["template"] for event in turn.events) == turn.template
 
 
 @pytest.mark.parametrize("sector_id", known_sectors())

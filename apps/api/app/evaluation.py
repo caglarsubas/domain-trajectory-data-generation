@@ -7,7 +7,9 @@ cycle also reports how far each judge agrees with itself. A copy of one journey 
 order, which the pack's own replay rejects, checks that the judge can tell a broken journey at all.
 
 The judge also scores process conformance and the decision score, which code already scores for every
-journey; the cycle reports how often judge and code agree, and those two never decide acceptance.
+journey; the cycle reports how often judge and code agree, and those two never decide acceptance. And it reads a sample
+of provider-written turns against the facts each had to state; a turn every readable repeat calls unfaithful is marked
+to go back to its template.
 """
 
 from __future__ import annotations
@@ -19,7 +21,8 @@ from trajectory_contract.models import TrajectoryBundle
 
 from app.judge import Judge
 from app.controls import pairwise_pick
-from app.judge_rubrics import JUDGE_PASS, QUESTIONS
+from app.faithfulness import facts
+from app.judge_rubrics import FAITHFULNESS_QUESTION, JUDGE_PASS, QUESTIONS, TURN_FAITHFULNESS
 
 UNREADABLE = "_unreadable"
 
@@ -44,6 +47,8 @@ COMPARED = tuple(JUDGE_PASS)
 CODE_SIGNALS = (*COMPARED, "solution_rubric", "behavior_rubric")
 # A study rubric's verdict passes at the middle of its scale.
 STUDY_PASS = 0.5
+FAITHFULNESS = TURN_FAITHFULNESS["name"]
+LANGUAGE_NAMES = {"en": "English", "tr": "Turkish"}
 
 # The studio's questions name what to look for, so a judge checks for the defects its controls carry.
 HELPFULNESS_QUESTION = (
@@ -236,6 +241,7 @@ def evaluate_journeys(
     compared: dict[str, str] | None = None,
     study: dict[str, dict] | None = None,
     controls: list[dict] | None = None,
+    faithfulness: dict | None = None,
 ) -> dict:
     """Judge a sample of journeys with every model and turn the verdicts into a cycle.
 
@@ -243,7 +249,9 @@ def evaluate_journeys(
     of journeys the code scored with it. `study` names the study's approved rubrics as registered, with their kind,
     title, digest, and the code signal each is compared with; each is asked of every journey. `controls` are copies of
     sampled journeys with one known defect (`app.controls`): each is asked the rubrics its defect should lower, and
-    one is set against its original as a pairwise question with a right answer.
+    one is set against its original as a pairwise question with a right answer. `faithfulness` gives provider-written
+    turns sampled from the run (`app.faithfulness`), the run's language, and the registered rubric's digest; each turn
+    is asked whether it is faithful to the facts it had to state.
     """
     compared = compared or {}
     study = study or {}
@@ -341,11 +349,22 @@ def evaluate_journeys(
         calls.append({**mark, "order": "ba", "payload": {"prompt": question, "response": flawed, "response_b": mine}})
         entry.setdefault("controls", []).append({"kind": f"pairwise:{chosen['kind']}", "detail": chosen["detail"], "rubrics": ["pairwise_quality"]})
 
+    turns = (faithfulness or {}).get("turns") or []
+    language = LANGUAGE_NAMES.get((faithfulness or {}).get("language", ""), (faithfulness or {}).get("language", ""))
+    for turn in turns:
+        question = FAITHFULNESS_QUESTION.format(language=language, label=label)
+        calls.append({
+            "trajectory_id": turn["trajectory_id"], "order": None, "canary": False, "segment_id": turn["segment_id"], "rubric": FAITHFULNESS,
+            "payload": {"prompt": question, "response": turn["text"], "expected": facts(turn)},
+        })
+
     planned = [(model, call) for model in models for call in calls]
     verdicts = []
     for index, (model, call) in enumerate(planned):
         if progress is not None:
             what = "a control journey" if call["canary"] else call["rubric"].replace("_", " ")
+            if call.get("segment_id"):
+                what += " of a written turn"
             if call.get("control"):
                 what += f" of a {call['control'].split(':')[-1].replace('_', ' ')} control"
             progress(index, len(planned), f"{model}: {what} ({index + 1} of {len(planned)}).")
@@ -371,12 +390,16 @@ def evaluate_journeys(
                     "order": call["order"],
                     "canary": call["canary"],
                     "control": call.get("control"),
+                    "segment_id": call.get("segment_id"),
                     "readable": readable,
                     "repeat": repeat,
-                    "rubric_digest": result.get("rubric_digest") or compared.get(call["rubric"]) or study.get(call["rubric"], {}).get("digest"),
+                    "rubric_digest": result.get("rubric_digest") or compared.get(call["rubric"]) or study.get(call["rubric"], {}).get("digest")
+                    or ((faithfulness or {}).get("digest") if call["rubric"] == FAITHFULNESS else None),
                 }
             )
     summary = summarize(verdicts, sample, models, thresholds, study=study)
+    if turns:
+        summary["agreement"]["faithfulness"] = _faithfulness(verdicts, turns, models, summary["flags"])
     if canary is not None:
         canary["results"] = {model: _mean_readable([item for item in verdicts if item["canary"] and item["judge_model"] == model]) for model in models}
     return {
@@ -595,6 +618,37 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
         "accepted": accepted,
         "revision_notes": notes,
     }
+
+
+def _faithfulness(verdicts: list[dict], turns: list[dict], models: list[str], flags: list[dict]) -> dict:
+    """Per written turn, what each judge found, and whether every readable repeat called it unfaithful."""
+    asked: dict[str, list[dict]] = {}
+    for item in verdicts:
+        if item["rubric"] == FAITHFULNESS and item.get("segment_id"):
+            asked.setdefault(item["segment_id"], []).append(item)
+    rows, by_model = [], {model: {"turns": 0, "unfaithful": 0} for model in models}
+    for turn in turns:
+        readable = [item for item in asked.get(turn["segment_id"], []) if item["readable"]]
+        judges = {}
+        for model in models:
+            scores = [item["score"] for item in readable if item["judge_model"] == model]
+            if not scores:
+                continue
+            faithful = sum(1 for score in scores if score >= 0.5)
+            judges[model] = {"repeats": len(scores), "faithful": faithful}
+            by_model[model]["turns"] += 1
+            if mean(scores) < 0.5:
+                by_model[model]["unfaithful"] += 1
+                flags.append({"kind": "unfaithful_turn", "trajectory_id": turn["trajectory_id"], "rubric": FAITHFULNESS, "model": model})
+        reasons = [_justification(item) for item in readable if item["score"] < 0.5]
+        rows.append({
+            **{key: turn[key] for key in ("segment_id", "sequence_id", "trajectory_id", "batch", "events", "text", "template", "written_by")},
+            "judges": judges,
+            "reason": next((reason for reason in reasons if reason), ""),
+            # Decision 14: only a turn every readable repeat of every judge calls unfaithful goes back to its template.
+            "revert": bool(readable) and all(item["score"] < 0.5 for item in readable),
+        })
+    return {"turns": len(turns), "by_model": by_model, "rows": rows, "revert": [row["segment_id"] for row in rows if row["revert"]]}
 
 
 # Below this share of controls scored lower than their originals, a judge is blind to the defects on that rubric; for

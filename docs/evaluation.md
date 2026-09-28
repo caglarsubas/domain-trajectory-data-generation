@@ -65,6 +65,14 @@ The cycle's `agreement.discrimination` gives, per rubric and model, how many con
 
 The studio's questions now name what to look for: helpfulness asks about skipped steps, events out of order, and waits far past a step's usual time, and says a journey that ends in a failure is as representative as one that succeeds; correctness asks about a step that comes before what it depends on; the decision score asks about a choice clearly worse than another open one.
 
+## Written turns: faithful to their facts?
+
+Provider-written turns pass code checks for their events, amounts, identifiers, and language, and can still change what happened: live, a Turkish turn for a declined guarantee said the reservation was cancelled. So when a run has written turns, each cycle also reads a sample of them (`JUDGE_TEXT_SAMPLE`, 6 by default, at most 50; 0 reads none), taken in a seeded order, one per sequence before a second from any (`apps/api/app/faithfulness.py`). A large run is read batch by batch until the sample has enough candidates.
+
+Each turn is asked of every judge with `turn_faithfulness`, which the studio registers with the engine like the code-comparison rubrics. The judge reads the written turn against the facts it had to state: its events in order and the template it replaced, with every amount and wait. The verdict is `{"faithful": boolean, "reason": string}`. A turn is faithful when it states each of those events with its meaning unchanged, keeps each amount and wait, and adds no outcome, cause, decision, or event the facts do not give; wording, tone, and speaking to the customer are free.
+
+A turn that every readable repeat of every judge calls unfaithful goes back to its template in the stored run, in the database for a small run and in its batch file for a large one; its `written_by` and `template` are emptied, and its text flags are found again (decision 14). One faithful repeat keeps it: a false alarm costs a template sentence, not data. The cycle's `agreement.faithfulness` gives each turn's text, template, events, what each judge found, and a reason, and per model how many turns it called unfaithful; each judge that does so is flagged `unfaithful_turn`. `judging.faithfulness` lists the turns put back, and `generation.text.reverted` counts them for the run. Faithfulness verdicts carry the turn's `segment_id` and decide nothing about acceptance.
+
 ## Study rubrics
 
 The judge can propose a solution and a behavior rubric for a study, after the code's solution and behavior rubrics:

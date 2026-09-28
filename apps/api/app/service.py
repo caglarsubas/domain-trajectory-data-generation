@@ -91,9 +91,8 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
     if body.provider_text:
         if credential is None:
             raise HTTPException(status_code=422, detail="provider-written text runs on your own provider key; choose one")
-        # One call per sequence, unless the owner caps it lower.
-        sequences = body.target_trajectory_count * body.group_size
-        text_budget = min(body.provider_text_budget or sequences, sequences, 4000)
+        # One call per prompt, which writes its whole group, unless the owner caps it lower.
+        text_budget = min(body.provider_text_budget or body.target_trajectory_count, body.target_trajectory_count, 4000)
     thresholds = {**DEFAULT_THRESHOLDS, **(body.thresholds or {})}
     return {
         "sector": sector.id,
