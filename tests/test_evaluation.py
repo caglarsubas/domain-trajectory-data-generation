@@ -182,6 +182,8 @@ def test_an_evaluation_run_exports_tasks_with_verifiers_references_and_pass_at_k
     # The run itself reports the model's pass@k, the same as the export's.
     assert run["generation"]["episodes"]["models"]["provider:gpt-test"]["pass_at_k"] == model["pass@k"]
     assert report["environment"]["sector"] == "banking" and any(item["event_type"] == "application.approved" for item in report["environment"]["events"])
+    abandoned = next(item for item in report["environment"]["events"] if item["event_type"] == "application.abandoned")
+    assert abandoned["prior_weight"] == 0.15 and abandoned["prior_weight_when"] == [{"while": "kyc.kyc in {review_required}", "weight": 0.03}]
     assert set(report["verifiers"]["journey"]) == set(SIGNALS)
     assert manifest["files"]["evaluation.json"] and manifest["evaluation"]["journeys"]["primary_verifier"] == "process_conformance"
 

@@ -122,7 +122,7 @@ def _policy(walker: Walker, floor: int, cap: int) -> str:
         sorted((event, sorted(following.items())) for event, following in found.transitions.items()),
         sorted((key, sorted(following.items())) for key, following in found.pairs.items()),
     )
-    raw = repr((walker.allowed, sorted(walker.weights.items()), walker.kept, walker.goals, floor, cap, calibration))
+    raw = repr((walker.allowed, sorted(walker.weights.items()), sorted(walker.conditional.items()), walker.kept, walker.goals, floor, cap, calibration))
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
