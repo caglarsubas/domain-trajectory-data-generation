@@ -38,6 +38,18 @@ def scorer():
 # Scorers
 
 
+def test_conformance_records_the_shares_it_scores_typicality_with(scorer):
+    found = scorer.score(["case.opened", "case.declined"], [1.0])["process_conformance"]
+    # Only the step where the case could go more than one way: the opening had one legal event.
+    assert [point["step"] for point in found["reference"]] == [2]
+    point = found["reference"][0]
+    assert point["after"] == "case.opened"
+    assert list(point["shares"]) == ["case.approved", "case.paused", "case.declined"]
+    assert sum(point["shares"].values()) == pytest.approx(1.0, abs=0.01)
+    # Typicality is the taken step's share over the most common one's, the same reading the judge is given.
+    assert found["score"] == pytest.approx(point["shares"]["case.declined"] / point["shares"]["case.approved"], abs=0.01)
+
+
 def test_a_quick_direct_approval_passes_every_signal(scorer):
     found = scorer.score(["case.opened", "case.approved"], [1.0])
     assert set(found) == set(SIGNALS)

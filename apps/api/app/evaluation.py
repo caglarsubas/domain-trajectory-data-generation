@@ -88,11 +88,23 @@ def code_signals(bundle: TrajectoryBundle, trajectory_id: str) -> dict[str, dict
         for sequence in sample.sequences:
             if sequence.trajectory_id == trajectory_id and sequence.signals:
                 return {
-                    name: {"score": float(found["score"]), "passed": bool(found["passed"])}
+                    name: {"score": float(found["score"]), "passed": bool(found["passed"]), **({"reference": found["reference"]} if found.get("reference") else {})}
                     for name, found in sequence.signals.items()
                     if name in CODE_SIGNALS
                 }
     return {}
+
+
+def reference_shares(reference: list[dict] | None) -> str:
+    """The reference process for one journey: where it could go more than one way, each next step's share."""
+    if not reference:
+        return ""
+    lines = ["Reference next steps: at each step where the process could go more than one way, the share of journeys taking each option."]
+    for point in reference:
+        after = f"after {point['after']}" if point.get("after") else "at the start"
+        options = ", ".join(f"{name} {share:.0%}" for name, share in point["shares"].items())
+        lines.append(f"- Step {point['step']}, {after}: {options}.")
+    return "\n".join(lines)
 
 
 def render_journey(bundle: TrajectoryBundle, trajectory_id: str, budget_chars: int = 24_000, blind: bool = False) -> tuple[str, bool]:
@@ -232,6 +244,7 @@ def evaluate_journeys(
         primary = next(item for item in journey.trajectories if item.parent_trajectory_id is None)
         alternative = next((item for item in journey.trajectories if item.parent_trajectory_id == primary.trajectory_id), None)
         text, truncated = render_journey(journey, primary.trajectory_id, budget_chars if alternative is None else budget_chars // 2)
+        signals = code_signals(journey, primary.trajectory_id)
         sample.append(
             {
                 "trajectory_id": primary.trajectory_id,
@@ -240,7 +253,7 @@ def evaluate_journeys(
                 "events": len(primary.event_ids),
                 "truncated": truncated,
                 "alternative": alternative.trajectory_id if alternative else None,
-                "code": code_signals(journey, primary.trajectory_id),
+                "code": {name: {"score": found["score"], "passed": found["passed"]} for name, found in signals.items()},
             }
         )
         own = {"trajectory_id": primary.trajectory_id, "order": None, "canary": False}
@@ -256,6 +269,9 @@ def evaluate_journeys(
         for rubric in COMPARED:
             if rubric in compared and rubric in sample[-1]["code"]:
                 question = brief + "\n" + QUESTIONS[rubric].format(label=label)
+                shares = reference_shares(signals[rubric].get("reference"))
+                if shares:
+                    question += "\n" + shares
                 calls.append({**own, "rubric": rubric, "payload": {"prompt": question, "response": text}})
         for name, info in study.items():
             question = brief + f"\nScore this {label} journey against the study's {info['kind']} rubric."
