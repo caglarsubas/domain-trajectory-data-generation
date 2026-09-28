@@ -26,7 +26,7 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 | Complete | Every journey legal end to end: zero impossible transitions, referential integrity, a terminal or horizon state | Every pack's journeys replay through its own machines. The gates' sweep of 150 random configurations per pack breaks no rule, and every event of every pack is reachable. | Met |
 | Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 41 to 57 distinct sequences in 64 journeys across the five packs, and every sub-domain reaches its milestones alone and together | Met |
 | Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Event logs in CSV, Parquet, XES, or OCEL 2.0 calibrate any pack. Fitness, precision, and next-step divergence are reported. The catalogue offers banking, hotel, and airline sources; telecommunications and insurance wait on a terms review. | Partly; Slice 10 |
-| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, a control journey, audit flags, and regeneration from notes. Repeats above temperature 0, study-specific rubrics, and the safety prompt wait on the engine. Turn text is templated narration in English or Turkish. | Partly; Slices 9 and 10 |
+| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, repeats above temperature 0, study-specific rubrics, a control journey, audit flags, and regeneration from notes. Turn text is templated narration in English or Turkish, or, on request, written by a provider model on the owner's key and checked by code against the skeleton. | Met |
 | Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | Groups of up to 16, the shared MiMo rewards with every signal scored, episodes in three harness formats with provider rollouts, and history prefixes. Every sub-domain of every pack yields accepted groups, which the `group_signal` gate enforces, and a journey ends at its natural length in its scope. | Met |
 | Decision scoring | Decision records at branch points: state, options, outcome, score | Decision points with policy shares and simulated values, exported as typed questions under a versioned schema every record validates against | Met |
 | Evaluation | Tasks with verifiers, held-out splits, avg@k and pass@k | Journey and agent tasks with environment, verifiers, and references, reported as avg@k and pass@k by verifier and by policy, including each provider model | Met |
@@ -103,7 +103,7 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 and 9. The suite has 335 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
+All eight slices of the first plan have shipped, and so have Slices 8 and 9. The suite has 360 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
 
 The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed them:
 - **Narrow scopes favoured failures.** A journey now ends at its natural length once it reaches its scope's milestones, so airline booking alone passes 88% of primaries (none before) and hotel booking alone 91% (2% before). The composer warns when most journeys in a scope end before the minimum.
@@ -116,7 +116,7 @@ Slice 9 completed the judge. Engine #120 schedules judge calls, shows the safety
 
 These remain, for Slice 10:
 - **Representative beyond banking**: the catalogue now calibrates hotel runs from the hotel booking demand datasets and airline runs from BTS on-time performance. Telecommunications and insurance still depend on logs a user uploads.
-- **Text is templated narration** in English and Turkish. Provider-written turn text, which the first decision allows, is not built.
+- **Text** can now be written by a provider model on the owner's key, with every turn checked by code and a failing turn keeping its template. More languages can follow as prompts (decision 12).
 
 ## Roadmap
 

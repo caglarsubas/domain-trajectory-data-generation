@@ -87,6 +87,13 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         # Two calls per rollout, one episode per prompt at most, unless the owner caps it lower.
         estimate = body.target_trajectory_count * body.provider_rollouts * 2
         budget = min(body.provider_call_budget or estimate, estimate, 4000)
+    text_budget = None
+    if body.provider_text:
+        if credential is None:
+            raise HTTPException(status_code=422, detail="provider-written text runs on your own provider key; choose one")
+        # One call per sequence, unless the owner caps it lower.
+        sequences = body.target_trajectory_count * body.group_size
+        text_budget = min(body.provider_text_budget or sequences, sequences, 4000)
     thresholds = {**DEFAULT_THRESHOLDS, **(body.thresholds or {})}
     return {
         "sector": sector.id,
@@ -115,6 +122,8 @@ def config_from_body(body: RunBody, account: Account, db: Session) -> dict:
         "provider_rollouts": body.provider_rollouts,
         "provider_call_budget": budget,
         "provider_model": body.provider_model or None,
+        "provider_text": bool(body.provider_text),
+        "provider_text_budget": text_budget,
         "credential_id": credential.id if credential else None,
     }
 

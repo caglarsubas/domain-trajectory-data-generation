@@ -59,6 +59,32 @@ function providerNote(provider) {
   return `${rollouts}${checked}.${skipped}${failed}`;
 }
 
+const TEXT_REASONS = {
+  events: "left out, added, or reordered an event",
+  raw_event_name: "wrote an event's name",
+  amount_missing: "left out an amount",
+  invented_number: "added a number",
+  invented_identifier: "added an identifier, email, or link",
+  wrong_language: "wrote in another language",
+  too_long: "ran too long",
+  empty: "came back empty",
+  copied_template: "copied the template",
+};
+
+function textNote(text) {
+  const provider = text.provider || {};
+  const model = (text.written_by || "").replace(/^provider:/, "") || "a model";
+  if (!text.asked) {
+    return provider.errors ? `No turn text was written: ${provider.last_error || "the provider failed"}.` : "No turn text was written by a model.";
+  }
+  const reasons = Object.entries(text.reasons || {}).map(([reason, count]) => `${count} ${TEXT_REASONS[reason] || reason}`).join(", ");
+  const kept = text.kept_template ? ` ${text.kept_template} kept their templates after a check failed (${reasons}).` : "";
+  const skipped = provider.skipped_sequences
+    ? ` ${provider.skipped_sequences} ${provider.skipped_sequences === 1 ? "sequence was" : "sequences were"} not sent ${provider.stopped_by === "errors" ? "after repeated provider errors" : "once the call cap was reached"}.`
+    : "";
+  return `${model} wrote ${text.written} of ${text.turns} turns in ${provider.calls} of ${provider.limit} calls on your key.${kept}${skipped}`;
+}
+
 export default function RunPage() {
   const params = useParams();
   const [run, setRun] = useState(null);
@@ -385,6 +411,7 @@ export default function RunPage() {
           {run.generation.episodes?.provider
             ? ` ${providerNote(run.generation.episodes.provider)}${modelNote(run.generation.episodes.models)}`
             : null}
+          {run.generation.text ? ` ${textNote(run.generation.text)}` : null}
           {run.generation.jurisdiction && run.generation.jurisdiction !== "neutral"
             ? ` Jurisdiction: ${sectors.find((item) => item.id === run.config.sector)?.jurisdictions?.find((item) => item.id === run.generation.jurisdiction)?.label || run.generation.jurisdiction}.`
             : null}

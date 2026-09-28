@@ -99,6 +99,8 @@ class Segment(BaseModel):
     # A penalty rule that fired on this turn, and the advantage the turn carries after penalties.
     flagged_reason: str | None = None
     advantage: float | None = None
+    # Who wrote an assistant turn's text when it is not the pack's template: "provider:<model>".
+    written_by: str | None = None
 
 
 class Context(BaseModel):
@@ -310,6 +312,8 @@ class GenerationMeta(BaseModel):
     calibration: dict[str, Any] | None = None
     # How many episodes were built, with how many rollouts, and how many were accepted as groups.
     episodes: dict[str, Any] | None = None
+    # Provider-written turn text: calls, turns written, turns that kept their template, and why.
+    text: dict[str, Any] | None = None
     # How many decision points were recorded, by outcome group, and how their values were simulated.
     decisions: dict[str, Any] | None = None
 

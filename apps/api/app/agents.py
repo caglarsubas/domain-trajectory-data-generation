@@ -1,10 +1,11 @@
-"""Provider models as agents in episodes, through the key of the account that owns the run.
+"""Provider models as agents in episodes, and as writers of turn text, through the key of the account that owns the run.
 
 Each provider rollout is two calls: the model sees the task and the episode's operations and makes a
 call; the mock bank answers; the model reports what it did. Every call it makes is checked by code
 against the episode's skeleton (a known operation, arguments the schema accepts, a legal step, the
-case's own objects) and scored on the same rubric as the scripted rollouts. The key is sent only to its
-provider, in a header, and never written anywhere. A budget caps the calls a run may make.
+case's own objects) and scored on the same rubric as the scripted rollouts. As a writer, a model gets one
+sequence's skeleton per call and writes its assistant turns, which `sectors.turn_text` checks. The key is sent only
+to its provider, in a header, and never written anywhere. A budget caps the calls a run may make.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ BASES = {
     "xai": ("XAI_BASE_URL", "https://api.x.ai"),
 }
 CALLS_PER_ROLLOUT = 2
+# Completion tokens a writer call may use, thinking included.
+WRITER_TOKENS = 8000
 MAX_ERRORS = 3
 TIMEOUT = 60.0
 
@@ -134,6 +137,29 @@ class ProviderAgent:
         data = self._post(f"/v1beta/models/{self.model}:generateContent", {"x-goog-api-key": self.key}, {"systemInstruction": {"parts": [{"text": state["system"]}]}, "contents": contents, "tools": state["tools"]})
         parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts")) or []
         return Reply(" ".join(part.get("text", "") for part in parts if "text" in part).strip())
+
+    def write(self, system: str, prompt: str) -> str:
+        """A plain completion asked to answer in JSON: the writer's one call per sequence."""
+        if self.provider in {"openai", "xai"}:
+            messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+            # A reasoning model spends its completion tokens thinking first; a short default would leave no answer.
+            body = {"model": self.model, "messages": messages, "response_format": {"type": "json_object"}, "max_completion_tokens": WRITER_TOKENS}
+            data = self._post("/v1/chat/completions", {"Authorization": f"Bearer {self.key}"}, body)
+            return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+        if self.provider == "anthropic":
+            body = {"model": self.model, "max_tokens": 4096, "system": system, "messages": [{"role": "user", "content": prompt}]}
+            data = self._post("/v1/messages", self._anthropic_headers(), body)
+            return " ".join(block.get("text", "") for block in data.get("content") or [] if block.get("type") == "text").strip()
+        if self.provider == "google":
+            body = {
+                "systemInstruction": {"parts": [{"text": system}]},
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "generationConfig": {"responseMimeType": "application/json"},
+            }
+            data = self._post(f"/v1beta/models/{self.model}:generateContent", {"x-goog-api-key": self.key}, body)
+            parts = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts")) or []
+            return " ".join(part.get("text", "") for part in parts if "text" in part).strip()
+        raise AgentError(f"no writer for {self.provider}")
 
     def _anthropic_headers(self) -> dict:
         return {"x-api-key": self.key, "anthropic-version": "2023-06-01"}
@@ -290,3 +316,80 @@ def add_provider_rollouts(episodes: list[dict], agent, per_episode: int, budget:
             values = [item["reward"] for item in episode["rollouts"]]
             for item, advantage in zip(episode["rollouts"], rewards.group_advantages(values)):
                 item["advantage"] = round(advantage, 4)
+
+
+LANGUAGES = {"en": "English", "tr": "Turkish"}
+WRITER_SYSTEM = (
+    "You write the assistant's turns in a customer-service conversation for a synthetic {sector} dataset, in {language}. "
+    "The skeleton gives the customer's opening and follow-ups, and for each assistant turn the events it reports, in order, "
+    "each with a template sentence, its amount, and the time since it last happened. Write one natural sentence per event, "
+    "in the order given, as the assistant speaking to the customer in the second person, in your own words: the template "
+    "only states the fact, so do not copy it. State every amount exactly as given. Add no "
+    "other number, date, name, account or reference number, email address, or link, and do not write the event names. "
+    'Return only JSON: {{"turns": [[{{"event": "<event name>", "text": "<one sentence>"}}, ...], ...]}}, one inner list per '
+    "turn, in order."
+)
+
+
+@dataclass
+class TextBudget:
+    limit: int
+    used: int = 0
+    errors: int = 0
+    skipped: int = 0
+    unreadable: int = 0
+    last_error: str | None = None
+
+    @property
+    def open(self) -> bool:
+        return self.used < self.limit and self.errors < MAX_ERRORS
+
+    def as_dict(self) -> dict:
+        stopped_by = "errors" if self.errors >= MAX_ERRORS else ("budget" if self.skipped else None)
+        return {
+            "limit": self.limit, "calls": self.used, "skipped_sequences": self.skipped, "stopped_by": stopped_by,
+            "errors": self.errors, "unreadable": self.unreadable, "last_error": self.last_error,
+        }
+
+
+class TextWriter:
+    """Writes a sequence's assistant turns from its skeleton with one provider call, within the run's budget."""
+
+    def __init__(self, agent, budget: TextBudget, sector: str) -> None:
+        self.agent, self.budget, self.sector = agent, budget, sector
+        self.label = f"provider:{agent.model}"
+
+    def __call__(self, plan) -> dict | None:
+        if not self.budget.open:
+            self.budget.skipped += 1
+            return None
+        skeleton = plan.skeleton()
+        system = WRITER_SYSTEM.format(sector=self.sector.lower(), language=LANGUAGES.get(plan.language, plan.language))
+        prompt = "Skeleton:\n" + json.dumps(skeleton, ensure_ascii=False, indent=1)
+        try:
+            # Every attempted call counts, failed ones too: the provider may bill them.
+            self.budget.used += 1
+            text = self.agent.write(system, prompt)
+        except AgentError as exc:
+            self.budget.errors += 1
+            self.budget.last_error = str(exc)
+            return None
+        turns = _turns_from(text)
+        if turns is None:
+            self.budget.unreadable += 1
+        return {"turns": turns or [], "written_by": self.label}
+
+
+def _turns_from(text: str) -> list | None:
+    """The model's turns: a list per turn of {"event", "text"}, accepting {"sentences": [...]} per turn too."""
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        found = json.loads(text[start : end + 1])
+    except ValueError:
+        return None
+    turns = found.get("turns") if isinstance(found, dict) else None
+    if not isinstance(turns, list):
+        return None
+    return [turn.get("sentences") if isinstance(turn, dict) else turn for turn in turns]

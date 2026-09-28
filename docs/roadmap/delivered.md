@@ -306,3 +306,9 @@ Slice 9, last part (4B). The judge reads one group of a run's journeys, a primar
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/50
 
 The telecom pack's pairwise judges preferred the alternative in five of six sampled journeys and named two gaps. An event can now name follow-ups, and a journey does not end right after it while one is legal and in scope: a live line gets its first bill, and a dispatched SIM, a port request, and a completed port or new number lead on to activation. A failed port now goes live only on a new number, the new `number.assigned` event (`telecom-pack-4`). In 512 journeys, no live line ends without a bill and no failed port goes live on its old number.
+
+## 51. Calibrate hotel runs from the hotel booking demand datasets and airline runs from BTS on-time performance
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/51
+
+Slice 10, first part. The catalogue adds the hotel booking demand datasets (Antonio, de Almeida, and Nunes, 2019, CC BY 4.0) and a month of BTS on-time performance (July 2026, public domain), downloaded on demand. A booking becomes a reservation's path from confirmation: a change, a cancellation with its deposit kept or refunded, a no-show, or check-in and check-out; a flight becomes a checked-in passenger's path through delay or cancellation to an on-time or late arrival. An event a source never contains now keeps the pack's weight wherever it is a choice, so flight records no longer erase bag drops, and durations past 20,000 per step are an even sample. On the real files, a hotel run calibrated from the catalogue cancels 21% of confirmed reservations against none uncalibrated and reports representativeness (fitness 0.99, precision 1.0, divergence 0.04).
