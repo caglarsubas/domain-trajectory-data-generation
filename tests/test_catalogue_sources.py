@@ -82,9 +82,13 @@ def test_the_catalogue_lists_hotel_and_airline_sources_with_their_licences(clien
     airline = {entry["id"]: entry for entry in client.get("/catalogue", params={"sector": "airline"}).json()["data"]}
     assert airline["bts_on_time"]["licence"].startswith("Public domain") and airline["bts_on_time"]["bytes"] == 33_075_361
     assert airline["bts_on_time"]["url"].endswith("_2026_7.zip")
-    for sector in ("telecom", "insurance"):
-        listed = client.get("/catalogue", params={"sector": sector}).json()["data"]
-        assert [entry["availability"] for entry in listed] == ["planned"] and "terms" in listed[0]["reason"]
+    # The terms review listed each candidate with what keeps it out: FCC data holds no step after a complaint, and TDI's
+    # terms wait on its confirmation.
+    telecom = client.get("/catalogue", params={"sector": "telecom"}).json()["data"]
+    insurance = client.get("/catalogue", params={"sector": "insurance"}).json()["data"]
+    assert [(entry["id"], entry["availability"]) for entry in telecom + insurance] == [("fcc_complaints", "reviewed"), ("tdi_complaints", "reviewed")]
+    assert telecom[0]["licence"].startswith("Public domain") and "no channel of filing" in telecom[0]["reason"]
+    assert "non-commercial" in insurance[0]["licence"] and "written confirmation" in insurance[0]["reason"]
 
 
 # ---------------------------------------------------------------------------
@@ -188,17 +192,23 @@ def test_flights_become_checked_in_passengers_paths_to_arrival(tmp_path):
     assert result["cases"] == 98 and result["activities"]["diverted, left out"] == 2
     assert result["outcomes"] == {"delayed": pytest.approx(25 / 98, abs=1e-4), "cancelled": pytest.approx(3 / 98, abs=1e-4), "arrived_late_when_delayed": 0.8}
     calibration = Calibration.from_dict(result["calibration"])
-    assert calibration.transitions["passenger.checked_in"] == {"passenger.boarded": 70, "flight.delayed": 25, "flight.cancelled": 3}
+    # BTS measures a delay at the gate, so it comes between boarding and departure.
+    assert calibration.transitions["passenger.checked_in"] == {"passenger.boarded": 95, "flight.cancelled": 3}
+    assert calibration.transitions["passenger.boarded"] == {"flight.departed": 70, "flight.delayed": 25}
     assert calibration.transitions["flight.departed"] == {"flight.arrived": 75, "flight.arrived_late": 20}
+    # After the last two events, a delayed flight's arrival is told from an on-time one's.
+    assert calibration.pairs["flight.delayed>flight.departed"] == {"flight.arrived_late": 20, "flight.arrived": 5}
+    assert calibration.pairs["passenger.boarded>flight.departed"] == {"flight.arrived": 70}
     # A delay runs from the scheduled departure to the actual one; flights take their elapsed time.
-    assert calibration.dwell["flight.delayed>passenger.boarded"][0] == 1.0
+    assert calibration.dwell["flight.delayed>flight.departed"][0] == 1.0
     assert calibration.dwell["flight.departed>flight.arrived"][3] == 75
-    # Boarding is not timed apart from departure, so the pack keeps its own gap between them.
-    assert calibration.dwell["passenger.boarded>flight.departed"][0] == 0.0
-    # Checked bags are not in flight records: dropping one after check-in keeps the pack's weight.
+    # Boarding is not timed, so the pack keeps its own waits around it.
+    assert "passenger.boarded>flight.departed" not in calibration.dwell and "passenger.boarded>flight.delayed" not in calibration.dwell
+    # Checked bags are not in flight records: dropping one after check-in keeps the pack's weight, and no flight is
+    # delayed before boarding.
     options = [("bag.dropped", 1.0), ("passenger.boarded", 0.91), ("flight.delayed", 0.12), ("flight.cancelled", 0.03)]
     blended = dict(calibration.reweight("passenger.checked_in", options))
-    assert blended["bag.dropped"] == 1.0 and blended["flight.delayed"] > 0.12
+    assert blended["bag.dropped"] == 1.0 and blended["flight.delayed"] < 0.12 < blended["passenger.boarded"]
 
 
 def test_the_transtats_download_column_names_are_read_too(tmp_path):

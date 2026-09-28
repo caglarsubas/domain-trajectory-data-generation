@@ -146,6 +146,8 @@ export default function DataSources({ projectId, sector, docs, events, onChange 
               </button>
             ) : entry.availability === "upload" ? (
               <small className="muted">Upload its export as a data source. {entry.reason}</small>
+            ) : entry.availability === "reviewed" ? (
+              <small className="muted">Reviewed, not added: {entry.reason}</small>
             ) : (
               <small className="muted">Planned: {entry.reason}</small>
             )}

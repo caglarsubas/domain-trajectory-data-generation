@@ -1,10 +1,13 @@
 """Calibration from real event logs: how often each legal step follows another, and how long it takes.
 
 A calibration holds directly-follows counts between the pack's event types (after a data source's
-activities are mapped to them), how journeys start and end, and duration quantiles per step. The walker
-blends the observed next-step shares with the pack's prior in proportion to how much data backs them,
-and dwell times follow the observed quantiles once enough steps were seen. The pack's machines still
-decide what is legal: calibration only reweights legal choices.
+activities are mapped to them), the same counts after each pair of events, how journeys start and end, and
+duration quantiles per step. The walker blends the observed next-step shares with the pack's prior in
+proportion to how much data backs them, and dwell times follow the observed quantiles once enough steps
+were seen. The shares are taken after the last two events wherever at least PRIOR_STRENGTH observations back
+them, and after the last event otherwise (decision 15), so an outcome that depends on the step before last,
+such as a delayed flight's arrival, follows the data. The pack's machines still decide what is legal:
+calibration only reweights legal choices.
 
 A source sees only part of a journey: flight records know nothing of checked bags, and hotel bookings
 nothing of loyalty sign-ups. An event a source never contains keeps its prior weight wherever it is a
@@ -27,9 +30,24 @@ MAX_DWELL_SAMPLES = 20000
 START = "<start>"
 
 
+def pair(before: str | None, previous: str) -> str:
+    """The key of a two-event context: the event before last, or the start, and the last one."""
+    return f"{before or START}>{previous}"
+
+
+def context(types: list[str]) -> tuple[str | None, str | None]:
+    """The last event and the one before it, as the data counts steps: a repeat of the last event is not a new step."""
+    if not types:
+        return None, None
+    previous = types[-1]
+    return previous, next((name for name in reversed(types) if name != previous), None)
+
+
 @dataclass
 class Calibration:
     transitions: dict[str, Counter] = field(default_factory=dict)
+    # "a>b": the next steps observed after a then b, with "<start>" for a journey's first event.
+    pairs: dict[str, Counter] = field(default_factory=dict)
     starts: Counter = field(default_factory=Counter)
     ends: Counter = field(default_factory=Counter)
     # "a>b": (median hours, 10th percentile, 90th percentile, samples)
@@ -42,6 +60,7 @@ class Calibration:
         data = data or {}
         return cls(
             transitions={key: Counter(value) for key, value in (data.get("transitions") or {}).items()},
+            pairs={key: Counter(value) for key, value in (data.get("pairs") or {}).items()},
             starts=Counter(data.get("starts") or {}),
             ends=Counter(data.get("ends") or {}),
             dwell={key: tuple(value) for key, value in (data.get("dwell") or {}).items()},
@@ -52,6 +71,7 @@ class Calibration:
     def as_dict(self) -> dict:
         return {
             "transitions": {key: dict(value) for key, value in self.transitions.items()},
+            "pairs": {key: dict(value) for key, value in self.pairs.items()},
             "starts": dict(self.starts),
             "ends": dict(self.ends),
             "dwell": {key: list(value) for key, value in self.dwell.items()},
@@ -71,13 +91,35 @@ class Calibration:
             found.update(following)
         return found
 
-    def reweight(self, previous: str | None, options: list[tuple[str, float]]) -> list[tuple[str, float]]:
+    def context(self, types: list[str]) -> tuple[str | None, str | None]:
+        """A journey's last two events as the data would have recorded them.
+
+        Events the data never contains leave no trace in its sequences, so the context is read over the events it does
+        contain: a loyalty sign-up between a flight's departure and its arrival does not hide that the flight was
+        delayed. Until the journey holds one of them, the data has recorded nothing, and its next one is drawn as the
+        data's journeys start: flights in the on-time data are seen from check-in, so a delay there comes at the gate.
+        """
+        visible = self.observed_events
+        return context([name for name in types if name in visible])
+
+    def following(self, previous: str | None, options, before: str | None = None) -> Counter | None:
+        """The observed next steps after the last two events where at least PRIOR_STRENGTH of them are among the options,
+        else after the last event; the starts at a journey's first step."""
+        if previous is None:
+            return self.starts
+        found = self.pairs.get(pair(before, previous))
+        if found and sum(found.get(name, 0) for name, _ in options) >= PRIOR_STRENGTH:
+            return found
+        return self.transitions.get(previous)
+
+    def reweight(self, previous: str | None, options: list[tuple[str, float]], before: str | None = None) -> list[tuple[str, float]]:
         """Blend the observed shares of the next step with the prior weights, keeping their total.
 
+        The shares are the ones after `before` then `previous` where enough data backs them, else after `previous`.
         Only the choices the data can see are reweighted, within the weight they held together; a choice whose
         event the data never contains keeps its prior weight.
         """
-        observed = self.starts if previous is None else self.transitions.get(previous)
+        observed = self.following(previous, options, before)
         if not observed or not options:
             return options
         seen = sum(observed.get(name, 0) for name, _ in options)
@@ -126,6 +168,12 @@ class Calibration:
 
         seen = Calibration(dwell=dict(self.dwell), ends=Counter(self.ends), cases=self.cases, sources=list(self.sources))
         seen.transitions = {event: spread(following) for event, following in self.transitions.items() if event in allowed}
+        # A pair through a left-out event is not a context the run can reach, so it falls back to the last event.
+        seen.pairs = {
+            key: spread(following)
+            for key, following in self.pairs.items()
+            if all(name == START or name in allowed for name in key.rsplit(">", 1))
+        }
         seen.starts = spread(self.starts)
         return seen
 
@@ -135,6 +183,8 @@ class Calibration:
             "cases": self.cases,
             "transitions": sum(len(value) for value in self.transitions.values()),
             "steps_observed": sum(sum(value.values()) for value in self.transitions.values()),
+            # Two-event contexts backed well enough to be used instead of the last event alone.
+            "second_order_contexts": sum(1 for value in self.pairs.values() if sum(value.values()) >= PRIOR_STRENGTH),
             "timed_steps": sum(1 for value in self.dwell.values() if value[3] >= MIN_DWELL_SAMPLES),
         }
 
@@ -145,6 +195,8 @@ def merge(calibrations: list[Calibration]) -> Calibration:
     for item in calibrations:
         for key, value in item.transitions.items():
             merged.transitions.setdefault(key, Counter()).update(value)
+        for key, value in item.pairs.items():
+            merged.pairs.setdefault(key, Counter()).update(value)
         merged.starts.update(item.starts)
         merged.ends.update(item.ends)
         for key, value in item.dwell.items():
@@ -182,6 +234,9 @@ def build(sequences, *, source: str) -> Calibration:
         calibration.cases += 1
         calibration.starts[runs[0][0]] += 1
         calibration.ends[runs[-1][0]] += 1
+        names = [START] + [event for event, _ in runs]
+        for a, b, c in zip(names, names[1:], names[2:]):
+            calibration.pairs.setdefault(pair(a, b), Counter())[c] += 1
         for (a, at), (b, bt) in zip(runs, runs[1:]):
             calibration.transitions.setdefault(a, Counter())[b] += 1
             if at is not None and bt is not None and bt >= at:
@@ -198,17 +253,33 @@ def build(sequences, *, source: str) -> Calibration:
     return calibration
 
 
+def _runs(types: list[str]) -> list[str]:
+    return [name for index, name in enumerate(types) if index == 0 or types[index - 1] != name]
+
+
 def steps_of(sequences: list[list[str]]) -> Counter:
     generated = Counter()
     for types in sequences:
-        runs = [name for index, name in enumerate(types) if index == 0 or types[index - 1] != name]
+        runs = _runs(types)
         for a, b in zip(runs, runs[1:]):
             generated[(a, b)] += 1
     return generated
 
 
-def representativeness(calibration: Calibration, generated: Counter) -> dict:
-    """How the generated journeys compare with the data: fitness, precision, and the gap between next-step shares."""
+def triples_of(sequences: list[list[str]], visible: set[str] | None = None) -> Counter:
+    """Each step with the two events before it, the first of them "<start>" for a journey's second event. Given the events
+    a calibration's data contains, the journeys are read over those alone, as the walker reads its context."""
+    generated = Counter()
+    for types in sequences:
+        names = [START] + _runs([name for name in types if visible is None or name in visible])
+        for a, b, c in zip(names, names[1:], names[2:]):
+            generated[(pair(a, b), c)] += 1
+    return generated
+
+
+def representativeness(calibration: Calibration, generated: Counter, triples: Counter | None = None) -> dict:
+    """How the generated journeys compare with the data: fitness, precision, the gap between next-step shares, and the
+    same gap after each pair of events, where a conditional outcome shows even when the next-step shares match."""
     real = Counter()
     for a, following in calibration.transitions.items():
         for b, count in following.items():
@@ -229,14 +300,24 @@ def representativeness(calibration: Calibration, generated: Counter) -> dict:
         mine = {b: count for (x, b), count in generated.items() if x == a}
         theirs = {b: count for (x, b), count in real.items() if x == a}
         gaps.append(_jensen_shannon(mine, theirs))
+    second = []
+    for key in {context for context, _ in triples or {}} & set(calibration.pairs):
+        theirs = {name: count for name, count in calibration.pairs[key].items() if name in events}
+        # Only pairs the data backs as the walker would use them: at least PRIOR_STRENGTH observations.
+        if sum(theirs.values()) < PRIOR_STRENGTH:
+            continue
+        mine = {name: count for (context, name), count in triples.items() if context == key and name in covered}
+        if mine:
+            second.append(_jensen_shannon(mine, theirs))
     return {
         "status": "measured",
         "sources": list(calibration.sources),
         "fitness": round(fitness, 3),
         "precision": round(precision, 3),
         "next_step_divergence": round(sum(gaps) / len(gaps), 3) if gaps else None,
+        "second_order_divergence": round(sum(second) / len(second), 3) if second else None,
         "covered_events": len(events & covered),
-        "explanation": "Among events both the data and the run contain: fitness is the share of observed steps the generated journeys also take, precision the share of generated steps the data shows, and divergence compares next-step shares, 0 when they match.",
+        "explanation": "Among events both the data and the run contain: fitness is the share of observed steps the generated journeys also take, precision the share of generated steps the data shows, and divergence compares next-step shares, 0 when they match, after the last event and after the last two.",
     }
 
 
