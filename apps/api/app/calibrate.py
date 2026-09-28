@@ -1,11 +1,12 @@
 """Calibrate a study from its data sources, as the `calibrate` job runs it.
 
-An event log's activities are mapped to the pack's event types: by the catalogue when the source comes
-from it, by what a person saved, or by a suggestion from shared words. The mapped cases become a
-calibration of next-step counts and durations. Known exports have adapters instead: UCI Bank
-Marketing (channel and conversion), the CFPB complaint database (channel and outcome shares), the
-hotel booking demand datasets (a reservation's changes, cancellation, and arrival), and BTS on-time
-performance (a flight's delay, cancellation, and arrival).
+An event log's activities are mapped to the pack's event types by what a person saved, else by the
+catalogue's mapping when the source comes from it, which leaves an activity it omits unmapped, or, for an
+upload, by a suggestion from shared words. The mapped cases become a calibration of next-step counts and
+durations. Known exports have adapters instead: UCI Bank Marketing (channel and conversion), the CFPB
+complaint database (channel and outcome shares), the hotel booking demand datasets (a reservation's
+changes, cancellation, and arrival), and BTS on-time performance (a flight's delay, cancellation, and
+arrival).
 """
 
 from __future__ import annotations
@@ -105,7 +106,6 @@ def calibrate_item(db: Session, item: CorpusItem, progress=None) -> dict:
     adapter = catalogue if catalogue in ADAPTERS else _recognize(path)
     if progress is not None:
         progress(0, 2, "Reading the data source.")
-    previous = item.calibration or {}
     try:
         if adapter == "uci_bank_marketing":
             result = _bank_marketing(path)
@@ -116,7 +116,9 @@ def calibrate_item(db: Session, item: CorpusItem, progress=None) -> dict:
         elif adapter == "bts_on_time":
             result = _on_time(path)
         else:
-            result = _event_log(path, namespace, previous.get("mapping"), BY_ID.get(catalogue, {}).get("mapping"), progress)
+            saved = saved_mapping(item, namespace)
+            result = _event_log(path, namespace, saved, BY_ID.get(catalogue, {}).get("mapping"), progress)
+            result["saved"] = saved
     except LogError as exc:
         item.calibration = {"status": "failed", "reason": str(exc)}
         db.commit()
@@ -125,6 +127,22 @@ def calibrate_item(db: Session, item: CorpusItem, progress=None) -> dict:
     item.calibration = result
     db.commit()
     return {"id": item.id, "cases": result["cases"], "mapped_share": result.get("mapped_share"), "format": result["format"]}
+
+
+def saved_mapping(item: CorpusItem, namespace: tuple[str, ...]) -> dict[str, str | None]:
+    """The events a person saved for a data source's activities.
+
+    Calibrations from before these were kept apart hold only the mapping in use, catalogue entries and suggestions
+    included. There, an activity counts as saved where that mapping differs from what they gave it.
+    """
+    calibration = item.calibration or {}
+    if "saved" in calibration:
+        return dict(calibration["saved"])
+    used = calibration.get("mapping") or {}
+    catalogue = BY_ID.get((item.ingest or {}).get("catalogue"), {}).get("mapping") or {}
+    suggested = suggest(list(used), namespace)
+    given = {activity: catalogue.get(activity, suggested[activity]) for activity in used}
+    return {activity: event for activity, event in used.items() if event != (given[activity] if given[activity] in namespace else None)}
 
 
 def _event_log(path: Path, namespace: tuple[str, ...], saved: dict | None, catalogue: dict | None, progress) -> dict:
@@ -136,8 +154,10 @@ def _event_log(path: Path, namespace: tuple[str, ...], saved: dict | None, catal
         activities.update(name for name, _ in case)
     if not activities:
         raise LogError("the log has no events")
-    suggested = suggest(list(activities), namespace)
-    mapping = {activity: (saved or {}).get(activity, (catalogue or {}).get(activity, suggested[activity])) for activity in activities}
+    # A catalogue source's mapping is the whole of it: an activity it leaves out has no event of its own in the pack,
+    # so it stays unmapped unless a person maps it. Only an upload falls back on shared words.
+    suggested = suggest(list(activities), namespace) if catalogue is None else {}
+    mapping = {activity: (saved or {}).get(activity, (catalogue or {}).get(activity, suggested.get(activity))) for activity in activities}
     mapping = {activity: event if event in namespace else None for activity, event in mapping.items()}
     if progress is not None:
         progress(1, 2, "Counting steps and durations.")

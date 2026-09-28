@@ -8,7 +8,8 @@ listed with the reason they cannot be added yet.
 from __future__ import annotations
 
 # BPI Challenge 2017 activities mapped to banking events. Offers and most work items are left unmapped:
-# they have no event of their own in the pack. A_Pending is the state of a granted loan.
+# they have no event of their own in the pack, and an activity left out here stays unmapped unless a person
+# maps it. A_Pending is the state of a granted loan.
 BPI2017_MAPPING = {
     "A_Create Application": "application.started",
     "A_Submitted": "application.submitted",

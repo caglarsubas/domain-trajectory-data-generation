@@ -45,6 +45,7 @@ from sectors.registry import get_sector
 from app import export as run_export
 from app.copies import guard_for
 from app import jobs
+from app.calibrate import saved_mapping
 from app.catalogue import BY_ID as CATALOGUE, ENTRIES, public
 from app.facts import facts_report
 from app.ingest import safe_name
@@ -418,11 +419,13 @@ def map_activities(project_id: str, item_id: str, body: MappingBody, account: Ac
     item = db.get(CorpusItem, item_id)
     if item is None or item.project_id != project.id or item.kind != "data_source":
         raise HTTPException(status_code=404, detail="data source not found")
-    namespace = set(get_sector(project.sector).event_namespace)
+    namespace = tuple(get_sector(project.sector).event_namespace)
     unknown = sorted({event for event in body.mapping.values() if event is not None and event not in namespace})
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown events: {', '.join(unknown)}")
     current = dict(item.calibration or {})
+    # Saved apart from the mapping in use, so the next calibration tells a person's choices from the catalogue's and suggestions.
+    current["saved"] = {**saved_mapping(item, namespace), **body.mapping}
     current["mapping"] = {**(current.get("mapping") or {}), **body.mapping}
     item.calibration = current
     db.commit()
