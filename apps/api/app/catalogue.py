@@ -101,8 +101,31 @@ ENTRIES = [
     {"id": "freddie_mac", "name": "Freddie Mac single-family loan-level data", "sector": "banking", "availability": "planned", "reason": "Follows once its terms are reviewed; it needs registration."},
     {"id": "amlsim", "name": "AMLSim", "sector": "banking", "availability": "planned", "reason": "Transaction patterns arrive with the episode builder in Slice 6."},
     {"id": "paysim", "name": "PaySim", "sector": "banking", "availability": "planned", "reason": "Transaction patterns arrive with the episode builder in Slice 6."},
-    {"id": "telecom_sources", "name": "Telecommunications sources", "sector": "telecom", "availability": "planned", "reason": "Follow once their terms are reviewed."},
-    {"id": "insurance_sources", "name": "Insurance sources", "sector": "insurance", "availability": "planned", "reason": "Follow once their terms are reviewed."},
+    # Reviewed on 28 September 2026 (decision 16); neither is added, and each says why.
+    {
+        "id": "fcc_complaints",
+        "name": "FCC consumer complaints (CGB)",
+        "sector": "telecom",
+        "availability": "reviewed",
+        "url": "https://opendata.fcc.gov/d/3xyp-aqkj",
+        "licence": "Public domain (US government work); the FCC API terms ask for a notice that the FCC does not endorse the product",
+        "reason": (
+            "Its terms allow it, but each complaint records only when it was filed and about what: no channel of filing, "
+            "provider, outcome, or closing date. It cannot calibrate any step after a complaint is received."
+        ),
+    },
+    {
+        "id": "tdi_complaints",
+        "name": "Texas Department of Insurance complaints",
+        "sector": "insurance",
+        "availability": "reviewed",
+        "url": "https://data.texas.gov/d/ubdr-4uff",
+        "licence": "None stated; TDI's site terms allow copies only unaltered and for non-commercial use",
+        "reason": (
+            "Its received and closed dates, confirmation, and dispositions would calibrate complaint outcomes and their "
+            "timing, but it waits on TDI's written confirmation that aggregates derived from it may be published."
+        ),
+    },
 ]
 
 BY_ID = {entry["id"]: entry for entry in ENTRIES}

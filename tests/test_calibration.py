@@ -268,7 +268,10 @@ def test_a_large_calibrated_run_measures_representativeness_across_batches(clien
     _upload(client, headers, project_id, "loans.xes", xes_log(bpi_like(40)))
     run = _run(client, headers, project_id, None, target_trajectory_count=90, event_budget=None, sub_domains=["onboarding_and_kyc", "consumer_credit"]).json()
     assert run["generation"]["storage"] and run["generation"]["calibration"]["cases"] == 40
-    assert run["generation"]["quality"]["representative"]["status"] == "measured"
+    representative = run["generation"]["quality"]["representative"]
+    # Each step after its two events is counted over every batch, so the second-order gap is measured for the whole run.
+    assert representative["status"] == "measured" and 0.0 <= representative["second_order_divergence"] <= 1.0
+    assert run["generation"]["calibration"]["second_order_contexts"] > 0
 
 
 def test_a_catalogue_download_streams_under_the_guard_and_its_limit(tmp_path):

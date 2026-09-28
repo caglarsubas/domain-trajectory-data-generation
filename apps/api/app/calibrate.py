@@ -345,8 +345,10 @@ def _open_rows(path: Path):
 def _on_time(path: Path) -> dict:
     """Each flight as a checked-in passenger's path to arrival, timed in hours from its scheduled departure.
 
-    A delay runs from the scheduled departure to the actual one, when boarding is taken to close; a flight whose
-    departure or arrival was 15 minutes late or more is a delayed flight. Diverted flights are left out.
+    BTS measures a delay at the gate: the actual departure against the scheduled one. So a delay comes between boarding
+    and departure, and runs from the scheduled departure to the actual one; a flight whose departure or arrival was 15
+    minutes late or more is a delayed flight. Its arrival then follows the delay, which lets second-order shares tell a
+    delayed flight's arrival from an on-time one's. Diverted flights are left out.
     """
     name, handle = _open_rows(path)
     with handle:
@@ -385,8 +387,8 @@ def _on_time(path: Path) -> dict:
                     counts["arrived_late"] += late_arrival
                     yield [
                         ("passenger.checked_in", None),
+                        ("passenger.boarded", None),
                         ("flight.delayed", 0.0),
-                        ("passenger.boarded", departure),
                         ("flight.departed", departure),
                         ("flight.arrived_late" if late_arrival else "flight.arrived", arrival),
                     ]

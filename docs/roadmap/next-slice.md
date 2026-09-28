@@ -1,4 +1,4 @@
-# Next slice: calibration beyond one step, and the last sources
+# Next slice: a roadmap review
 
 Status: approved on 28 September 2026, together with the queued Slices 12 and 13 and decisions 13 to 17 in the [overview](overview.md#decisions), all as recommended. Slices 8 to 10, approved on 26 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
@@ -116,13 +116,32 @@ Live, as a cycle asks them, both judges read four written turns and one planted 
 
 Neither planted turn adds a number, identifier, or event name, so no code check could catch it. The first live run found `gemma4:26b` answering a faithful turn with no reason, which the engine read as unreadable; the rubric now requires only the verdict.
 
-## Next: Slice 13, calibration beyond one step, and the last sources
+## Delivered: Slice 13, calibration beyond one step, and the last sources
 
-- **Second-order calibration** (decision 15). Next-step shares are taken after the last two events wherever at least 25 observations back them, and after the last event otherwise. The walker, the conformance scorer, and the decision values read them alike.
-- **Representativeness** adds the second-order divergence, so a conditional gap shows even when first-order shares match.
-- **Telecommunications and insurance sources** (decision 16). A terms review of the FCC's consumer complaints data and the Texas Department of Insurance complaint data, then an adapter for each that its terms allow, calibrating complaint channels and outcomes.
+Delivered in one pull request. Every approved slice has now shipped; the next step is a review of the roadmap against `main`, as on 28 September.
 
-Exit: in a calibrated airline run, delayed flights arrive late within 10 points of the data's 84%, and hotel and banking calibrated shares stay within noise of today's. Each candidate source is added with its licence, or listed with the terms that block it.
+- **Second-order calibration** (decision 15). A calibration also counts the next steps after each pair of events, from the start. The walker, the conformance scorer, and the decision values take next-step shares after the last two events wherever at least 25 observations among the legal options back that pair, and after the last event otherwise; the decision values' cache is keyed on the pairs too.
+- **Context as the data records it.** A journey's last two events are read over the events the data contains, so a loyalty sign-up between a flight's departure and its arrival does not hide that the flight was delayed. Until the journey reaches one of them, the data has recorded nothing, and its next one is drawn as the data's journeys start.
+- **Delays at the gate.** BTS measures a delay as the actual departure against the scheduled one, so the on-time adapter now puts the delay between boarding and departure, and a delayed flight's arrival follows the delay.
+- **Representativeness** reports `second_order_divergence`, the next-step gap after each pair of events the data backs, over every batch of a large run.
+- **Terms review** (decision 16), listed in the catalogue without adding either source:
+
+  | Source | Terms | Why it is not added |
+  |---|---|---|
+  | FCC consumer complaints | Public domain; the FCC API terms ask for a notice that it does not endorse the product | Each complaint records only when it was filed and about what: no channel of filing, provider, outcome, or closing date, so it calibrates no step after a complaint is received |
+  | Texas Department of Insurance complaints | No licence on the dataset; TDI's site terms allow only unaltered, non-commercial copies | Its dates, confirmation, and dispositions would calibrate complaint outcomes, but publishing aggregates from it waits on TDI's written confirmation |
+
+In calibrated runs from the real files, 1,500 journeys over every sub-domain, two seeds:
+
+| Measure | Data | `main` | Slice 13 |
+|---|---|---|---|
+| Airline: delayed flights arriving late | 84% | 27%, 30% | 84%, 80% |
+| Airline: delayed share of arrivals | 33% | 27%, 25% | 33%, 29% |
+| Airline: next-step divergence | 0 | 0.32, 0.32 | 0.17, 0.18 |
+| Hotel: confirmed reservations cancelled | 36% | 29%, 30% | 33%, 33% |
+| Banking, from BPI 2017: submitted applications approved | 49% | 74%, 78% | 74%, 78% |
+
+Airline meets the exit criterion. Hotel moves beyond noise, toward the data: interleaved events the data never records no longer hide the reservation's last step. Banking draws the same journeys as on `main`: its decisions follow a pair BPI backs with too few observations, so they fall back to the last event as before. BPI 2017's calibration has a problem of its own, found here: its offer activities, which the catalogue means to leave unmapped, are mapped by shared words, so the data counts approved applications being submitted again and a calibrated run's fitness is 0.29. That is a fix to the catalogue mapping, outside this slice.
 
 ## Out of scope
 

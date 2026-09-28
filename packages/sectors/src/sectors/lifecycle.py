@@ -292,7 +292,8 @@ class Walker:
                 exhausted = True
                 break
             if self.calibration is not None:
-                options = self.calibration.reweight(steps[-1].event_type if steps else None, options)
+                previous, before = self.calibration.context([step.event_type for step in steps])
+                options = self.calibration.reweight(previous, options, before)
             if forced is not None:
                 choice = forced
                 forced = None
