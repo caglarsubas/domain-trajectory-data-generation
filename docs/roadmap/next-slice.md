@@ -1,4 +1,4 @@
-# Next slice: judges that can tell journeys apart
+# Next slice: text worth training on
 
 Status: approved on 28 September 2026, together with the queued Slices 12 and 13 and decisions 13 to 17 in the [overview](overview.md#decisions), all as recommended. Slices 8 to 10, approved on 26 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
@@ -81,13 +81,31 @@ With questions that name what to look for, the judges no longer give every journ
 - Tests show a judge that ignores the defects is flagged blind and one that sees them is not.
 - A live cycle on the local engine reports discrimination for both judges.
 
-## Queued: Slice 12, text worth training on
+## In progress: Slice 12, text worth training on
+
+### Delivered: part one, template variants
+
+Every event of every pack has at least four phrasings in English and Turkish, and the 27 events that nearly every journey passes through have eight. Narration draws one from the text stream, so the journeys stay as drawn. An event that comes an hour or more after the one before now states the wait, as in "The claim was assessed (3 days later).", as a repeat already stated the time since it last happened; the writer's skeleton carries the same wait. Every pack has at least twenty customer openings and twenty follow-ups per language. Two gates hold every pack to this: `complete_spec` asks for three plain phrasings of every event and twenty of each kind of customer line, and the new `text_variety` gate for half the sentences distinct in 64 sequences in each language.
+
+In a 64-sequence run over all sub-domains, 16 groups of four, both columns measured the same way:
+
+| Pack | Distinct sentences before | After, English and Turkish | Distinct customer messages |
+|---|---|---|---|
+| Airline | 23% | 64% | 10 to 31 |
+| Banking | 32% | 60% | 12 to 31 |
+| Hotel | 16% | 55% | 9 to 29 |
+| Insurance | 19% | 54% | 9 to 30 |
+| Telecommunications | 16% | 53% | 8 to 32 |
+
+Phrasings alone would not have reached half: with eight for every event, the packs reached 34% to 46%. A group's rollouts share the events before they part, and the events near the start of every journey carry no amount or wait, so they repeat whatever the wording. Stating waits gives most later events their own sentence. Controls are narrated the same way, so a control reads like the journeys beside it, and a stretched wait now shows in its text.
+
+### Still to come
 
 - **Template variants.** At least three phrasings of every event in every pack, in English and Turkish, and at least twenty customer openings and follow-ups per pack. They are drawn from the text stream, so journeys do not change.
 - **Faithfulness judged.** A `turn_faithfulness` rubric, registered with the engine like the code-comparison rubrics, is asked of a sample of provider-written turns each cycle. It checks that the text states the skeleton's events and adds no outcome. A turn it calls unfaithful in every repeat reverts to its template (decision 14).
 - **A group per call.** The writer writes a whole group's sequences in one call, which share the opening and prompt, so the same cap covers up to 16 times more sequences.
 
-Exit: every pack reaches half its sentences distinct in a 64-sequence run with templates alone, in both languages. A cycle catches a planted unfaithful turn. One call writes a whole group.
+Exit: every pack reaches half its sentences distinct in a 64-sequence run with templates alone, in both languages (met by part one). A cycle catches a planted unfaithful turn. One call writes a whole group.
 
 ## Queued: Slice 13, calibration beyond one step, and the last sources
 

@@ -8,6 +8,7 @@ step must fail them, and a worse choice or a slow wait must pass them, so the on
 
 from __future__ import annotations
 
+import random
 from copy import deepcopy
 from datetime import timedelta
 
@@ -39,14 +40,18 @@ def _path(bundle: TrajectoryBundle, trajectory_id: str) -> tuple[list[str], list
 
 
 def _narrated(copy: TrajectoryBundle, trajectory_id: str, pack, lang: str) -> None:
-    """Replace the copy's sample text with the templates' narration of its own events, keeping the customer's messages."""
-    from sectors.journeys import _details, _narrate, _turns
+    """Replace the copy's sample text with the templates' narration of its own events, keeping the customer's messages.
+
+    Phrasings are drawn as generation draws them, from a stream seeded by the journey, so a control reads like the
+    journeys it is judged beside.
+    """
+    from sectors.journeys import _details, _sentences, _turns
 
     trajectory = next(item for item in copy.trajectories if item.trajectory_id == trajectory_id)
     events = {event.event_id: event for event in copy.events}
     journey = [events[item] for item in trajectory.event_ids if item in events]
-    phrases = pack.phrases.get(lang) or pack.phrases["en"]
-    sentences = [_narrate(phrases.get(event.event_type, event.event_type), detail) for event, detail in zip(journey, _details(lang, journey))]
+    lang = lang if lang in pack.phrases else "en"
+    sentences = _sentences(pack, lang, [event.event_type for event in journey], _details(lang, journey), random.Random(trajectory_id))
     for sample in copy.samples:
         for sequence in sample.sequences:
             if sequence.trajectory_id != trajectory_id:

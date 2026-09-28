@@ -25,7 +25,7 @@ MiMo-V2.6 (LLM-Core Xiaomi, 2026) organizes an agent rollout as Sample, Sequence
 - A **sequence** is one rollout. Reward, advantage, and mask are nullable.
 - A **context** is one dialogue branch.
 - A **segment** is one turn. Only segments with role `assistant` are trainable.
-- An assistant turn narrates its events with the pack's phrase for each. An event with an amount adds it in the run's currency, and an event that happened before in the same sequence adds the time since the last one, as in "The premium was paid (84.20 GBP, 31 days after the previous one)." A recurring payment therefore never repeats a turn word for word.
+- An assistant turn narrates its events with one of the pack's phrasings for each: at least three per event and language, drawn from the text stream, so the words vary while the journeys stay as drawn. An event with an amount adds it in the run's currency. An event that happened before in the same sequence adds the time since the last one, as in "The premium was paid (84.20 GBP, 31 days after the previous one)."; any other event that came an hour or more after the one before adds that wait, as in "The claim was assessed (3 days later)." A recurring payment therefore never repeats a turn word for word.
 
 Every sample names the trajectory it narrates in `trajectory_id`, and each sequence names its own.
 

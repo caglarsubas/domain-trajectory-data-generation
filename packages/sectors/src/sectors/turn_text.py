@@ -2,7 +2,7 @@
 
 The generator narrates each journey from the pack's phrase tables. On request, a provider model writes the assistant's
 turns instead, from a skeleton: the customer's opening and follow-ups, and for each turn the events it covers in order,
-each with its template sentence, its amount, and the time since the same event last happened. The model answers one
+each with its template sentence, its amount, and its wait (since the previous event, or since the same event last happened). The model answers one
 sentence per event, labelled with the event, and code checks every turn:
 
 - every event of the turn, in order, and nothing else;
@@ -71,7 +71,7 @@ def plan(sequence, member, phrases: dict[str, str], lang: str) -> SequencePlan:
     segments = [segment for context in sequence.contexts for segment in context.segments]
     assistant = [segment for segment in segments if segment.role == "assistant"]
     users = [segment.text for segment in segments if segment.role == "user"]
-    sentences = [_narrate(phrases[name], detail) for name, detail in zip(member.types, member.details)]
+    sentences = member.sentences or [_narrate(phrases[name], detail) for name, detail in zip(member.types, member.details)]
     turns = []
     for segment, indices in zip(assistant, _groups(len(sentences), len(assistant))):
         events = []
