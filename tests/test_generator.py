@@ -9,6 +9,7 @@ from sectors.banking.generate import GENERATOR_ID, generate_banking_bundle
 from sectors.banking.pack import SUB_DOMAINS
 from sectors.banking.spec import LIFECYCLE as BANKING_LIFECYCLE, PACK as BANKING_PACK
 from sectors.insurance.spec import LIFECYCLE as INSURANCE_LIFECYCLE
+from sectors.lifecycle import Walker
 from sectors.registry import get_sector, known_sectors
 from trajectory_contract import banking_fixture
 
@@ -123,9 +124,13 @@ def test_an_application_can_be_abandoned_before_kyc_starts_or_while_kyc_waits_on
     assert banking_hard_checks(bundle) == []
     abandoned = [types for types in _primaries(bundle) if "application.abandoned" in types]
     assert any("application.submitted" in types for types in abandoned) and any("application.submitted" not in types for types in abandoned)
-    # Once KYC has started, only a request for documents leaves the next move to the customer.
+    # Once KYC has started, only a request for documents leaves the next move to the customer, at a fifth of the weight.
     last_kyc = [next((name for name in reversed(types) if name.startswith("kyc.")), None) for types in abandoned]
-    assert set(last_kyc) == {None, "kyc.review_required"}
+    assert set(last_kyc) <= {None, "kyc.review_required"}
+    walker = Walker(BANKING_LIFECYCLE, allowed=BANKING_LIFECYCLE.namespace, sub_domains=list(SUB_DOMAINS))
+    submitted = {("application", "application"): "submitted"}
+    assert dict(walker.options(submitted, {}))["application.abandoned"] == 0.15
+    assert dict(walker.options({**submitted, ("kyc", "kyc"): "review_required"}, {}))["application.abandoned"] == 0.03
     # In place of the KYC check, or of the documents asked for, an abandonment is legal; while the bank checks, it is not.
     for index in (3, 12):
         legal = banking_fixture()

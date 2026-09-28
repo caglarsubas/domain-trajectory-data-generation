@@ -185,6 +185,10 @@ class Report:
                         "ends_journey": spec.ends_journey,
                         "dwell_hours": list(spec.dwell_hours),
                         "prior_weight": spec.weight,
+                        "prior_weight_when": [
+                            {"while": f"{guard.kind}.{guard.dimension} in {{{', '.join(state or 'unset' for state in guard.states)}}}", "weight": weight}
+                            for guard, weight in spec.weight_when
+                        ],
                     }
                     for spec in lifecycle.events
                 ],

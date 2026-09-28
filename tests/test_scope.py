@@ -35,6 +35,26 @@ def test_a_walk_that_runs_out_of_legal_events_is_marked_exhausted():
     assert path.types == ["case.opened", "case.closed"] and path.exhausted and not path.stopped
 
 
+def test_a_weight_can_hold_in_some_states_only_and_scales_as_the_event_does():
+    life = LifecycleSpec(
+        events=(
+            EventSpec("case.opened", ("d",), sets=(put("case", "status", "open"),), opening=True),
+            EventSpec("case.escalated", ("d",), requires=(need("case", "status", "open"),), sets=(put("case", "status", "escalated"),)),
+            EventSpec(
+                "case.withdrawn", ("d",), requires=(need("case", "status", "open", "escalated"),), weight=0.5,
+                weight_when=((need("case", "status", "escalated"), 0.1),), ends_journey=True,
+            ),
+        ),
+        milestones={"d": ("case.withdrawn",)},
+        object_types={"case": "case"},
+    )
+    walker = Walker(life, allowed=life.namespace, sub_domains=["d"])
+    assert dict(walker.options({("case", "status"): "open"}, {}))["case.withdrawn"] == 0.5
+    assert dict(walker.options({("case", "status"): "escalated"}, {}))["case.withdrawn"] == 0.1
+    named = Walker(life, allowed=life.namespace, sub_domains=["d"], named=("case.withdrawn",))
+    assert dict(named.options({("case", "status"): "escalated"}, {}))["case.withdrawn"] == pytest.approx(0.1 * 4.0)
+
+
 @pytest.mark.parametrize("sector_id, scope, outcome_share", [
     ("airline", ["shopping_and_booking"], 0.88),
     ("hotel", ["booking_and_reservations"], 0.9),

@@ -50,6 +50,9 @@ class EventSpec:
     requires: tuple[Guard, ...] = ()
     sets: tuple[Effect, ...] = ()
     weight: float = 1.0
+    # A different weight while a guard holds, in place of `weight`; the first that holds wins. A choice can be likelier
+    # in one state than in another, such as walking away from an application before or after documents are asked for.
+    weight_when: tuple[tuple[Guard, float], ...] = ()
     repeat: int = 1
     ends_journey: bool = False
     # Events that share an outcome are the alternatives at a branch point, such as approved or declined.
@@ -229,16 +232,28 @@ class Walker:
         self.allowed = allowed
         self.kept = tuple(name for name in kept if name in allowed)
         self.weights: dict[str, float] = {}
+        self.conditional: dict[str, tuple[tuple[tuple[str, str], frozenset, float], ...]] = {}
         for name in allowed:
-            weight = lifecycle[name].weight
+            factor = 1.0
             if name in named:
-                weight *= NAMED_EVENT_WEIGHT
+                factor *= NAMED_EVENT_WEIGHT
             if name in self.kept:
-                weight *= KEPT_EVENT_WEIGHT
-            self.weights[name] = weight
-        # Each allowed event's repeat limit and guards, compiled once: options() runs for every step of every walk.
+                factor *= KEPT_EVENT_WEIGHT
+            self.weights[name] = lifecycle[name].weight * factor
+            # Weights that hold in some states only are scaled as the event's own weight is.
+            if lifecycle[name].weight_when:
+                self.conditional[name] = tuple(
+                    ((guard.kind, guard.dimension), frozenset(guard.states), weight * factor) for guard, weight in lifecycle[name].weight_when
+                )
+        # Each allowed event's repeat limit, guards, and conditional weights, compiled once: options() runs for every
+        # step of every walk.
         self._checks = tuple(
-            (name, lifecycle[name].repeat, tuple(((guard.kind, guard.dimension), frozenset(guard.states)) for guard in lifecycle[name].requires))
+            (
+                name,
+                lifecycle[name].repeat,
+                tuple(((guard.kind, guard.dimension), frozenset(guard.states)) for guard in lifecycle[name].requires),
+                self.conditional.get(name, ()),
+            )
             for name in allowed
         )
         self.goals: list[tuple[str, ...]] = []
@@ -257,14 +272,19 @@ class Walker:
     def options(self, state: State, counts: dict[str, int], *, first: bool = False) -> list[tuple[str, float]]:
         found = []
         weights = self.weights
-        for name, repeat, guards in self._checks:
+        for name, repeat, guards, conditional in self._checks:
             if counts.get(name, 0) >= repeat:
                 continue
             for key, states in guards:
                 if state.get(key) not in states:
                     break
             else:
-                found.append((name, weights[name]))
+                weight = weights[name]
+                for key, states, value in conditional:
+                    if state.get(key) in states:
+                        weight = value
+                        break
+                found.append((name, weight))
         if first:
             openings = [item for item in found if self.lifecycle[item[0]].opening]
             return openings or found
