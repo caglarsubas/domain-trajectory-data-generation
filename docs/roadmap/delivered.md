@@ -384,3 +384,15 @@ A banking application could be abandoned only before it was submitted, so calibr
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/63
 
 After #62 a submitted application could be abandoned until KYC starts, but not once the bank had asked for more documents, where BPI Challenge 2017 records 607 cancellations right after A_Incomplete. `application.abandoned` is now legal while KYC waits at review (`banking-pack-7`), and still not while the bank checks. Review belongs to risk and compliance, so runs without that sub-domain are unchanged. Calibrated from BPI 2017 over onboarding, credit, and risk, 1,500 journeys, submitted applications end abandoned in 35.6% against 37.1% in the data, with fitness 0.590 and next-step divergence 0.442; declines stay high, at 26.2% against 13.2%.
+
+## 64. Review the roadmap after Slices 11 to 13 and approve Slices 14 and 15
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/64
+
+Docs only. The review re-ran the gates against `5de8b85`, and every pack passes all nine; a 10,000-sequence banking run costs what it did at `eaba152`. A live cycle with `gemma4:26b` and `qwen3.6:27b` found every rubric that scores a journey on its own blind to some defect for some judge, while both judges picked a journey over its flawed copy every time, and the cycle still accepted. The studio's default judge pair can be one model, since the engine serves `qwen3.8:27b` and `gemma4:26b` from one substitution group. Calibration follows the data for airline and hotel runs; banking from BPI 2017 declined 20% to 23% of submitted applications against 13%, because the data holds no passed check. Slices 14 (acceptance the judges can earn) and 15 (calibration people can bring) were approved with decisions 18 to 21.
+
+## 65. Give abandonment while KYC waits on documents its own lower weight
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/65
+
+An event can carry weights that hold in some states only (`weight_when`), scaled as its own weight is; the walker, the conformance scorer, and the decision values read them through `Walker.options`, and eval tasks export them. Banking abandonment keeps 0.15 before KYC starts and takes 0.03 while KYC waits on requested documents (`banking-pack-8`), because the data cannot set that share: at 0.15 a calibrated onboarding and risk run abandoned 27.6% of reviewed applications against 6.5% in BPI Challenge 2017, and it now abandons 6.3%. Abandonment of submitted applications fell from 37.3% to 34.0% against 37.1%, since only about 14% of calibrated journeys reached review against 45.7% in the data.

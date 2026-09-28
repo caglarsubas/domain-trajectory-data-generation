@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "banking-semi-markov-v2"
-PACK_VERSION = "banking-pack-8"
+PACK_VERSION = "banking-pack-9"
 
 OD = "onboarding_and_kyc"
 RC = "risk_and_compliance"
@@ -96,14 +96,15 @@ LIFECYCLE = LifecycleSpec(
             "kyc.passed", (OD,),
             requires=(need("kyc", "kyc", "pending", "documents_received"),),
             sets=(put("kyc", "kyc", "verified"),),
-            weight=0.75, outcome="kyc_outcome", dwell_hours=(0.05, 6.0),
+            # The application a check was run for is decided next; a journey does not stop in between.
+            weight=0.75, outcome="kyc_outcome", dwell_hours=(0.05, 6.0), follow_up=("application.approved", "application.declined"),
             violation="KYC passed without an open case, or during review before documents arrived",
         ),
         EventSpec(
             "kyc.failed", (OD, RC, DP, CC),
             requires=(need("kyc", "kyc", "pending", "review_required", "documents_received"),),
             sets=(put("kyc", "kyc", "failed"),),
-            weight=0.05, outcome="kyc_outcome", dwell_hours=(1.0, 48.0),
+            weight=0.05, outcome="kyc_outcome", dwell_hours=(1.0, 48.0), follow_up=("application.declined",),
             violation="KYC failed outside an open KYC case",
         ),
         EventSpec(
