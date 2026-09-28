@@ -39,6 +39,8 @@ function explain(flag, names) {
       return `${flag.model} returned no readable verdict for ${label(flag.rubric, names)}.`;
     case "repeats_disagree":
       return `${flag.model}'s repeated verdicts on ${label(flag.rubric, names)} fell on both sides of its threshold.`;
+    case "blind_to_defect":
+      return `${flag.model} scored journeys with a known defect no lower than their originals on ${label(flag.rubric, names)}, so its scores there cannot tell a flawed journey from a sound one.`;
     case "code_disagrees":
       return `${flag.model} and the code scorer disagree on ${label(flag.rubric, names)}.`;
     default:
@@ -77,12 +79,19 @@ function stability(item) {
   return item?.calls ? `${item.stable} of ${item.calls} stable` : "—";
 }
 
+const CONTROLS = { missing_step: "a step removed", worse_choice: "a worse choice", slow_wait: "a wait stretched" };
+
+function controlLabel(control) {
+  const kind = (control || "").replace(/^pairwise:/, "");
+  return CONTROLS[kind] || kind.replaceAll("_", " ");
+}
+
 // One row per call: its repeats' scores side by side, and the first reason given.
 function calls(verdicts) {
   const rows = [];
   const byKey = {};
   for (const item of verdicts) {
-    const key = `${item.judge_model}|${item.rubric}|${item.order || ""}`;
+    const key = `${item.judge_model}|${item.rubric}|${item.order || ""}|${item.control || ""}`;
     if (!byKey[key]) {
       byKey[key] = { ...item, repeats: [] };
       rows.push(byKey[key]);
@@ -92,8 +101,22 @@ function calls(verdicts) {
   return rows;
 }
 
+// In the pairwise control the original is A when asked first; name what was picked.
+function controlWinner(item) {
+  if (item.score === 0.5) return "tie";
+  return (item.order === "ab") === (item.score >= 0.5) ? "original" : "flawed copy";
+}
+
 function repeatScores(row) {
-  return row.repeats.map((item) => (!item.readable ? "unreadable" : item.order ? winner(item) : shown(item.score))).join(" · ");
+  const pairwiseControl = (row.control || "").startsWith("pairwise:");
+  return row.repeats
+    .map((item) => (!item.readable ? "unreadable" : pairwiseControl ? controlWinner(item) : item.order ? winner(item) : shown(item.score)))
+    .join(" · ");
+}
+
+function discriminationCell(row) {
+  if (!row) return "—";
+  return `${row.lower} of ${row.controls} scored lower${row.blind ? " · blind" : ""}`;
 }
 
 export default function JudgePanel({ cycle, onPick }) {
@@ -105,6 +128,9 @@ export default function JudgePanel({ cycle, onPick }) {
   const code = cycle.agreement?.code || {};
   const judging = cycle.judging;
   const repeated = Object.keys(repeats).length > 0;
+  const discrimination = cycle.agreement?.discrimination || {};
+  const pairwiseControl = cycle.agreement?.pairwise_control || {};
+  const controlled = Object.keys(discrimination).length > 0 || Object.keys(pairwiseControl).length > 0;
   const names = Object.fromEntries(Object.entries(judging?.rubrics || {}).filter(([, info]) => info.source === "study"));
   const againstCode = [...COMPARED.filter((rubric) => code[rubric]), ...Object.keys(code).filter((rubric) => code[rubric].study)];
   const grouped = {};
@@ -204,6 +230,42 @@ export default function JudgePanel({ cycle, onPick }) {
           </table>
         </>
       ) : null}
+      {controlled ? (
+        <>
+          <p className="lede">
+            Controls are copies of sampled journeys with one known defect, each confirmed by the pack: a step removed, a worse choice at a
+            decision, or a wait stretched far past its range. A judge that can tell journeys apart scores them lower than their originals; one
+            that does not is blind there, whatever its agreement says. Controls decide nothing.
+          </p>
+          <table className="target-table">
+            <thead>
+              <tr>
+                <th>Can the judges tell?</th>
+                <th>{primary}</th>
+                {second ? <th>{second}</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(discrimination).map((rubric) => (
+                <tr key={rubric}>
+                  <td>{label(rubric, names)}</td>
+                  <td>{discriminationCell(discrimination[rubric][primary])}</td>
+                  {second ? <td>{discriminationCell(discrimination[rubric][second])}</td> : null}
+                </tr>
+              ))}
+              {Object.keys(pairwiseControl).length ? (
+                <tr>
+                  <td>pairwise: original against its flawed copy</td>
+                  {[primary, second].filter(Boolean).map((model) => {
+                    const row = pairwiseControl[model];
+                    return <td key={model}>{row ? `picked the original ${Math.round(row.accuracy * 100)}%${row.blind ? " · blind" : ""}` : "—"}</td>;
+                  })}
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </>
+      ) : null}
       {Object.values(order).some((item) => item.journeys) ? (
         <p className="lede">
           Pairwise, asked in both orders:{" "}
@@ -228,7 +290,7 @@ export default function JudgePanel({ cycle, onPick }) {
           {flags.map((flag) => (
             <li key={`${flag.kind}|${flag.model}|${flag.rubric}`} data-kind={flag.kind}>
               {explain(flag, names)}
-              {flag.kind !== "likely_false_positive" ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
+              {!["likely_false_positive", "blind_to_defect"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
             </li>
           ))}
         </ul>
@@ -259,13 +321,27 @@ export default function JudgePanel({ cycle, onPick }) {
                 {calls(verdictsFor(entry.trajectory_id)).map((row, index) => (
                   <tr key={index}>
                     <td>{row.judge_model}</td>
-                    <td>{label(row.rubric, names)}{row.order ? ` (${row.order === "ab" ? "this journey first" : "alternative first"})` : ""}</td>
+                    <td>
+                      {label(row.rubric, names)}
+                      {row.control
+                        ? ` (control: ${controlLabel(row.control)}${row.order ? `, ${row.order === "ab" ? "original first" : "flawed copy first"}` : ""})`
+                        : row.order ? ` (${row.order === "ab" ? "this journey first" : "alternative first"})` : ""}
+                    </td>
                     <td>{repeatScores(row)}</td>
                     <td>{row.repeats.map((item) => item.parsed?.justification || item.parsed?.reason || "").find(Boolean) || ""}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {entry.controls?.length ? (
+              <ul className="judge-controls">
+                {entry.controls.map((item) => (
+                  <li key={item.kind}>
+                    {item.kind.startsWith("pairwise:") ? "Pairwise control" : "Control"} with {controlLabel(item.kind)}: {item.detail}.
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </details>
         ))}
       </div>

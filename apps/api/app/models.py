@@ -154,6 +154,8 @@ class EvalVerdict(Base):
     # Which repeat of its call this verdict is, from 0, and the engine's digest of a registered rubric.
     repeat_index: Mapped[int] = mapped_column(Integer, default=0)
     rubric_digest: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # The control journey this verdict is about: a defect kind, or "pairwise:<kind>" for the pairwise control.
+    control: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class StudyRubric(Base):

@@ -462,6 +462,7 @@ def _manifest(run, sector, cycles, generation, counts, split_counts, held_out, f
                         "canary": verdict.get("canary", False),
                         "repeat": verdict.get("repeat", 0),
                         "rubric_digest": verdict.get("rubric_digest"),
+                        "control": verdict.get("control"),
                     }
                     for verdict in cycle["verdicts"]
                 ],

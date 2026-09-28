@@ -54,7 +54,10 @@ JUDGE_PASS = {"process_conformance": 0.5, "decision_score": 0.75}
 
 QUESTIONS = {
     "process_conformance": "Score how typical each step of this {label} journey is under the reference process.",
-    "decision_score": "Score whether each outcome decision in this {label} journey took a choice as good as the best one there.",
+    "decision_score": (
+        "Score whether each outcome decision in this {label} journey took a choice as good as the best one there. A "
+        "choice clearly worse than another available one, such as giving up where going on was open, lowers the score."
+    ),
 }
 
 # The judge writes a study's rubrics through the eval route, which asks a reasoning judge to answer without thinking and
