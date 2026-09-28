@@ -117,7 +117,11 @@ def _policy(walker: Walker, floor: int, cap: int) -> str:
     """Everything a continuation's distribution depends on besides the context itself."""
     found = walker.calibration
     # Next-step shares read only the starts and transitions, so those identify a calibrated policy.
-    calibration = None if found is None else (sorted(found.starts.items()), sorted((event, sorted(following.items())) for event, following in found.transitions.items()))
+    calibration = None if found is None else (
+        sorted(found.starts.items()),
+        sorted((event, sorted(following.items())) for event, following in found.transitions.items()),
+        sorted((key, sorted(following.items())) for key, following in found.pairs.items()),
+    )
     raw = repr((walker.allowed, sorted(walker.weights.items()), walker.kept, walker.goals, floor, cap, calibration))
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -203,7 +207,8 @@ def decision_steps(lifecycle, walker: Walker, types: list[str]):
         if index and spec.outcome and spec.outcome not in decided:
             offered = walker.options(state, counts)
             if walker.calibration is not None:
-                offered = walker.calibration.reweight(types[index - 1], offered)
+                previous, before = walker.calibration.context(types[:index])
+                offered = walker.calibration.reweight(previous, offered, before)
             rivals = [(option, weight) for option, weight in offered if lifecycle[option].outcome == spec.outcome]
             if len(rivals) > 1 and name in dict(rivals):
                 decided.add(spec.outcome)

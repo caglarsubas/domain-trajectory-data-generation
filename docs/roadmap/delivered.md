@@ -348,3 +348,9 @@ Slice 12, first part. Every event of every pack has at least four phrasings in E
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/57
 
 Slice 12. The provider writer gets one skeleton per group, the opening its sequences share and each sequence's follow-ups and turns, and the composer and server budget one call per prompt, so the same cap covers up to 16 times as many sequences; a call's completion allowance and wait grow with the group's events. A written turn keeps the template it replaced. Each cycle samples written turns (`JUDGE_TEXT_SAMPLE`, 6) and asks every judge the registered `turn_faithfulness` rubric, the turn against its events and template; a turn every readable repeat of every judge calls unfaithful goes back to its template in the stored run (decision 14), and the judge panel shows the turns put back. Live, gemma4:26b wrote 48 turns of 16 sequences in 4 group calls, and gemma4:26b and qwen3.6:27b called two planted unfaithful turns, English and Turkish, unfaithful in every repeat while keeping all eight faithful ones.
+
+## 58. Judge process conformance once at temperature 0, over the listed steps, with a short reason
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/58
+
+With the next-step shares in its question (#53), a live telecom cycle still missed the one sampled journey the code fails, an order abandoned at typicality 0.14, and `qwen3.6:27b` left 8 of its 18 conformance answers unreadable. Conformance is arithmetic on the shares the question gives, so it is now asked once at temperature 0; the code rubrics ask for a reason under 40 words, so a judge no longer writes its arithmetic out past the answer budget; and the rubric averages the listed steps only, so steps with one legal option no longer count as 1. Replaying the cycle's six journeys, both judges agreed with the code on all six, with no unreadable answer, in about 100 seconds instead of 45 minutes.

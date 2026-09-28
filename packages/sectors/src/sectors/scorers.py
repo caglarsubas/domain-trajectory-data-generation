@@ -164,8 +164,9 @@ class Scorer:
         for index, name in enumerate(types):
             options = walker.options(state, counts, first=index == 0)
             if walker.calibration is not None:
-                options = walker.calibration.reweight(types[index - 1] if index else None, options)
-                following = walker.calibration.starts if index == 0 else walker.calibration.transitions.get(types[index - 1])
+                previous, before = walker.calibration.context(types[:index])
+                following = walker.calibration.following(previous, options, before)
+                options = walker.calibration.reweight(previous, options, before)
                 observed.append(bool(following and following.get(name)))
             weights = dict(options)
             if name in weights and len(options) > 1:
