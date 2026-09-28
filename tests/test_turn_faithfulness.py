@@ -199,17 +199,18 @@ def test_a_large_run_puts_turns_back_in_its_batch_files(client, monkeypatch):
     from app import store
 
     monkeypatch.setenv("JUDGE_SAMPLE_SIZE", "2")
-    monkeypatch.setenv("JUDGE_TEXT_SAMPLE", "12")
+    monkeypatch.setenv("JUDGE_TEXT_SAMPLE", "24")
     monkeypatch.setattr(store, "BATCH_SEQUENCES", 40)
     monkeypatch.setattr(generation, "BATCH_SEQUENCES", 40)
     store._read_json.cache_clear()
-    # Every first turn of every sequence holds the planted outcome, so any sample finds some.
-    headers, run = _written_run(client, "faithful-large@example.com", lambda call, position, index, turn: index == 0, target_trajectory_count=40)
+    # Every other turn holds the planted outcome. The sample is seeded by the run's id, so it differs from run to run; with
+    # half the turns planted, 24 of them hold both kinds but once in about ten million runs.
+    headers, run = _written_run(client, "faithful-large@example.com", lambda call, position, index, turn: index % 2 == 0, target_trajectory_count=40)
     assert run["generation"]["storage"]["batches"] > 1
     runtime.judge = FaithfulnessJudge()
     cycle = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["cycles"][0]
     rows = cycle["agreement"]["faithfulness"]["rows"]
-    assert len(rows) == 12 and {row["revert"] for row in rows} == {True, False}
+    assert len(rows) == 24 and {row["revert"] for row in rows} == {True, False}
     assert all(row["revert"] == (PLANTED in row["text"]) for row in rows)
     reverted = set(cycle["judging"]["faithfulness"]["reverted"])
     assert reverted == {row["segment_id"] for row in rows if row["revert"]}
