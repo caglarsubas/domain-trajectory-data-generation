@@ -294,3 +294,15 @@ A regenerated telecom run failed acceptance on pairwise quality alone: every sam
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/48
 
 Slice 9, first studio part, on engine #120. Each judge call asks for three verdicts at temperature 0.7 (`JUDGE_REPEATS`, `JUDGE_TEMPERATURE`), stored one per repeat, and a journey's score is the mean of its readable repeats. Each cycle reports agreement across repeats next to agreement across models: per rubric and model, the calls whose repeats all fall on one side of the threshold, and their mean spread. The studio registers `process_conformance` and `decision_score` as the platform tenant's rubrics, asks the judge both for every journey the code scored, and reports the judge's agreement with the code; they never decide acceptance. Each cycle records the repeats and every registered rubric's engine digest, and over-long prompts and timeouts read as explanations.
+
+## 49. Let the judge propose a study's solution and behavior rubrics from a group, and ask them once approved, completing Slice 9
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/49
+
+Slice 9, last part (4B). The judge reads one group of a run's journeys, a primary and its rollouts with both outcomes where it can, with the study brief and its warm-start passages, and writes a solution and a behavior rubric through the eval route: a title, a description, checkable criteria, what a 5, 3, and 1 show, and how clearly the group differs. The owner edits and approves them in a study rubrics panel under the judge panel; an edit needs approval again, and approving retires the previous rubric of its kind. An approved rubric is registered with the engine under a name that hashes its content, asked of every sampled journey in the study's cycles with repeats, and reported against the code's rubric of its kind; like pairwise, it does not decide acceptance. A run the judge has read can be judged again for a newly approved rubric.
+
+## 50. Bill a telecom line that goes live, and give it a new number when its port fails
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/50
+
+The telecom pack's pairwise judges preferred the alternative in five of six sampled journeys and named two gaps. An event can now name follow-ups, and a journey does not end right after it while one is legal and in scope: a live line gets its first bill, and a dispatched SIM, a port request, and a completed port or new number lead on to activation. A failed port now goes live only on a new number, the new `number.assigned` event (`telecom-pack-4`). In 512 journeys, no live line ends without a bill and no failed port goes live on its old number.

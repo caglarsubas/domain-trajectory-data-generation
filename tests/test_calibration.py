@@ -122,9 +122,11 @@ def test_a_calibration_reweights_legal_choices_and_times_steps():
     calibration = build(sequences, source="toy")
     assert calibration.cases == 100 and calibration.transitions["a"] == {"b": 90, "d": 10}
     assert calibration.dwell["a>b"] == (2.0, 2.0, 2.0, 90)
-    blended = dict(calibration.reweight("a", [("b", 1.0), ("d", 1.0), ("e", 1.0)]))
-    assert blended["b"] > blended["d"] > 0 and blended["e"] < 1.0
-    assert sum(blended.values()) == pytest.approx(3.0)
+    blended = dict(calibration.reweight("a", [("b", 1.0), ("d", 1.0), ("c", 1.0), ("e", 1.0)]))
+    # c is in the data but never follows a, so it gives way; e is nowhere in the data, so the data says nothing about it.
+    assert blended["b"] > blended["d"] > blended["c"] > 0 and blended["e"] == 1.0
+    assert sum(blended.values()) == pytest.approx(4.0)
+    assert calibration.observed_events == {"a", "b", "c", "d"}
     assert calibration.reweight("zzz", [("b", 1.0)]) == [("b", 1.0)]
     assert 1.0 <= calibration.dwell_hours(random.Random(1), "a", "b") <= 4.0
     assert calibration.dwell_hours(random.Random(1), "a", "e") is None
@@ -154,12 +156,14 @@ def test_an_uploaded_log_calibrates_runs_and_its_mapping_can_be_corrected(client
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
     headers, project_id = _study(client, "calibrate-upload@example.com")
     _upload(client, headers, project_id, "notes.md", b"Customers open accounts after kyc.passed.", kind="paper")
-    item = _upload(client, headers, project_id, "loans.xes", xes_log(bpi_like(60)))
+    # One application is cancelled before it is submitted, so the log records abandonment and its rarity counts.
+    cancelled = [[("A_Create Application", "2016-01-21T09:00:00+01:00"), ("A_Cancelled", "2016-01-21T09:30:00+01:00")]]
+    item = _upload(client, headers, project_id, "loans.xes", xes_log(bpi_like(60) + cancelled))
     assert item["job"]["status"] == "succeeded"
     summary = item["calibration"]
-    assert summary["status"] == "ready" and summary["format"] == "xes" and summary["cases"] == 60
+    assert summary["status"] == "ready" and summary["format"] == "xes" and summary["cases"] == 61
     assert summary["mapping"]["A_Denied"] == "application.declined" and summary["mapping"]["O_Create Offer"] is None
-    assert 0 < summary["mapped_share"] < 1 and summary["summary"]["cases"] == 60
+    assert 0 < summary["mapped_share"] < 1 and summary["summary"]["cases"] == 61
     facts = client.get(f"/projects/{project_id}/facts", headers=headers).json()
     assert not any("A_Create" in json.dumps(row["evidence"]) for row in facts["explicit"] + facts["implied"])
 
@@ -167,10 +171,10 @@ def test_an_uploaded_log_calibrates_runs_and_its_mapping_can_be_corrected(client
     plain = _run(client, headers, project_id, None, calibrate=False, **options).json()
     calibrated = _run(client, headers, project_id, None, **options).json()
     assert plain["generation"]["calibration"] is None and plain["generation"]["quality"]["representative"]["status"] != "measured"
-    assert calibrated["generation"]["calibration"]["cases"] == 60
+    assert calibrated["generation"]["calibration"]["cases"] == 61
     representative = calibrated["generation"]["quality"]["representative"]
     assert representative["status"] == "measured" and 0 <= representative["fitness"] <= 1 and 0 <= representative["precision"] <= 1
-    # Every logged application is submitted, so the calibrated run abandons fewer.
+    # One logged application in 61 is abandoned, so the calibrated run abandons fewer.
     assert _share(calibrated, "application.abandoned") < _share(plain, "application.abandoned")
     assert get_sector("banking").hard_checks(__import__("trajectory_contract").TrajectoryBundle.model_validate(calibrated["bundle"])) == []
 
