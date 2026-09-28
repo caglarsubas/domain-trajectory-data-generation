@@ -13,15 +13,18 @@ from __future__ import annotations
 BPI2017_MAPPING = {
     "A_Create Application": "application.started",
     "A_Submitted": "application.submitted",
-    "W_Validate application": "kyc.started",
-    # The bank's decision follows validation, as the pack's decision follows a passed check.
-    "A_Validating": "kyc.passed",
+    # Validation starts when the customer returns the offer's documents. W_Validate application, the work item around it,
+    # is left out: its events come after the decision as often as before it.
+    "A_Validating": "kyc.started",
     "A_Incomplete": "kyc.review_required",
     "W_Assess potential fraud": "kyc.review_required",
     "A_Pending": "application.approved",
     "A_Denied": "application.declined",
     "A_Cancelled": "application.abandoned",
 }
+# What the mapping gave before. A calibration stored before a person's choices were kept apart holds these among
+# its mapping, and no person chose them.
+BPI2017_RETIRED = {"W_Validate application": "kyc.started", "A_Validating": "kyc.passed"}
 
 ENTRIES = [
     {
@@ -39,6 +42,7 @@ ENTRIES = [
         "describes": "Loan applications at a Dutch financial institute from 2016 to February 2017: about 31,500 applications and 1.2 million events.",
         "calibrates": "Next-step shares and durations from application to approval, decline, or cancellation.",
         "mapping": BPI2017_MAPPING,
+        "retired_mapping": BPI2017_RETIRED,
     },
     {
         "id": "uci_bank_marketing",
@@ -135,4 +139,4 @@ MAX_DOWNLOAD = 60_000_000
 
 
 def public(entry: dict) -> dict:
-    return {key: value for key, value in entry.items() if key != "mapping"}
+    return {key: value for key, value in entry.items() if key not in {"mapping", "retired_mapping"}}

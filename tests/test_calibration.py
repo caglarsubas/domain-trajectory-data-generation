@@ -236,14 +236,14 @@ def test_an_activity_the_catalogue_mapping_leaves_out_stays_unmapped(client, tmp
     project = next(item for item in client.get("/projects", headers=headers).json()["data"] if item["id"] == project_id)
     source = project["corpus"][0]
     assert source["calibration"]["mapping"]["O_Accepted"] is None and source["calibration"]["mapping"]["A_Pending"] == "application.approved"
-    # Four steps per application: started, submitted, validation, its pass, and the decision; none through the offer.
-    assert source["calibration"]["summary"]["steps_observed"] == 4 * 30
+    # Three steps per application, from started to submitted, validation, and the decision; none through the offer.
+    assert source["calibration"]["summary"]["steps_observed"] == 3 * 30
 
     # A person can still map it, and the choice holds when the source is calibrated again.
     mapped = client.put(f"/projects/{project_id}/corpus/{source['id']}/mapping", headers=headers, json={"mapping": {"O_Accepted": "application.approved"}})
     assert mapped.json()["calibration"]["mapping"]["O_Accepted"] == "application.approved"
     again = client.put(f"/projects/{project_id}/corpus/{source['id']}/mapping", headers=headers, json={"mapping": {"O_Create Offer": None}}).json()["calibration"]
-    assert again["mapping"]["O_Accepted"] == "application.approved" and again["summary"]["steps_observed"] == 5 * 30
+    assert again["mapping"]["O_Accepted"] == "application.approved" and again["summary"]["steps_observed"] == 4 * 30
 
     # The same log uploaded has no catalogue mapping, so shared words still map the offer.
     uploaded = _upload(client, headers, project_id, "loans.xes", xes_log(cases))["calibration"]
@@ -252,9 +252,11 @@ def test_an_activity_the_catalogue_mapping_leaves_out_stays_unmapped(client, tmp
 
 def test_a_mapping_stored_before_saved_choices_were_kept_apart_keeps_only_a_persons_changes():
     # The mapping in use then held the catalogue's entries and suggestions; only where it differs did a person choose.
-    stored = {"A_Pending": "application.approved", "W_Validate application": "kyc.passed", "O_Accepted": "application.approved", "O_Create Offer": None}
+    stored = {"A_Pending": "application.approved", "A_Denied": "application.approved", "O_Accepted": "application.approved", "O_Create Offer": None}
+    # What the mapping once gave is not a person's choice either: validation was once taken for a passed check.
+    stored |= {"A_Validating": "kyc.passed", "W_Validate application": "kyc.started"}
     catalogue = SimpleNamespace(ingest={"catalogue": "bpi2017"}, calibration={"mapping": stored})
-    assert saved_mapping(catalogue, NAMESPACE) == {"W_Validate application": "kyc.passed"}
+    assert saved_mapping(catalogue, NAMESPACE) == {"A_Denied": "application.approved"}
     upload = SimpleNamespace(ingest={}, calibration={"mapping": {"A_Denied": None, "A_Submitted": "application.submitted"}})
     assert saved_mapping(upload, NAMESPACE) == {"A_Denied": None}
     kept = SimpleNamespace(ingest={"catalogue": "bpi2017"}, calibration={"mapping": stored, "saved": {"O_Accepted": "application.approved"}})
