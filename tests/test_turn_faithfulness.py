@@ -203,9 +203,11 @@ def test_a_large_run_puts_turns_back_in_its_batch_files(client, monkeypatch):
     monkeypatch.setattr(store, "BATCH_SEQUENCES", 40)
     monkeypatch.setattr(generation, "BATCH_SEQUENCES", 40)
     store._read_json.cache_clear()
-    # Every first turn of every sequence holds the planted outcome, so any sample finds some.
-    headers, run = _written_run(client, "faithful-large@example.com", lambda call, position, index, turn: index == 0, target_trajectory_count=40)
-    assert run["generation"]["storage"]["batches"] > 1
+    # Three writer calls write six sequences of two turns, so the sample holds every written turn whatever the run's id
+    # seeds, and the first turn of each holds the planted outcome.
+    headers, run = _written_run(client, "faithful-large@example.com", lambda call, position, index, turn: index == 0, target_trajectory_count=40,
+                                max_assistant_turns=2, provider_text_budget=3)
+    assert run["generation"]["storage"]["batches"] > 1 and run["generation"]["text"]["written"] == 12
     runtime.judge = FaithfulnessJudge()
     cycle = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["cycles"][0]
     rows = cycle["agreement"]["faithfulness"]["rows"]
