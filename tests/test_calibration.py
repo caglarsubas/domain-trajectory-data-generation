@@ -300,6 +300,18 @@ def test_a_calibration_follows_steps_through_events_a_run_leaves_out():
     assert dict(calibration.projected({"a", "x", "b", "c"}).transitions["a"]) == {"x": 30, "c": 10}
 
 
+def _decline_policy(run) -> set[float]:
+    """The policy's share of a decline where a checked application is decided, as the conformance scorer records it."""
+    found = set()
+    for sample in run["bundle"]["samples"]:
+        for sequence in sample["sequences"]:
+            for point in ((sequence.get("signals") or {}).get("process_conformance") or {}).get("reference") or []:
+                shares = point["shares"]
+                if point["after"] == "kyc.passed" and {"application.approved", "application.declined"} <= set(shares):
+                    found.add(round(shares["application.declined"] / (shares["application.declined"] + shares["application.approved"]), 3))
+    return found
+
+
 def test_bpi_2017_through_the_catalogue_moves_the_decision_toward_the_data(client, tmp_path, monkeypatch):
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
     headers, project_id = _study(client, "bpi-decisions@example.com")
@@ -309,6 +321,8 @@ def test_bpi_2017_through_the_catalogue_moves_the_decision_toward_the_data(clien
     options = dict(target_trajectory_count=60, event_budget=None, sub_domains=["onboarding_and_kyc", "consumer_credit"], min_events=4, max_events=14)
     plain = _run(client, headers, project_id, None, calibrate=False, **options).json()
     calibrated = _run(client, headers, project_id, None, **options).json()
-    # One in three applications in the data is denied; the pack's prior declines far fewer.
-    assert _share(calibrated, "application.declined") >= _share(plain, "application.declined") + 0.05
+    # One in three applications in the data is denied; the pack's prior declines far fewer. The policy's shares are
+    # compared, not a sample of 60 journeys: the run's seed hashes the corpus, whose gzip bytes differ with the zlib build.
+    (calibrated_share,), (plain_share,) = _decline_policy(calibrated), _decline_policy(plain)
+    assert plain_share < 0.2 and abs(calibrated_share - 1 / 3) < 0.1
     assert calibrated["generation"]["quality"]["representative"]["status"] == "measured"
