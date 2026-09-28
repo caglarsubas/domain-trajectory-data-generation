@@ -22,7 +22,7 @@ from trajectory_contract.models import TrajectoryBundle
 from app.judge import Judge
 from app.controls import pairwise_pick
 from app.faithfulness import facts
-from app.judge_rubrics import FAITHFULNESS_QUESTION, JUDGE_PASS, QUESTIONS, TURN_FAITHFULNESS
+from app.judge_rubrics import DETERMINISTIC, FAITHFULNESS_QUESTION, JUDGE_PASS, QUESTIONS, TURN_FAITHFULNESS
 
 UNREADABLE = "_unreadable"
 
@@ -368,7 +368,10 @@ def evaluate_journeys(
             if call.get("control"):
                 what += f" of a {call['control'].split(':')[-1].replace('_', ' ')} control"
             progress(index, len(planned), f"{model}: {what} ({index + 1} of {len(planned)}).")
-        result = judge.run_eval(rubric=call["rubric"], judge_model=model, repeats=repeats, temperature=temperature, **call["payload"])
+        fixed = call["rubric"] in DETERMINISTIC
+        result = judge.run_eval(
+            rubric=call["rubric"], judge_model=model, repeats=1 if fixed else repeats, temperature=0.0 if fixed else temperature, **call["payload"]
+        )
         # One entry per repeat; a judge that answers once is one repeat.
         answers = result.get("verdicts") or [result]
         for repeat, answer in enumerate(answers):
