@@ -118,19 +118,23 @@ def test_an_account_opens_only_after_its_application_is_approved():
     assert opened > 0
 
 
-def test_an_application_can_be_abandoned_once_submitted_until_kyc_starts():
-    bundle = _bundle(sub_domains=["onboarding_and_kyc", "consumer_credit"], target_trajectory_count=64, event_budget=None, seed="abandonment")
+def test_an_application_can_be_abandoned_before_kyc_starts_or_while_kyc_waits_on_documents():
+    bundle = _bundle(sub_domains=["onboarding_and_kyc", "consumer_credit", "risk_and_compliance"], target_trajectory_count=64, event_budget=None, seed="abandonment")
     assert banking_hard_checks(bundle) == []
     abandoned = [types for types in _primaries(bundle) if "application.abandoned" in types]
     assert any("application.submitted" in types for types in abandoned) and any("application.submitted" not in types for types in abandoned)
-    assert not any("kyc.started" in types for types in abandoned)
-    # In place of the KYC check, an abandonment is legal; once the check has started, it is not.
-    before = banking_fixture()
-    before.events[3].event_type = "application.abandoned"
-    assert not any("application abandoned" in item for item in banking_hard_checks(before))
-    during = banking_fixture()
-    during.events[4].event_type = "application.abandoned"
-    assert any("application abandoned before it started or after KYC started" in item for item in banking_hard_checks(during))
+    # Once KYC has started, only a request for documents leaves the next move to the customer.
+    last_kyc = [next((name for name in reversed(types) if name.startswith("kyc.")), None) for types in abandoned]
+    assert set(last_kyc) == {None, "kyc.review_required"}
+    # In place of the KYC check, or of the documents asked for, an abandonment is legal; while the bank checks, it is not.
+    for index in (3, 12):
+        legal = banking_fixture()
+        legal.events[index].event_type = "application.abandoned"
+        assert not any("application abandoned" in item for item in banking_hard_checks(legal))
+    for index in (4, 13):
+        illegal = banking_fixture()
+        illegal.events[index].event_type = "application.abandoned"
+        assert any("application abandoned before it started, or during KYC while no documents were requested" in item for item in banking_hard_checks(illegal))
 
 
 def test_feedback_drop_revise_and_keep_change_the_next_bundle():
