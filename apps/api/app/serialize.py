@@ -148,6 +148,7 @@ def run_out(run: Run, db: Session) -> dict:
                         "canary": bool(row.canary),
                         "repeat": row.repeat_index or 0,
                         "rubric_digest": row.rubric_digest,
+                        "control": row.control,
                     }
                     for row in verdicts
                 ],

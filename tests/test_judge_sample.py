@@ -67,7 +67,10 @@ def test_a_cycle_judges_a_sample_with_both_models_and_reports_agreement(client, 
     assert cycle["models"] == [PRIMARY, SECOND]
     assert len(cycle["sample"]) == 3 and all(entry["alternative"] for entry in cycle["sample"])
     assert {call["model"] for call in runtime.judge.calls} == {PRIMARY, SECOND}
-    assert len(runtime.judge.calls) == 2 * (3 * 5 + 1) == len(cycle["verdicts"])
+    # Per model: five calls per journey, the reversed control, each control's rubrics, and the pairwise control in both orders.
+    controls = [item for entry in cycle["sample"] for item in entry.get("controls", [])]
+    per_model = 3 * 5 + 1 + sum(len(item["rubrics"]) * (2 if item["kind"].startswith("pairwise:") else 1) for item in controls)
+    assert controls and len(runtime.judge.calls) == 2 * per_model == len(cycle["verdicts"])
 
     scores = cycle["scores"]
     assert scores["helpfulness"] == {PRIMARY: 4.0, SECOND: pytest.approx(3.3333, abs=1e-3)}

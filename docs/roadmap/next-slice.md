@@ -50,7 +50,19 @@ Two things outside the code:
 - **The studio's judge address is offline.** `.env` points `INFERENCE_ENGINE_BASE_URL` at an ngrok tunnel that answers 404 on every path; the engine itself runs locally on port 8080 with #120. Judge cycles from the Docker stack fail until the address is updated.
 - **In flight in another session:** #53 gives the conformance judge the next-step shares the code scores typicality with. Slice 11 builds on it once it merges rather than duplicating it.
 
-## Slice 11: judges that can tell journeys apart
+## Delivered: Slice 11, judges that can tell journeys apart
+
+Delivered in one pull request covering tasks 1 to 5. A live cycle on the local engine, one repeat, three banking journeys and three controls, 522 seconds:
+
+| Rubric | `gemma4:26b` | `qwen3.6:27b` |
+|---|---|---|
+| Correctness | caught the missing step, 1 to 0 | caught it, 1 to 0 |
+| Decision score | scored the worse choice lower, 1 to 0.5 | lower, 1 to 0.5 |
+| Pairwise control | picked the original in both orders | picked the original in both orders |
+| Process conformance | lower, 1 to 0.75 | blind, 1 to 1 |
+| Helpfulness | blind: 5 to 5 for the missing step, 2 to 2 for the slow wait | blind, 2 to 2 |
+
+With questions that name what to look for, the judges no longer give every journey the top score: helpfulness averaged 4 of 5 and correctness 0.67. Helpfulness, which decides acceptance, is still blind to both defects it was given, and `qwen3.6:27b` is blind on conformance; the run page now says so.
 
 1. **Graded controls.** Each cycle adds, beside the reversed control journey, copies of sampled journeys with one known defect, each confirmed by the pack's own machinery:
    - a required step removed, so the replay fails at one point;

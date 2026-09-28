@@ -18,6 +18,7 @@ from statistics import mean
 from trajectory_contract.models import TrajectoryBundle
 
 from app.judge import Judge
+from app.controls import pairwise_pick
 from app.judge_rubrics import JUDGE_PASS, QUESTIONS
 
 UNREADABLE = "_unreadable"
@@ -43,6 +44,17 @@ COMPARED = tuple(JUDGE_PASS)
 CODE_SIGNALS = (*COMPARED, "solution_rubric", "behavior_rubric")
 # A study rubric's verdict passes at the middle of its scale.
 STUDY_PASS = 0.5
+
+# The studio's questions name what to look for, so a judge checks for the defects its controls carry.
+HELPFULNESS_QUESTION = (
+    "Score how representative this {label} journey is. A skipped step, events out of order, or a wait far longer than "
+    "such a step takes makes it less representative; a journey that plainly ends in a failure is as representative as "
+    "one that succeeds."
+)
+CORRECTNESS_QUESTION = (
+    "Do these events follow the {label} transitions in the reference, in order? A step that comes before what it "
+    "depends on, or after a step it needs was skipped, means they do not."
+)
 
 # Helpfulness is scored 1 to 5; the others 0 to 1. Normalized scores divide by this.
 SCALE = {"helpfulness": 5.0}
@@ -223,12 +235,15 @@ def evaluate_journeys(
     temperature: float = 0.0,
     compared: dict[str, str] | None = None,
     study: dict[str, dict] | None = None,
+    controls: list[dict] | None = None,
 ) -> dict:
     """Judge a sample of journeys with every model and turn the verdicts into a cycle.
 
     `compared` names the code-comparison rubrics the engine has registered, with their digests; each is asked only
     of journeys the code scored with it. `study` names the study's approved rubrics as registered, with their kind,
-    title, digest, and the code signal each is compared with; each is asked of every journey.
+    title, digest, and the code signal each is compared with; each is asked of every journey. `controls` are copies of
+    sampled journeys with one known defect (`app.controls`): each is asked the rubrics its defect should lower, and
+    one is set against its original as a pairwise question with a right answer.
     """
     compared = compared or {}
     study = study or {}
@@ -240,6 +255,18 @@ def evaluate_journeys(
     label = sector.label.lower()
     calls: list[dict] = []
     sample = []
+
+    def payload(rubric: str, text: str, reference: list[dict] | None = None) -> dict:
+        if rubric == "helpfulness":
+            return {"prompt": brief + "\n" + HELPFULNESS_QUESTION.format(label=label), "response": text}
+        if rubric == "correctness":
+            return {"prompt": CORRECTNESS_QUESTION.format(label=label), "response": text, "expected": brief}
+        if rubric == "safety":
+            return {"prompt": "Confirm the journey is synthetic and holds no real personal or account identifiers.", "response": text}
+        question = brief + "\n" + QUESTIONS[rubric].format(label=label)
+        shares = reference_shares(reference)
+        return {"prompt": question + ("\n" + shares if shares else ""), "response": text}
+
     for journey in journeys:
         primary = next(item for item in journey.trajectories if item.parent_trajectory_id is None)
         alternative = next((item for item in journey.trajectories if item.parent_trajectory_id == primary.trajectory_id), None)
@@ -257,22 +284,11 @@ def evaluate_journeys(
             }
         )
         own = {"trajectory_id": primary.trajectory_id, "order": None, "canary": False}
-        calls.append({**own, "rubric": "helpfulness", "payload": {"prompt": brief + f"\nScore how representative this {label} journey is.", "response": text}})
-        calls.append(
-            {
-                **own,
-                "rubric": "correctness",
-                "payload": {"prompt": f"Do these events follow the {label} transitions in the reference, in order?", "response": text, "expected": brief},
-            }
-        )
-        calls.append({**own, "rubric": "safety", "payload": {"prompt": "Confirm the journey is synthetic and holds no real personal or account identifiers.", "response": text}})
+        for rubric in ("helpfulness", "correctness", "safety"):
+            calls.append({**own, "rubric": rubric, "payload": payload(rubric, text)})
         for rubric in COMPARED:
             if rubric in compared and rubric in sample[-1]["code"]:
-                question = brief + "\n" + QUESTIONS[rubric].format(label=label)
-                shares = reference_shares(signals[rubric].get("reference"))
-                if shares:
-                    question += "\n" + shares
-                calls.append({**own, "rubric": rubric, "payload": {"prompt": question, "response": text}})
+                calls.append({**own, "rubric": rubric, "payload": payload(rubric, text, signals[rubric].get("reference"))})
         for name, info in study.items():
             question = brief + f"\nScore this {label} journey against the study's {info['kind']} rubric."
             calls.append({**own, "rubric": name, "payload": {"prompt": question, "response": text}})
@@ -295,16 +311,43 @@ def evaluate_journeys(
                     "order": None,
                     "canary": True,
                     "rubric": "correctness",
-                    "payload": {"prompt": f"Do these events follow the {label} transitions in the reference, in order?", "response": text, "expected": brief},
+                    "payload": payload("correctness", text),
                 }
             )
             break
+    by_id = {entry["trajectory_id"]: (journey, entry) for journey, entry in zip(journeys, sample)}
+    asked_controls = []
+    for control in controls or []:
+        journey, entry = by_id[control["trajectory_id"]]
+        size = budget_chars if entry["alternative"] is None else budget_chars // 2
+        text, _ = render_journey(control["bundle"], control["trajectory_id"], size)
+        # A code-comparison rubric is asked of a control only where it was asked of the original.
+        rubrics = [rubric for rubric in control["rubrics"] if rubric in {"helpfulness", "correctness"} or (rubric in compared and rubric in entry["code"])]
+        if not rubrics:
+            continue
+        mark = {"trajectory_id": control["trajectory_id"], "order": None, "canary": False, "control": control["kind"]}
+        for rubric in rubrics:
+            calls.append({**mark, "rubric": rubric, "payload": payload(rubric, text, control.get("reference"))})
+        entry.setdefault("controls", []).append({"kind": control["kind"], "detail": control["detail"], "rubrics": rubrics})
+        asked_controls.append(control)
+    chosen = pairwise_pick(asked_controls)
+    if chosen is not None:
+        journey, entry = by_id[chosen["trajectory_id"]]
+        mine, _ = render_journey(journey, chosen["trajectory_id"], budget_chars // 2, blind=True)
+        flawed, _ = render_journey(chosen["bundle"], chosen["trajectory_id"], budget_chars // 2, blind=True)
+        question = brief + "\n" + PAIRWISE_QUESTION
+        mark = {"trajectory_id": chosen["trajectory_id"], "canary": False, "control": f"pairwise:{chosen['kind']}", "rubric": "pairwise_quality"}
+        calls.append({**mark, "order": "ab", "payload": {"prompt": question, "response": mine, "response_b": flawed}})
+        calls.append({**mark, "order": "ba", "payload": {"prompt": question, "response": flawed, "response_b": mine}})
+        entry.setdefault("controls", []).append({"kind": f"pairwise:{chosen['kind']}", "detail": chosen["detail"], "rubrics": ["pairwise_quality"]})
 
     planned = [(model, call) for model in models for call in calls]
     verdicts = []
     for index, (model, call) in enumerate(planned):
         if progress is not None:
             what = "a control journey" if call["canary"] else call["rubric"].replace("_", " ")
+            if call.get("control"):
+                what += f" of a {call['control'].split(':')[-1].replace('_', ' ')} control"
             progress(index, len(planned), f"{model}: {what} ({index + 1} of {len(planned)}).")
         result = judge.run_eval(rubric=call["rubric"], judge_model=model, repeats=repeats, temperature=temperature, **call["payload"])
         # One entry per repeat; a judge that answers once is one repeat.
@@ -327,6 +370,7 @@ def evaluate_journeys(
                     "trajectory_id": call["trajectory_id"],
                     "order": call["order"],
                     "canary": call["canary"],
+                    "control": call.get("control"),
                     "readable": readable,
                     "repeat": repeat,
                     "rubric_digest": result.get("rubric_digest") or compared.get(call["rubric"]) or study.get(call["rubric"], {}).get("digest"),
@@ -371,7 +415,8 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
     minimum.update({name: STUDY_PASS for name in study})
     # Each judge rubric that has a code counterpart, and the code signal it is set against.
     against = {rubric: rubric for rubric in COMPARED} | {name: info["signal"] for name, info in study.items()}
-    judged = [item for item in verdicts if not item["canary"]]
+    # Control journeys measure the judge; they are summarized apart and never score the run.
+    judged = [item for item in verdicts if not item["canary"] and not item.get("control")]
     # One value per journey, rubric, and model: the mean of its readable repeats. Pairwise combines both orders into
     # the primary journey's preference.
     per: dict[tuple[str, str, str], float | None] = {}
@@ -516,6 +561,8 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
         if rubric in study:
             code[rubric].update(kind=study[rubric]["kind"], title=study[rubric]["title"], study=True)
 
+    discrimination, pairwise_control = _discrimination(verdicts, per, flags)
+
     # A broken verdict blocks acceptance only when it leaves a sampled journey unscored for a rubric that decides it;
     # pairwise judges both orders, so one readable order still scores the journey.
     gating = [rubric for rubric in asked if rubric in GATING]
@@ -536,8 +583,58 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
         notes.append(f"{rubric} {value:g} below {minimum[rubric]:g}. {reason}".strip())
     return {
         "scores": scores,
-        "agreement": {"by_rubric": agreement, "order_consistency": order, "repeats": repeats, "code": code},
+        "agreement": {
+            "by_rubric": agreement,
+            "order_consistency": order,
+            "repeats": repeats,
+            "code": code,
+            "discrimination": discrimination,
+            "pairwise_control": pairwise_control,
+        },
         "flags": flags,
         "accepted": accepted,
         "revision_notes": notes,
     }
+
+
+# Below this share of controls scored lower than their originals, a judge is blind to the defects on that rubric; for
+# the pairwise control, a judge that picks the original no more often than chance is blind to it.
+SEES = 0.5
+
+
+def _discrimination(verdicts: list[dict], per: dict, flags: list[dict]) -> tuple[dict, dict]:
+    """How often each judge scores a control below its original, per rubric, and picks the original in the pairwise one."""
+    groups: dict[tuple[str, str, str, str], list[float]] = {}
+    pairwise: dict[str, list[float]] = {}
+    for item in verdicts:
+        control = item.get("control")
+        if not control or not item["readable"]:
+            continue
+        if control.startswith("pairwise:"):
+            # The original is A when asked first and B when asked second; a pick of the original counts 1, a tie a half.
+            pairwise.setdefault(item["judge_model"], []).append(item["score"] if item["order"] == "ab" else 1.0 - item["score"])
+            continue
+        groups.setdefault((item["trajectory_id"], control, item["rubric"], item["judge_model"]), []).append(item["score"])
+    found: dict[str, dict[str, dict]] = {}
+    for (tid, control, rubric, model), scores in groups.items():
+        original = per.get((tid, rubric, model))
+        if original is None:
+            continue
+        row = found.setdefault(rubric, {}).setdefault(model, {"controls": 0, "lower": 0, "kinds": {}})
+        lower = mean(scores) < original
+        row["controls"] += 1
+        row["lower"] += int(lower)
+        row["kinds"][control] = {"original": round(original, 4), "control": round(mean(scores), 4), "lower": lower}
+    for rubric, by_model in found.items():
+        for model, row in by_model.items():
+            row["rate"] = round(row["lower"] / row["controls"], 4)
+            row["blind"] = row["rate"] < SEES
+            if row["blind"]:
+                flags.append({"kind": "blind_to_defect", "trajectory_id": None, "rubric": rubric, "model": model})
+    control = {}
+    for model, picks in pairwise.items():
+        accuracy = round(mean(picks), 4)
+        control[model] = {"calls": len(picks), "accuracy": accuracy, "blind": accuracy <= SEES}
+        if accuracy <= SEES:
+            flags.append({"kind": "blind_to_defect", "trajectory_id": None, "rubric": "pairwise_quality", "model": model})
+    return found, control

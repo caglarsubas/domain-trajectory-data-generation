@@ -199,7 +199,10 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
     asked = {call["rubric"] for call in judge.calls}
     assert {"process_conformance", "decision_score"} <= asked
     conformance = [call for call in judge.calls if call["rubric"] == "process_conformance"]
-    assert len(conformance) == 2 * 2 and all("reference process" in call["prompt"] for call in conformance)
+    assert all("reference process" in call["prompt"] for call in conformance)
+    # Two journeys by two models, and any control a removed step makes, asked conformance too.
+    originals = [item for item in cycle["verdicts"] if item["rubric"] == "process_conformance" and not item["control"]]
+    assert len(originals) == 2 * 2 * 3
     # The judge reads the same next-step shares the code scores typicality with; the cycle keeps only the verdicts.
     assert any("Reference next steps" in call["prompt"] and "%" in call["prompt"] for call in conformance)
     assert all(set(entry["code"]["process_conformance"]) == {"score", "passed"} for entry in cycle["sample"])

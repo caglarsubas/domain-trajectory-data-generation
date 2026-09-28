@@ -49,6 +49,22 @@ The cycle's `agreement.code` gives, per rubric, the code's pass count and mean, 
 
 The cycle's `judging` records the repeats, their temperature, and each registered rubric's engine digest; each verdict of a registered rubric carries that `rubric_digest`. An engine without tenant rubrics still judges the other rubrics, and `judging.notes` says what was skipped.
 
+## Controls: can the judges tell?
+
+Agreement between judges, and across a judge's repeats, is perfect when every journey gets the top score, which is what two local judges did before this. So each cycle also asks the judges about journeys with one known defect. Beside the reversed control journey, it adds copies of sampled journeys (`apps/api/app/controls.py`, found by `packages/sectors/src/sectors/controls.py`), at most one of each kind and from different journeys where they allow:
+
+| Control | Defect | Confirmed by | Rubrics that should score it lower |
+|---|---|---|---|
+| `missing_step` | an inner event removed, searched from the middle outward | the pack's replay fails at a later event, and so do its hard checks | correctness, process conformance, helpfulness |
+| `worse_choice` | at an outcome decision, the rival with the lowest simulated chance of reaching the goal, at most 0.9 of the choice made; the journey ends there | the decision values, and the hard checks still pass | decision score |
+| `slow_wait` | one wait stretched to ten times its step's longest wait, at least 30 days | the step's dwell and cycle ranges, and the hard checks still pass | helpfulness |
+
+A copy keeps its original's customer messages and narrates its own events with the pack's templates, so it reads like any other journey with one thing wrong. A code-comparison rubric is asked of a control only where it was asked of the original. One control, a missing step first, is also set against its original as a pairwise question, blind and in both orders: the judge should pick the original.
+
+The cycle's `agreement.discrimination` gives, per rubric and model, how many controls scored below their original (the mean of their readable repeats against the original's) and the rate; below half, the judge is `blind` there and flagged `blind_to_defect`. `agreement.pairwise_control` gives each model's share of picks of the original, a tie counting a half; at 0.5 or below it is blind to that too. Each sampled journey's `controls` name what was changed. Control verdicts carry `control` (the kind, or `pairwise:<kind>`), stay out of scores, agreement, and flags about the run's journeys, and decide nothing (decision 13).
+
+The studio's questions now name what to look for: helpfulness asks about skipped steps, events out of order, and waits far past a step's usual time, and says a journey that ends in a failure is as representative as one that succeeds; correctness asks about a step that comes before what it depends on; the decision score asks about a choice clearly worse than another open one.
+
 ## Study rubrics
 
 The judge can propose a solution and a behavior rubric for a study, after the code's solution and behavior rubrics:

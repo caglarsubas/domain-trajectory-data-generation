@@ -318,3 +318,15 @@ Slice 10, first part. The catalogue adds the hotel booking demand datasets (Anto
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/52
 
 Slice 10, second and last part. On request, a model at the provider of the run's own key writes each sequence's assistant turns in one call, from a skeleton of the customer's messages and each turn's events with their template sentences, amounts, and times; no object id or document text is sent. Code checks every turn: every event in order, each amount stated, no other number, no identifier, email address, or link, no event name, the run's language, and not a copy of the template. A turn that fails keeps its template. The writing happens before scoring, so journeys never change and length penalties see the written text; the composer takes a cap of one call per sequence, at most 4,000. On the local engine, `gemma4:26b` wrote English and Turkish turns that passed, and one that passed the checks still changed a declined guarantee into a cancellation.
+
+## 53. Give the conformance judge the next-step shares the code scores typicality with
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/53
+
+The code scores process conformance as the mean, over steps where a journey could branch, of the taken step's share over the most common one's. The judge saw only the brief's ordering rules, so both judges gave every journey 5 of 5. The scorer now records the shares at each branching step, the judge's conformance question lists them, and the rubric asks for the same ratio averaged over the steps, mapped 1 to 5.
+
+## 54. Review the roadmap after Slices 8 to 10 and approve Slices 11 to 13
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/54
+
+Docs only. The review re-ran the gates against `eaba152`, and every pack passes all eight; a 10,000-sequence full-feature run costs about 1.5 times the plain one, as at Slice 8's commit on the same machine. A live cycle with `gemma4:26b` and `qwen3.6:27b` gave three banking journeys the top score on every rubric and repeat, including conformance and decision scores the code fails, so agreement said nothing. Templated text has 16% to 29% distinct sentences, written text is not checked for meaning, and first-order calibration lets delayed flights arrive late in 32% of journeys against 84% in the data. Slices 11 (judges that can tell journeys apart), 12 (text worth training on), and 13 (calibration beyond one step, and the last sources) were approved with decisions 13 to 17.

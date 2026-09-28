@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import runtime, study_rubrics
+from app.controls import build as build_controls
 from app.evaluation import code_signals, evaluate_journeys
 from app.retrieval import reference as reference_passages
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable, RubricLimitReached, RubricsUnsupported
@@ -204,6 +205,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 temperature=judging["temperature"],
                 compared=compared,
                 study=study,
+                controls=build_controls(journeys, sector, run.config),
             )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
@@ -246,6 +248,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 canary=1 if verdict["canary"] else 0,
                 repeat_index=verdict.get("repeat", 0),
                 rubric_digest=verdict.get("rubric_digest"),
+                control=verdict.get("control"),
             )
         )
     run.cycle_count += 1
