@@ -121,7 +121,11 @@ class RunBody(BaseModel):
     provider_rollouts: int = Field(default=0, ge=0, le=4)
     provider_call_budget: int | None = Field(default=None, ge=2, le=4000)
     provider_model: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9._:-]*$")
-    # Generation does not call a provider; a key is only needed for deep search.
+    # A provider model writes the assistant's turn text from each sequence's skeleton, one call per sequence, on the
+    # run's key; code checks every turn and a turn that fails keeps its template. Off by default.
+    provider_text: bool = False
+    provider_text_budget: int | None = Field(default=None, ge=1, le=4000)
+    # Generation calls a provider only for provider rollouts and provider-written text; deep search uses the key too.
     credential_id: str | None = None
 
 
@@ -141,6 +145,8 @@ class RerunBody(BaseModel):
     provider_rollouts: int | None = Field(default=None, ge=0, le=4)
     provider_call_budget: int | None = Field(default=None, ge=2, le=4000)
     provider_model: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9._:-]*$")
+    provider_text: bool | None = None
+    provider_text_budget: int | None = Field(default=None, ge=1, le=4000)
     target_trajectory_count: int | None = Field(default=None, ge=1, le=100_000)
     event_budget: int | None = None
     min_events: int | None = Field(default=None, ge=1, le=10_000)

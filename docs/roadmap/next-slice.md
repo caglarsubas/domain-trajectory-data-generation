@@ -111,9 +111,9 @@ Then, in the studio:
 
 Exit: a rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric.
 
-## In progress: Slice 10, representative everywhere and natural text
+## Delivered: Slice 10, representative everywhere and natural text
 
-Done so far: the hotel and airline catalogue sources with their adapters. Provider-written turn text is next.
+Done: the hotel and airline catalogue sources with their adapters (#51), and provider-written turn text checked by code against the skeleton.
 
 - **Hotel calibration:** a catalogue adapter for the Hotel booking demand dataset (decision 10). Cancellations, no-shows, and lead times calibrate the hotel pack's guarantee, cancellation, and arrival outcomes and their durations.
 - **Airline calibration:** an adapter for the Bureau of Transportation Statistics on-time performance data. Delay and cancellation rates and delay lengths calibrate the airline pack's disruption outcomes.

@@ -48,6 +48,8 @@ const EMPTY = {
   provider_rollouts: 0,
   provider_call_budget: null,
   provider_model: null,
+  provider_text: false,
+  provider_text_budget: null,
   thresholds: { helpfulness: 3, correctness: 0.5, safety: 1, pairwise_quality: 0.5 },
 };
 
@@ -145,6 +147,10 @@ function Composer() {
   const chosenKey = keys.find((item) => item.id === form.credential_id);
   const callEstimate = form.target_trajectory_count * rollouts * 2;
   const providerCalls = Math.min(Number(form.provider_call_budget) || callEstimate, callEstimate, 4000);
+  // Provider-written text: one call per sequence, capped by the owner and at 4,000.
+  const writing = Boolean(form.provider_text);
+  const textCalls = writing ? Math.min(Number(form.provider_text_budget) || sequences, sequences, 4000) : 0;
+  const allCalls = (rollouts ? providerCalls : 0) + textCalls;
   const blockers = [
     form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
     form.start_mode === "cold" && !form.cold_start_acknowledged ? "Acknowledge the cold start on the Corpus step." : null,
@@ -159,8 +165,9 @@ function Composer() {
     rollouts && !form.credential_id ? "Provider rollouts run on your own key; choose one on the Signals step, or set rollouts to 0." : null,
     rollouts && !episodesOn ? "Provider rollouts need episodes; use the post-training or evaluation consumer, or set rollouts to 0." : null,
     rollouts && groupSize < 2 ? "Provider rollouts need at least two sequences per prompt: an episode is the decision where a group's sequences part." : null,
-    quota && rollouts && providerCalls > quota.max_provider_calls
-      ? `Demo runs make at most ${quota.max_provider_calls} provider calls; this one may make ${providerCalls}.`
+    writing && !form.credential_id ? "Provider-written text runs on your own key; choose one on the Signals step, or turn it off." : null,
+    quota && allCalls && allCalls > quota.max_provider_calls
+      ? `Demo runs make at most ${quota.max_provider_calls} provider calls; this one may make ${allCalls}.`
       : null,
     quota && quota.daily.runs.used >= quota.daily.runs.limit
       ? `Demo accounts can start ${quota.daily.runs.limit} runs a day${quota.daily.runs.frees_at ? `; the next one is available at ${quota.daily.runs.frees_at.slice(11, 16)} UTC` : ""}.`
@@ -289,7 +296,12 @@ function Composer() {
   }
 
   // Sent explicitly so a re-run uses the cap and model shown here, not the previous run's.
-  const providerFields = { provider_call_budget: rollouts ? providerCalls : null, provider_model: form.provider_model || "" };
+  const providerFields = {
+    provider_call_budget: rollouts ? providerCalls : null,
+    provider_text: writing,
+    provider_text_budget: writing ? textCalls : null,
+    provider_model: form.provider_model || "",
+  };
 
   async function confirm() {
     setBusy(true);
@@ -701,7 +713,7 @@ function Composer() {
                 </div>
                 <div>
                   <label>Model</label>
-                  <input type="text" placeholder="The provider's default" value={form.provider_model ?? ""} disabled={!rollouts}
+                  <input type="text" placeholder="The provider's default" value={form.provider_model ?? ""} disabled={!rollouts && !writing}
                     onChange={(e) => patch({ provider_model: e.target.value.trim() || null })} />
                 </div>
               </div>
@@ -715,6 +727,24 @@ function Composer() {
                     : rollouts
                       ? `A model at ${chosenKey?.provider || "your provider"} takes each episode's turn ${rollouts} ${rollouts === 1 ? "time" : "times"}: it picks an operation, the mock system answers, and it reports. Each rollout is two calls, so this run makes at most ${providerCalls.toLocaleString()} (${form.target_trajectory_count.toLocaleString()} prompts × ${rollouts} × 2${providerCalls < callEstimate ? `, capped from ${callEstimate.toLocaleString()}` : ""}). Every call is checked against the episode's skeleton and scored on the same rubric. Your provider bills these calls.`
                       : "Set rollouts above 0 to let a model at your provider take each episode's turn. Each rollout is two calls on your key."}
+              </p>
+              <div className="row">
+                <label className="check">
+                  <input type="checkbox" checked={writing} disabled={!writing && !form.credential_id} onChange={(e) => patch({ provider_text: e.target.checked })} />
+                  A model writes the turn text
+                </label>
+                <div>
+                  <label title="The most sequences whose text this run may ask for, one call each">Text call cap</label>
+                  <input type="number" min="1" max="4000" placeholder={String(Math.min(sequences, 4000) || "")} value={form.provider_text_budget ?? ""} disabled={!writing}
+                    onChange={(e) => patch({ provider_text_budget: e.target.value ? Math.min(4000, Math.max(1, Number(e.target.value) || 1)) : null })} />
+                </div>
+              </div>
+              <p className="lede">
+                {!form.credential_id
+                  ? "Choose a key to let a model at your provider write the assistant's turns instead of the pack's templates."
+                  : writing
+                    ? `A model at ${chosenKey?.provider || "your provider"} writes each sequence's assistant turns from its skeleton: the customer's messages and, for each turn, its events in order with their amounts and times. That is one call per sequence, so this run makes at most ${textCalls.toLocaleString()} (${sequences.toLocaleString()} sequences${textCalls < sequences ? `, capped from ${sequences.toLocaleString()}` : ""}); the rest keep their templates. Code checks every turn for each event in order, no invented amount or identifier, and the run's language, and a turn that fails keeps its template. Journeys do not change. Your provider bills these calls.`
+                    : "Off: the pack's templates narrate every turn, as they always have. Turn it on to have a model at your provider write the turns on your key."}
               </p>
               {searches.map((item) => (
                 <div className="doc" key={item.id}>
@@ -800,6 +830,12 @@ function Composer() {
               <>
                 <dt>Provider</dt>
                 <dd>{rollouts} per episode · up to {providerCalls.toLocaleString()} calls</dd>
+              </>
+            ) : null}
+            {writing ? (
+              <>
+                <dt>Turn text</dt>
+                <dd>Written by a model · up to {textCalls.toLocaleString()} calls</dd>
               </>
             ) : null}
           </dl>

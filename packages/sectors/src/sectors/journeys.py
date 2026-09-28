@@ -135,13 +135,15 @@ class _Ids:
 class _Member:
     """One sequence of a group: the events it narrates and how it scores."""
 
-    def __init__(self, types: list[str], trajectory_id: str, hours: list[float], details: list[str] | None = None) -> None:
+    def __init__(self, types: list[str], trajectory_id: str, hours: list[float], details: list[str] | None = None, amounts: list[float | None] | None = None) -> None:
         self.types = types
         self.trajectory_id = trajectory_id
         # Waits before each step after the first, which the behavior rubric reads.
         self.hours = hours
         # Per event, the amount and time since the same event last happened; empty when it has neither.
         self.details = details or [""] * len(types)
+        # Per event, the amount its narration states, which provider-written text must state too.
+        self.amounts = amounts or [None] * len(types)
 
 
 class _Journey:
@@ -188,6 +190,7 @@ def generate_bundle(
     episodes: bool = False,
     operations: list[dict] | None = None,
     decisions: bool = False,
+    writer: Callable[[Any], Any] | None = None,
 ) -> TrajectoryBundle:
     lang = language_code(language)
     if lang not in pack.languages:
@@ -268,6 +271,13 @@ def generate_bundle(
         limited_by = "studio_cap"
     samples = [_group_sample(context, group) for journey in built for group in journey.groups]
     groups = [group for journey in built for group in journey.groups]
+    text_report = None
+    if writer is not None:
+        from sectors.turn_text import rewrite
+
+        # Before scoring, so length penalties and turn flags see the text that ships; the journeys stay as drawn.
+        report(len(built), limit, f"{STAGE}asking for turn text.")
+        text_report = rewrite(samples, groups, pack.phrases[lang], lang, writer)
     # Decision values are simulated only when the signal or the decision records need them.
     report(len(built), limit, f"{STAGE}scoring {sum(len(group) for group in groups):,} sequences with every signal.")
     scorer = Scorer(pack, walker, domains=domains, floor=floor, cap=cap, decisions=decisions or signal_mechanism == "decision_score")
@@ -297,6 +307,7 @@ def generate_bundle(
                 "outside_scope_events": [name for name in steering.events if name not in allowed],
             },
             notes=notes_report,
+            text=text_report,
             jurisdiction=profile.id,
             calibration=calibrated.summary() if calibrated is not None else None,
         ),
@@ -585,7 +596,8 @@ def _swap_prefix(record_id: str, old: str, new: str) -> str:
 
 def _member(context: _Context, types: list[str], trajectory_id: str, events: list[Event]) -> _Member:
     hours = [(later.event_time - earlier.event_time).total_seconds() / 3600 for earlier, later in zip(events, events[1:])]
-    return _Member(types, trajectory_id, hours, _details(context.lang, events))
+    amounts = [event.amount if event.amount is not None and event.currency else None for event in events]
+    return _Member(types, trajectory_id, hours, _details(context.lang, events), amounts)
 
 
 def _money(lang: str, amount: float, currency: str) -> str:

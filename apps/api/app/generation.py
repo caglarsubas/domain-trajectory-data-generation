@@ -29,7 +29,7 @@ from sectors.registry import get_sector
 
 # Settings that change no journey stay out of the seed, so turning them on draws the same journeys.
 EPISODE_CONSUMERS = ("post_training", "evaluation")
-SEED_FREE = {"credential_id", "episodes", "decisions", "provider_rollouts", "provider_call_budget", "provider_model"}
+SEED_FREE = {"credential_id", "episodes", "decisions", "provider_rollouts", "provider_call_budget", "provider_model", "provider_text", "provider_text_budget"}
 
 
 def prepare(db: Session, config: dict, *, project_id: str, feedback_rows: list, parent: Run | None) -> tuple:
@@ -171,11 +171,14 @@ def is_large(config: dict) -> bool:
 
 def candidate_for_run(db: Session, config: dict, *, project_id: str, feedback_rows: list, parent: Run | None, progress=None):
     sector, kwargs, items = prepare(db, config, project_id=project_id, feedback_rows=feedback_rows, parent=parent)
-    bundle = sector.generate(**kwargs, progress=lambda done, total, message="": progress(done, total, _stage(message)))
+    writer = writer_for(db, config, sector)
+    bundle = sector.generate(**kwargs, writer=writer, progress=lambda done, total, message="": progress(done, total, _stage(message)))
     errors = sector.hard_checks(bundle)
     if errors:
         raise HTTPException(status_code=500, detail=f"generated trajectory failed {sector.id} checks")
     assert bundle.generation is not None
+    if writer is not None:
+        bundle.generation.text = _text_report(bundle.generation.text, writer.budget)
     agent, calls = agent_for(db, config)
     if agent is not None:
         # Reported even when no group had a decision to hand over, so the run says it made no calls.
@@ -214,6 +217,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
     """Generate a large run batch by batch into files. Returns the run's generation metadata."""
     sector, kwargs, items = prepare(db, run.config, project_id=run.project_id, feedback_rows=feedback_rows, parent=parent)
     agent, calls = agent_for(db, run.config)
+    writer = writer_for(db, run.config, sector)
     size = kwargs["group_size"]
     requested = kwargs["target_trajectory_count"]
     accepted_mode = run.config.get("target_kind") == "accepted_groups"
@@ -265,7 +269,11 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
                 groups = min(per_batch, bucket["target"] - standing["groups"])
             name = batch_name(len(state["done"]))
             before = reached()
+            if writer is not None:
+                # One text budget for the whole run, kept in the checkpoint like the rollout budget.
+                _restore_text_budget(writer.budget, (state.get("text") or {}).get("provider") or {})
             bundle = sector.generate(
+                writer=writer,
                 **{
                     **kwargs,
                     "sub_domains": bucket["domains"],
@@ -330,6 +338,14 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
                     for k, value in found["pass_at_k"].items():
                         row["pass_sum"][k] = row["pass_sum"].get(k, 0.0) + value * found["episodes_at_k"][k]
                         row["episodes_at_k"][k] = row["episodes_at_k"].get(k, 0) + found["episodes_at_k"][k]
+            if meta.text:
+                summed = totals.setdefault("text", {"sequences": 0, "asked": 0, "turns": 0, "written": 0, "kept_template": 0, "reasons": {}, "written_by": None})
+                for key in ("sequences", "asked", "turns", "written", "kept_template"):
+                    summed[key] += meta.text.get(key, 0)
+                for reason, count in (meta.text.get("reasons") or {}).items():
+                    summed["reasons"][reason] = summed["reasons"].get(reason, 0) + count
+                summed["written_by"] = summed["written_by"] or meta.text.get("written_by")
+                state["text"] = {"provider": writer.budget.as_dict()}
             if meta.decisions:
                 added = totals.setdefault("decisions", {"points": 0, "groups": {}, "with_distractor": 0, "records": 0, "taken_value_sum": 0.0})
                 for key in ("points", "with_distractor", "records"):
@@ -403,6 +419,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
         "calibration": (meta_first or {}).get("calibration"),
         "episodes": _episode_totals(totals.get("episodes"), state.get("provider") or calls.as_dict() if agent is not None else None),
         "decisions": _decision_totals(totals.get("decisions")),
+        "text": _text_report(totals.get("text"), writer.budget) if writer is not None else None,
         "storage": {"kind": "files", "batches": len(state["done"]), "batch_sequences": BATCH_SEQUENCES},
         "target": target,
     }
@@ -452,6 +469,37 @@ def agent_for(db: Session, config: dict):
     model = config.get("provider_model") or None
     agent = runtime.agent_factory(credential.provider, key, model) if runtime.agent_factory else ProviderAgent(credential.provider, key, model)
     return agent, Budget(limit=int(config.get("provider_call_budget") or 0))
+
+
+def writer_for(db: Session, config: dict, sector):
+    """The provider writer of turn text for a run that asked for it, on the key of the account that owns the run."""
+    from app.agents import ProviderAgent, TextBudget, TextWriter
+    from app import runtime
+    from app.models import Credential
+    from app.security import decrypt_secret
+    from app.settings import load_settings
+
+    if not config.get("provider_text") or not config.get("credential_id"):
+        return None
+    credential = db.get(Credential, config["credential_id"])
+    if credential is None or not credential.ready:
+        raise HTTPException(status_code=422, detail="the run's provider key is missing or not ready")
+    key = decrypt_secret(load_settings().credential_master_key, credential.ciphertext)
+    model = config.get("provider_model") or None
+    agent = runtime.agent_factory(credential.provider, key, model) if runtime.agent_factory else ProviderAgent(credential.provider, key, model)
+    return TextWriter(agent, TextBudget(limit=int(config.get("provider_text_budget") or 0)), sector.label)
+
+
+def _restore_text_budget(budget, saved: dict) -> None:
+    budget.used, budget.errors, budget.skipped = saved.get("calls", 0), saved.get("errors", 0), saved.get("skipped_sequences", 0)
+    budget.unreadable, budget.last_error = saved.get("unreadable", 0), saved.get("last_error")
+
+
+def _text_report(report: dict | None, budget) -> dict:
+    """What the writer did, with the calls it made; reported even when it made none."""
+    found = dict(report or {"sequences": 0, "asked": 0, "turns": 0, "written": 0, "kept_template": 0, "reasons": {}, "written_by": None})
+    found["written_share"] = round(found["written"] / found["turns"], 4) if found.get("turns") else None
+    return {**found, "provider": budget.as_dict()}
 
 
 def _with_provider_rollouts(episodes: list, agent, per_episode: int, budget, progress) -> list:

@@ -26,7 +26,7 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 | Complete | Every journey legal end to end: zero impossible transitions, referential integrity, a terminal or horizon state | Every pack's journeys replay through its own machines. The gates' sweep of 150 random configurations per pack breaks no rule, and every event of every pack is reachable. | Met |
 | Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 41 to 57 distinct sequences in 64 journeys across the five packs, and every sub-domain reaches its milestones alone and together | Met |
 | Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Event logs in CSV, Parquet, XES, or OCEL 2.0 calibrate any pack. Fitness, precision, and next-step divergence are reported. The catalogue offers banking, hotel, and airline sources; telecommunications and insurance wait on a terms review. | Partly; Slice 10 |
-| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, a control journey, audit flags, and regeneration from notes. Repeats above temperature 0, study-specific rubrics, and the safety prompt wait on the engine. Turn text is templated narration in English or Turkish. | Partly; Slices 9 and 10 |
+| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, repeats above temperature 0, study-specific rubrics, a control journey, audit flags, and regeneration from notes. Turn text is templated narration in English or Turkish, or, on request, written by a provider model on the owner's key and checked by code against the skeleton. | Met |
 | Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | Groups of up to 16, the shared MiMo rewards with every signal scored, episodes in three harness formats with provider rollouts, and history prefixes. Every sub-domain of every pack yields accepted groups, which the `group_signal` gate enforces, and a journey ends at its natural length in its scope. | Met |
 | Decision scoring | Decision records at branch points: state, options, outcome, score | Decision points with policy shares and simulated values, exported as typed questions under a versioned schema every record validates against | Met |
 | Evaluation | Tasks with verifiers, held-out splits, avg@k and pass@k | Journey and agent tasks with environment, verifiers, and references, reported as avg@k and pass@k by verifier and by policy, including each provider model | Met |
@@ -103,7 +103,7 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 and 9. The suite has 335 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
+All eight slices of the first plan have shipped, and so have Slices 8, 9, and 10. The suite has 360 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses.
 
 The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed them:
 - **Narrow scopes favoured failures.** A journey now ends at its natural length once it reaches its scope's milestones, so airline booking alone passes 88% of primaries (none before) and hotel booking alone 91% (2% before). The composer warns when most journeys in a scope end before the minimum.
@@ -114,9 +114,12 @@ The review of 26 September, against `234ba5b`, found five gaps. Slice 8 closed t
 
 Slice 9 completed the judge. Engine #120 schedules judge calls, shows the safety rubric the prompt, registers tenant rubrics over the API, repeats judgments above temperature 0, and types eval errors. The studio repeats every rubric three times per model, scores the judge against the code on conformance and decisions, and lets the judge propose a study's solution and behavior rubrics from a group of its journeys, which the owner edits and approves before they are registered and asked in the study's cycles.
 
-These remain, for Slice 10:
-- **Representative beyond banking**: the catalogue now calibrates hotel runs from the hotel booking demand datasets and airline runs from BTS on-time performance. Telecommunications and insurance still depend on logs a user uploads.
-- **Text is templated narration** in English and Turkish. Provider-written turn text, which the first decision allows, is not built.
+Slice 10 made the data representative beyond banking and the text natural. The catalogue calibrates hotel runs from the hotel booking demand datasets and airline runs from BTS on-time performance, and a source's unseen choices keep the pack's weights. On request, a provider model on the owner's key writes the turn text from each sequence's skeleton, and code checks every turn.
+
+What remains is outside the approved slices:
+- **Telecommunications and insurance sources** wait on a terms review; until then those studies calibrate from logs a user uploads.
+- **More languages** can now follow as prompts for the writer (decision 12), with phrase tables still needed for the templates that failed turns fall back to.
+- **First-order calibration** applies a step's observed shares whatever came before it, so conditional outcomes, such as a delayed flight arriving late, are underweighted; the divergence measure reports it.
 
 ## Roadmap
 
@@ -139,7 +142,7 @@ Approved on 26 September 2026 (detail in [next-slice.md](next-slice.md)):
 |---|---|---|
 | 8. Honest data at every scope (delivered) | Narrow scopes stop favouring failures, every sub-domain yields group signal, exports are checked for copies of uploaded records, CI runs on every pull request, and generation cost at scale is measured and brought down | Every sub-domain of every pack, alone, yields accepted groups in at least a fifth of its groups of four. Airline and hotel booking alone pass at their policies' rates. A planted copy of an uploaded record is caught at export. CI passes on the slice's pull request. |
 | 9. Judge completion, across repositories (delivered) | In `llm_inference_engine`: a rubric registry API, evals through the scheduler, the safety prompt, repeats above temperature 0, and typed errors. In the studio: study-specific rubrics (4B) and repeated judgments | A rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric |
-| 10. Representative everywhere, and natural text | Catalogue sources for hotels and airlines with adapters, and provider-written turn text checked by code against the skeleton | A hotel run calibrated from the catalogue reports representativeness, and provider-written turns pass the skeleton checks |
+| 10. Representative everywhere, and natural text (delivered) | Catalogue sources for hotels and airlines with adapters, and provider-written turn text checked by code against the skeleton | A hotel run calibrated from the catalogue reports representativeness, and provider-written turns pass the skeleton checks |
 
 ### Slice 0. Rotate credentials and fix the judge wiring
 
