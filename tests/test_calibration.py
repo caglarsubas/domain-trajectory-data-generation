@@ -4,12 +4,14 @@ import json
 import random
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from app import runtime
-from app.calibrate import suggest
+from app.calibrate import saved_mapping, suggest
+from app.catalogue import BPI2017_MAPPING
 from app.eventlog import LogError, read_cases
 from app.fetch import FetchError, safe_download
 from sectors.calibration import Calibration, build
@@ -221,6 +223,42 @@ def test_the_catalogue_downloads_bpi_2017_on_demand_and_records_its_licence(clie
     assert client.post(f"/projects/{project_id}/catalogue", headers=headers, json={"entry": "hmda"}).status_code == 409
     assert "export" in client.post(f"/projects/{project_id}/catalogue", headers=headers, json={"entry": "cfpb_complaints"}).json()["detail"]
     assert client.post(f"/projects/{project_id}/catalogue", headers=headers, json={"entry": "nope"}).status_code == 404
+
+
+def test_an_activity_the_catalogue_mapping_leaves_out_stays_unmapped(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    headers, project_id = _study(client, "catalogue-mapping@example.com")
+    # Each application's offer is accepted before validation. Shared words would take O_Accepted for a granted loan.
+    cases = [case[:3] + [("O_Accepted", case[2][1].replace("T10:", "T11:"))] + case[3:] for case in bpi_like(30)]
+    assert "O_Accepted" not in BPI2017_MAPPING and suggest(["O_Accepted"], NAMESPACE)["O_Accepted"] == "application.approved"
+    runtime.fetcher = CatalogueFetcher(gzip.compress(xes_log(cases), mtime=0))
+    client.post(f"/projects/{project_id}/catalogue", headers=headers, json={"entry": "bpi2017"})
+    project = next(item for item in client.get("/projects", headers=headers).json()["data"] if item["id"] == project_id)
+    source = project["corpus"][0]
+    assert source["calibration"]["mapping"]["O_Accepted"] is None and source["calibration"]["mapping"]["A_Pending"] == "application.approved"
+    # Four steps per application: started, submitted, validation, its pass, and the decision; none through the offer.
+    assert source["calibration"]["summary"]["steps_observed"] == 4 * 30
+
+    # A person can still map it, and the choice holds when the source is calibrated again.
+    mapped = client.put(f"/projects/{project_id}/corpus/{source['id']}/mapping", headers=headers, json={"mapping": {"O_Accepted": "application.approved"}})
+    assert mapped.json()["calibration"]["mapping"]["O_Accepted"] == "application.approved"
+    again = client.put(f"/projects/{project_id}/corpus/{source['id']}/mapping", headers=headers, json={"mapping": {"O_Create Offer": None}}).json()["calibration"]
+    assert again["mapping"]["O_Accepted"] == "application.approved" and again["summary"]["steps_observed"] == 5 * 30
+
+    # The same log uploaded has no catalogue mapping, so shared words still map the offer.
+    uploaded = _upload(client, headers, project_id, "loans.xes", xes_log(cases))["calibration"]
+    assert uploaded["mapping"]["O_Accepted"] == "application.approved"
+
+
+def test_a_mapping_stored_before_saved_choices_were_kept_apart_keeps_only_a_persons_changes():
+    # The mapping in use then held the catalogue's entries and suggestions; only where it differs did a person choose.
+    stored = {"A_Pending": "application.approved", "W_Validate application": "kyc.passed", "O_Accepted": "application.approved", "O_Create Offer": None}
+    catalogue = SimpleNamespace(ingest={"catalogue": "bpi2017"}, calibration={"mapping": stored})
+    assert saved_mapping(catalogue, NAMESPACE) == {"W_Validate application": "kyc.passed"}
+    upload = SimpleNamespace(ingest={}, calibration={"mapping": {"A_Denied": None, "A_Submitted": "application.submitted"}})
+    assert saved_mapping(upload, NAMESPACE) == {"A_Denied": None}
+    kept = SimpleNamespace(ingest={"catalogue": "bpi2017"}, calibration={"mapping": stored, "saved": {"O_Accepted": "application.approved"}})
+    assert saved_mapping(kept, NAMESPACE) == {"O_Accepted": "application.approved"}
 
 
 def uci_archive(rows: list[tuple[str, str]]) -> bytes:
