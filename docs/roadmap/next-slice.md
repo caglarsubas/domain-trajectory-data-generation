@@ -1,4 +1,4 @@
-# Next slice: text worth training on
+# Next slice: calibration beyond one step, and the last sources
 
 Status: approved on 28 September 2026, together with the queued Slices 12 and 13 and decisions 13 to 17 in the [overview](overview.md#decisions), all as recommended. Slices 8 to 10, approved on 26 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
@@ -81,7 +81,9 @@ With questions that name what to look for, the judges no longer give every journ
 - Tests show a judge that ignores the defects is flagged blind and one that sees them is not.
 - A live cycle on the local engine reports discrimination for both judges.
 
-## In progress: Slice 12, text worth training on
+## Delivered: Slice 12, text worth training on
+
+Delivered in two pull requests, and all three exit criteria are met.
 
 ### Delivered: part one, template variants
 
@@ -99,15 +101,22 @@ In a 64-sequence run over all sub-domains, 16 groups of four, both columns measu
 
 Phrasings alone would not have reached half: with eight for every event, the packs reached 34% to 46%. A group's rollouts share the events before they part, and the events near the start of every journey carry no amount or wait, so they repeat whatever the wording. Stating waits gives most later events their own sentence. Controls are narrated the same way, so a control reads like the journeys beside it, and a stretched wait now shows in its text.
 
-### Still to come
+### Delivered: part two, faithfulness judged and a group per call
 
-- **Template variants.** At least three phrasings of every event in every pack, in English and Turkish, and at least twenty customer openings and follow-ups per pack. They are drawn from the text stream, so journeys do not change.
-- **Faithfulness judged.** A `turn_faithfulness` rubric, registered with the engine like the code-comparison rubrics, is asked of a sample of provider-written turns each cycle. It checks that the text states the skeleton's events and adds no outcome. A turn it calls unfaithful in every repeat reverts to its template (decision 14).
-- **A group per call.** The writer writes a whole group's sequences in one call, which share the opening and prompt, so the same cap covers up to 16 times more sequences.
+- **A group per call.** The writer writes a whole group's sequences in one call, from one skeleton: the opening they share, and for each sequence its follow-ups and its turns' events. The composer estimates one call per prompt, so the same cap covers up to 16 times as many sequences. A call's completion allowance and its wait grow with the group's events. Live on the local engine, `gemma4:26b` wrote all 48 turns of 16 sequences, groups of four in English banking and Turkish hotel runs, in 4 calls of about 80 seconds, and every turn passed the code checks.
+- **Faithfulness judged.** A written turn keeps the template it replaced. Each cycle samples written turns (`JUDGE_TEXT_SAMPLE`, 6), one per sequence before a second from any, and asks every judge `turn_faithfulness`, which the studio registers with the engine: the written turn against its events in order and its template. A turn that every readable repeat of every judge calls unfaithful goes back to its template in the stored run, in the database or in its batch file (decision 14). The cycle reports each turn's verdicts, the judge panel shows the turns put back, and the run's text note counts them.
 
-Exit: every pack reaches half its sentences distinct in a 64-sequence run with templates alone, in both languages (met by part one). A cycle catches a planted unfaithful turn. One call writes a whole group.
+Live, as a cycle asks them, both judges read four written turns and one planted unfaithful turn per language, three repeats each at temperature 0.7, 126 seconds in all:
 
-## Queued: Slice 13, calibration beyond one step, and the last sources
+| Planted turn | `gemma4:26b` | `qwen3.6:27b` | Result |
+|---|---|---|---|
+| English banking: "You submitted the application, and your account was then closed." | unfaithful 3 of 3 | unfaithful 3 of 3 | back to its template |
+| Turkish hotel: an accepted card guarantee written as declined | unfaithful 3 of 3 | unfaithful 3 of 3 | back to its template |
+| Eight faithful written turns | faithful 3 of 3 each | faithful 3 of 3 each | kept |
+
+Neither planted turn adds a number, identifier, or event name, so no code check could catch it. The first live run found `gemma4:26b` answering a faithful turn with no reason, which the engine read as unreadable; the rubric now requires only the verdict.
+
+## Next: Slice 13, calibration beyond one step, and the last sources
 
 - **Second-order calibration** (decision 15). Next-step shares are taken after the last two events wherever at least 25 observations back them, and after the last event otherwise. The walker, the conformance scorer, and the decision values read them alike.
 - **Representativeness** adds the second-order divergence, so a conditional gap shows even when first-order shares match.

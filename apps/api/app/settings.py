@@ -38,6 +38,7 @@ class Settings:
     judge_repeats: int = 3
     demo_rubric_proposals_per_day: int = 5
     judge_temperature: float = 0.7
+    judge_text_sample: int = 6
 
 
 def load_settings() -> Settings:
@@ -78,6 +79,8 @@ def load_settings() -> Settings:
         judge_repeats=min(max(_count("JUDGE_REPEATS", 3), 1), 5),
         # Repeats sample above temperature 0; at 0 every repeat would return the same verdict.
         judge_temperature=_temperature("JUDGE_TEMPERATURE", 0.7),
+        # Provider-written turns each cycle reads for faithfulness; 0 reads none.
+        judge_text_sample=min(_count("JUDGE_TEXT_SAMPLE", 6), 50),
     )
 
 

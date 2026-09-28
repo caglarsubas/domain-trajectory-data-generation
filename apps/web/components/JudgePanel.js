@@ -43,6 +43,8 @@ function explain(flag, names) {
       return `${flag.model} scored journeys with a known defect no lower than their originals on ${label(flag.rubric, names)}, so its scores there cannot tell a flawed journey from a sound one.`;
     case "code_disagrees":
       return `${flag.model} and the code scorer disagree on ${label(flag.rubric, names)}.`;
+    case "unfaithful_turn":
+      return `${flag.model} found written turns that change or add to the facts they had to state.`;
     default:
       return flag.kind;
   }
@@ -131,6 +133,8 @@ export default function JudgePanel({ cycle, onPick }) {
   const discrimination = cycle.agreement?.discrimination || {};
   const pairwiseControl = cycle.agreement?.pairwise_control || {};
   const controlled = Object.keys(discrimination).length > 0 || Object.keys(pairwiseControl).length > 0;
+  const faithfulness = cycle.agreement?.faithfulness;
+  const reverted = (faithfulness?.rows || []).filter((row) => row.revert);
   const names = Object.fromEntries(Object.entries(judging?.rubrics || {}).filter(([, info]) => info.source === "study"));
   const againstCode = [...COMPARED.filter((rubric) => code[rubric]), ...Object.keys(code).filter((rubric) => code[rubric].study)];
   const grouped = {};
@@ -140,7 +144,8 @@ export default function JudgePanel({ cycle, onPick }) {
     grouped[key].journeys.add(flag.trajectory_id);
   }
   const flags = Object.values(grouped);
-  const verdictsFor = (trajectoryId) => cycle.verdicts.filter((item) => item.trajectory_id === trajectoryId && !item.canary);
+  const verdictsFor = (trajectoryId) =>
+    cycle.verdicts.filter((item) => item.trajectory_id === trajectoryId && !item.canary && item.rubric !== "turn_faithfulness");
   return (
     <div className="judge-panel">
       <div className="panel-head">
@@ -266,6 +271,43 @@ export default function JudgePanel({ cycle, onPick }) {
           </table>
         </>
       ) : null}
+      {faithfulness?.turns ? (
+        <>
+          <p className="lede">
+            The judges read {faithfulness.turns} provider-written {faithfulness.turns === 1 ? "turn" : "turns"} against the facts each had to
+            state: its events in order and the template it replaced. A turn that every readable repeat calls unfaithful goes back to its
+            template; {reverted.length ? `${reverted.length} did` : "none did"}.
+          </p>
+          <table className="target-table">
+            <thead>
+              <tr>
+                <th>Written turns</th>
+                <th>{primary}</th>
+                {second ? <th>{second}</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>turn faithfulness</td>
+                {[primary, second].filter(Boolean).map((model) => {
+                  const row = faithfulness.by_model?.[model];
+                  return <td key={model}>{row?.turns ? `${row.unfaithful} of ${row.turns} unfaithful` : "—"}</td>;
+                })}
+              </tr>
+            </tbody>
+          </table>
+          {reverted.length ? (
+            <ul className="judge-controls">
+              {reverted.map((row) => (
+                <li key={row.segment_id}>
+                  <strong>Back to its template:</strong> &ldquo;{row.text}&rdquo; now reads &ldquo;{row.template}&rdquo;.
+                  {row.reason ? ` ${row.reason}` : ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
       {Object.values(order).some((item) => item.journeys) ? (
         <p className="lede">
           Pairwise, asked in both orders:{" "}
@@ -290,7 +332,7 @@ export default function JudgePanel({ cycle, onPick }) {
           {flags.map((flag) => (
             <li key={`${flag.kind}|${flag.model}|${flag.rubric}`} data-kind={flag.kind}>
               {explain(flag, names)}
-              {!["likely_false_positive", "blind_to_defect"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
+              {!["likely_false_positive", "blind_to_defect", "unfaithful_turn"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
             </li>
           ))}
         </ul>

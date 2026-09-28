@@ -147,9 +147,10 @@ function Composer() {
   const chosenKey = keys.find((item) => item.id === form.credential_id);
   const callEstimate = form.target_trajectory_count * rollouts * 2;
   const providerCalls = Math.min(Number(form.provider_call_budget) || callEstimate, callEstimate, 4000);
-  // Provider-written text: one call per sequence, capped by the owner and at 4,000.
+  // Provider-written text: one call per prompt, which writes its whole group, capped by the owner and at 4,000.
   const writing = Boolean(form.provider_text);
-  const textCalls = writing ? Math.min(Number(form.provider_text_budget) || sequences, sequences, 4000) : 0;
+  const prompts = form.target_trajectory_count;
+  const textCalls = writing ? Math.min(Number(form.provider_text_budget) || prompts, prompts, 4000) : 0;
   const allCalls = (rollouts ? providerCalls : 0) + textCalls;
   const blockers = [
     form.sub_domains.length === 0 ? "Pick at least one sub-domain on the Shape step." : null,
@@ -734,8 +735,8 @@ function Composer() {
                   A model writes the turn text
                 </label>
                 <div>
-                  <label title="The most sequences whose text this run may ask for, one call each">Text call cap</label>
-                  <input type="number" min="1" max="4000" placeholder={String(Math.min(sequences, 4000) || "")} value={form.provider_text_budget ?? ""} disabled={!writing}
+                  <label title="The most prompts whose text this run may ask for, one call each for the whole group">Text call cap</label>
+                  <input type="number" min="1" max="4000" placeholder={String(Math.min(prompts, 4000) || "")} value={form.provider_text_budget ?? ""} disabled={!writing}
                     onChange={(e) => patch({ provider_text_budget: e.target.value ? Math.min(4000, Math.max(1, Number(e.target.value) || 1)) : null })} />
                 </div>
               </div>
@@ -743,7 +744,7 @@ function Composer() {
                 {!form.credential_id
                   ? "Choose a key to let a model at your provider write the assistant's turns instead of the pack's templates."
                   : writing
-                    ? `A model at ${chosenKey?.provider || "your provider"} writes each sequence's assistant turns from its skeleton: the customer's messages and, for each turn, its events in order with their amounts and times. That is one call per sequence, so this run makes at most ${textCalls.toLocaleString()} (${sequences.toLocaleString()} sequences${textCalls < sequences ? `, capped from ${sequences.toLocaleString()}` : ""}); the rest keep their templates. Code checks every turn for each event in order, no invented amount or identifier, and the run's language, and a turn that fails keeps its template. Journeys do not change. Your provider bills these calls.`
+                    ? `A model at ${chosenKey?.provider || "your provider"} writes the assistant's turns from each group's skeleton: the customer's messages and, for each turn, its events in order with their amounts and waits. One call writes a whole group, so this run makes at most ${textCalls.toLocaleString()} (${prompts.toLocaleString()} ${prompts === 1 ? "prompt" : "prompts"}${groupSize > 1 ? ` of ${groupSize} sequences` : ""}${textCalls < prompts ? `, capped from ${prompts.toLocaleString()}` : ""}); the rest keep their templates. Code checks every turn for each event in order, no invented amount or identifier, and the run's language, and a turn that fails keeps its template. Each judge cycle reads a sample of written turns for faithfulness, and a turn every judge calls unfaithful goes back to its template. Journeys do not change. Your provider bills these calls.`
                     : "Off: the pack's templates narrate every turn, as they always have. Turn it on to have a model at your provider write the turns on your key."}
               </p>
               {searches.map((item) => (

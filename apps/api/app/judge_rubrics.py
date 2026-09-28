@@ -60,6 +60,30 @@ QUESTIONS = {
     ),
 }
 
+# Provider-written turns pass code checks for their events, amounts, identifiers, and language, and can still change what
+# happened: a declined guarantee written as a cancellation. The judge reads a written turn against the facts it had to
+# state; a turn it calls unfaithful in every repeat goes back to its template (decision 14).
+TURN_FAITHFULNESS = {
+    "name": "turn_faithfulness",
+    "description": "Whether a written assistant turn states the events it had to report, with their meaning, and nothing more.",
+    "system_prompt": (
+        "You check assistant turns that a model wrote for synthetic customer-service conversations. The facts give, in "
+        "order, the events the turn had to report and the template it replaced, which states each event plainly with "
+        "any amount and wait. The turn is faithful when it states every one of those events with its meaning unchanged, "
+        "keeps each amount and wait, and adds nothing the facts do not give: no other outcome, cause, decision, or event. "
+        "Wording, tone, and speaking to the customer directly are free. A declined guarantee written as a cancelled "
+        "reservation, an approval written where the case was only referred, or a reason the facts never give is "
+        'unfaithful. Output ONLY a single JSON object: {"faithful": boolean, "reason": string}.'
+    ),
+    "user_prompt_template": "FACTS THE TURN HAD TO STATE:\n{expected}\n\nQUESTION:\n{prompt}\n\nWRITTEN TURN:\n{response}\n\nReturn your JSON verdict now.",
+    # A judge that finds a turn faithful may give no reason, so only the verdict is required.
+    "expected_keys": ["faithful"],
+    "score": {"kind": "boolean", "key": "faithful"},
+    "requires_expected": True,
+}
+
+FAITHFULNESS_QUESTION = "Is this {language} turn, written for a {label} conversation, faithful to the facts?"
+
 # The judge writes a study's rubrics through the eval route, which asks a reasoning judge to answer without thinking and
 # in JSON, inside a scheduler slot. The engine calls whatever it reads a "response"; here that is a group of journeys, and
 # the verdict is a rubric for them. `fit` is the judge's own view of how clearly the group separates on its criteria.

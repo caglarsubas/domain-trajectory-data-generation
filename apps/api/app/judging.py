@@ -1,7 +1,9 @@
 """One evaluation cycle of a run, as the `evaluate` job runs it.
 
 The judge reads a stratified sample of the run's journeys, not only the first: one from each kind of
-journey and outcome in turn, largest first, chosen deterministically from the run and cycle.
+journey and outcome in turn, largest first, chosen deterministically from the run and cycle. When the run has
+provider-written turns, it also reads a sample of them for faithfulness, and a turn every readable repeat calls
+unfaithful goes back to its template in the stored run (decision 14).
 """
 
 from __future__ import annotations
@@ -12,12 +14,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import runtime, study_rubrics
+from app import faithfulness, runtime, study_rubrics
 from app.controls import build as build_controls
 from app.evaluation import code_signals, evaluate_journeys
 from app.retrieval import reference as reference_passages
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable, RubricLimitReached, RubricsUnsupported
-from app.judge_rubrics import CODE_RUBRICS, STUDY_KINDS
+from app.judge_rubrics import CODE_RUBRICS, STUDY_KINDS, TURN_FAITHFULNESS
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Run
 from app.settings import Settings
 from app.store import DbStore, store_for
@@ -155,6 +157,8 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
         "notes": [],
     }
     lazy = LazyJudge(cfg)
+    turns = [] if whole else faithfulness.sample_turns(found, cfg.judge_text_sample, f"{run.id}|{cycle_index}|text")
+    faithful: dict | None = None
     try:
         compared: dict[str, str] = {}
         study: dict[str, dict] = {}
@@ -166,6 +170,8 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
             try:
                 for name in sorted(wanted & set(CODE_RUBRICS)):
                     compared[name] = register(lazy, CODE_RUBRICS[name], db)
+                if turns:
+                    faithful = {"turns": turns, "language": run.config["language"], "digest": register(lazy, TURN_FAITHFULNESS, db)}
                 for row in approved:
                     definition = study_rubrics.definition(row, sector.label)
                     study[definition["name"]] = {
@@ -176,10 +182,12 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                         "digest": register(lazy, definition, db),
                     }
             except RubricsUnsupported as exc:
-                skipped = sorted(wanted & set(CODE_RUBRICS)) + [f"the study's {row.kind} rubric" for row in approved]
+                skipped = sorted(wanted & set(CODE_RUBRICS)) + (["the written turns' faithfulness"] if turns else []) + [f"the study's {row.kind} rubric" for row in approved]
                 judging["notes"].append(f"{exc.message} The judge did not score {', '.join(skipped)}.")
-                compared, study = {}, {}
+                compared, study, faithful = {}, {}, None
             judging["rubrics"] = {name: {"source": "tenant", "digest": digest} for name, digest in compared.items()}
+            if faithful:
+                judging["rubrics"][TURN_FAITHFULNESS["name"]] = {"source": "tenant", "digest": faithful["digest"]}
             judging["rubrics"].update(
                 {name: {"source": "study", "digest": info["digest"], "kind": info["kind"], "title": info["title"], "rubric_id": info["rubric_id"]} for name, info in study.items()}
             )
@@ -206,11 +214,17 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 compared=compared,
                 study=study,
                 controls=build_controls(journeys, sector, run.config),
+                faithfulness=faithful,
             )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
     finally:
         lazy.close()
+    found_turns = (result.get("agreement") or {}).get("faithfulness")
+    if found_turns:
+        rows = [row for row in found_turns["rows"] if row["revert"]]
+        reverted = faithfulness.revert(run, found, rows)
+        judging["faithfulness"] = {"turns": found_turns["turns"], "reverted": reverted}
     cycle = EvalCycle(
         run_id=run.id,
         cycle_index=cycle_index,
@@ -249,6 +263,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 repeat_index=verdict.get("repeat", 0),
                 rubric_digest=verdict.get("rubric_digest"),
                 control=verdict.get("control"),
+                segment_id=verdict.get("segment_id"),
             )
         )
     run.cycle_count += 1

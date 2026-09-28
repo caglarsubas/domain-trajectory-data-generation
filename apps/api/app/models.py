@@ -156,6 +156,8 @@ class EvalVerdict(Base):
     rubric_digest: Mapped[str | None] = mapped_column(String(80), nullable=True)
     # The control journey this verdict is about: a defect kind, or "pairwise:<kind>" for the pairwise control.
     control: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # The written turn a faithfulness verdict is about.
+    segment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class StudyRubric(Base):

@@ -101,6 +101,8 @@ class Segment(BaseModel):
     advantage: float | None = None
     # Who wrote an assistant turn's text when it is not the pack's template: "provider:<model>".
     written_by: str | None = None
+    # The template a written turn replaced, kept so a turn the judge finds unfaithful can go back to it.
+    template: str | None = None
 
 
 class Context(BaseModel):

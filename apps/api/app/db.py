@@ -45,6 +45,7 @@ ADDED_COLUMNS = {
         "repeat_index": "INTEGER DEFAULT 0",
         "rubric_digest": "VARCHAR(80)",
         "control": "VARCHAR(40)",
+        "segment_id": "VARCHAR(64)",
     },
     "corpus_items": {"ingest": "JSON", "calibration": "JSON"},
     "projects": {"fact_reviews": "JSON"},

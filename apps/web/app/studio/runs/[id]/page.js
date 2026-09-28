@@ -82,7 +82,10 @@ function textNote(text) {
   const skipped = provider.skipped_sequences
     ? ` ${provider.skipped_sequences} ${provider.skipped_sequences === 1 ? "sequence was" : "sequences were"} not sent ${provider.stopped_by === "errors" ? "after repeated provider errors" : "once the call cap was reached"}.`
     : "";
-  return `${model} wrote ${text.written} of ${text.turns} turns in ${provider.calls} of ${provider.limit} calls on your key.${kept}${skipped}`;
+  const reverted = text.reverted
+    ? ` The judge found ${text.reverted} written ${text.reverted === 1 ? "turn" : "turns"} unfaithful in every repeat, and ${text.reverted === 1 ? "it is" : "they are"} back to ${text.reverted === 1 ? "its template" : "their templates"}.`
+    : "";
+  return `${model} wrote ${text.written} of ${text.turns} turns in ${provider.calls} of ${provider.limit} calls on your key.${kept}${skipped}${reverted}`;
 }
 
 export default function RunPage() {
