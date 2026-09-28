@@ -1,131 +1,90 @@
-# Next slice: honest data at every scope
+# Next slice: judges that can tell journeys apart
 
-Status: approved on 26 September 2026, together with the queued Slices 9 and 10 and decisions 7 to 12 in the [overview](overview.md#decisions), all as recommended. Slices 0 to 7, the order approved on 25 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: approved on 28 September 2026, together with the queued Slices 12 and 13 and decisions 13 to 17 in the [overview](overview.md#decisions), all as recommended. Slices 8 to 10, approved on 26 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
-Branch off `main` at `234ba5b`.
+Branch off `main` at `eaba152`.
 
 ## Why this comes next
 
-The review re-ran every pack against `234ba5b`. Every pack passes its gates:
+The review re-ran every gate against `eaba152`, and every pack passes all eight:
 
-| Pack | Distinct sequences in 64 journeys | Events drawn |
+| Pack | Distinct sequences in 64 journeys | Lowest sub-domain's accepted groups |
 |---|---|---|
-| Airline | 55 | all 35 |
-| Banking | 49 | all 28 |
-| Hotel | 57 | all 37 |
-| Insurance | 41 | all 18 |
-| Telecommunications | 46 | all 34 |
+| Airline | 57 | check-in and boarding, 32% |
+| Banking | 49 | cards and payments, 30% |
+| Hotel | 55 | in-stay services, 27% |
+| Insurance | 43 | servicing, 32% |
+| Telecommunications | 51 | activation and porting, 27% |
 
-The gates check each journey alone. They do not check whether a group of journeys carries a training signal, whether a narrow scope distorts outcomes, or whether an export copies what a user uploaded. Each finding below was reproduced in memory.
+A 10,000-sequence banking run with episodes, decision records, and the decision-score signal still costs about 1.5 times the plain run. Timed against Slice 8's commit on the same machine, interleaved, the two commits take the same time: 17 to 23 seconds against 9 to 16 plain.
 
-- **Narrow scopes favour failures.** `_choose` and `_rollouts` in `packages/sectors/src/sectors/journeys.py` (lines 360 and 471) accept a journey once it reaches the minimum length or ends on a journey-ending event. A journey that runs out of legal events in its scope before the minimum is redrawn, so the only short journeys that qualify end on a failure.
-  - Airline booking alone runs `offer.viewed, order.created, payment.captured, order.confirmed` and stops, four events short of six. With a minimum of six events, it passed none of 400 sequences: every journey expired or failed payment.
-  - Hotel booking alone passed 2%.
-  - This is the mirror image of the success bias fixed in #34.
-- **Some sub-domains carry no group signal.** Each sub-domain was run alone with 100 prompts in groups of four:
+The findings are about what the data and the judge are worth, not whether they run.
 
-  | Sub-domain | Accepted groups | Why |
+- **The judge gives everything the top score.** A live cycle on the local `llm_inference_engine` asked two judges, `gemma4:26b` and `qwen3.6:27b`, three repeats each at temperature 0.7, about three banking journeys (132 verdicts, 2 unreadable, 25 minutes):
+
+  | Rubric | Both judges, every repeat | The code's verdict |
   |---|---|---|
-  | Insurance quoting, billing, servicing, complaints | none | every rollout passes, so no failure is reachable in scope |
-  | Telecom fault management | none | both repair paths succeed |
-  | Airline loyalty | none | every rollout passes |
-  | Airline booking | none | every rollout fails, because of the scope bias above |
-  | Hotel check-out and billing | 4 in 100 | failures are rare |
-  | Airline baggage | 8 in 100 | failures are rare |
-  | Hotel booking | 8 in 100 | the scope bias above |
+  | Helpfulness | 5 of 5 on every journey | — |
+  | Correctness, safety | 1 on every journey | — |
+  | Process conformance | 5 of 5 on every journey | 2 of 3 typical; mean typicality 0.71 |
+  | Decision score | 5 of 5 on every journey | 2 of 3 took the best choice; mean 0.67 |
 
-  Banking's lowest are cards and payments (22) and servicing (32). A group with no accepted signal gets zero advantage for every sequence, so these scopes teach nothing under group-relative rewards.
-- **Exports are not checked for copies.** The standing constraints say exported data is checked for verbatim copies of uploaded records. Nothing in `apps/api/app/export.py` does so. Templated text makes a copy unlikely today; provider-written text (Slice 10) would not.
-- **No CI.** The repository has no `.github/workflows`, and every pull request so far merged with no checks. The suite (272 tests) and the studio build run only where someone runs them.
-- **Cost at scale is unmeasured.** For banking with groups of four, one 256-sequence batch takes:
+  Agreement across models (3 of 3) and across repeats (spread 0) is perfect because there is nothing to disagree about. The judges agree with the code on 2 of 3 journeys, the ones the code passes, and both caught the reversed control journey. The acceptance they grant says little: the only journey they could not score well was the one whose events were put backwards.
+- **Pairwise has no right answer.** After #47 it decides nothing. The live cycle preferred the primary journey 0.83 and 0.87 and flipped once per judge. #47 named the follow-up: a pair whose answer is known.
+- **Templated text repeats.** In a 64-sequence run over all sub-domains, English:
 
-  | Batch | Time | Estimate for 10,000 sequences |
-  |---|---|---|
-  | Plain | 0.18 s | about 7 s |
-  | With episodes | 0.30 s | about 12 s |
-  | With episodes, decision records, and the decision-score signal | 1.22 s | about 49 s |
+  | Pack | Distinct phrasings | Distinct sentences | Distinct customer messages |
+  |---|---|---|---|
+  | Airline | 35 | 23% | 10 |
+  | Banking | 28 | 29% | 12 |
+  | Hotel | 35 | 16% | 9 |
+  | Insurance | 23 | 19% | 9 |
+  | Telecommunications | 33 | 18% | 8 |
 
-  Most of the last figure is the decision score simulating values for every member of every group, although the members share their prefix up to the first decision.
+  Provider-written text varies it, but it is opt-in, costs a call per sequence, and stops at 4,000 calls a run: a 100,000-sequence run keeps templates for 96% of its sequences.
+- **Written text is not checked for meaning.** Live on `gemma4:26b`, a Turkish turn for a declined guarantee said the reservation was *cancelled* because no guarantee could be given. It passed every code check: the events, amounts, identifiers, and language were right.
+- **Calibration sees one step back.** Calibrated from the real files on 400 journeys, hotel runs match the data after a confirmation (cancelled 37% against 34%), and airline runs match delays at check-in (32% against 33%). But the pack lets only a delayed flight arrive late, and the data's late-arrival share covers every flight: delayed flights arrive late in 32% of calibrated journeys against 84% in the data.
+- **Telecommunications and insurance** still calibrate only from logs a user uploads; their catalogue sources wait on a terms review.
 
-## Slice 8: honest data at every scope
+Two things outside the code:
+- **The studio's judge address is offline.** `.env` points `INFERENCE_ENGINE_BASE_URL` at an ngrok tunnel that answers 404 on every path; the engine itself runs locally on port 8080 with #120. Judge cycles from the Docker stack fail until the address is updated.
+- **In flight in another session:** #53 gives the conformance judge the next-step shares the code scores typicality with. Slice 11 builds on it once it merges rather than duplicating it.
 
-Progress, 27 September 2026: the first pull request covers tasks 1, 2, and 4. With it:
-- journeys end at their natural length once they reach their scope's milestones and the scope has nothing more for them
-- journeys that never reach their scope are redrawn
-- the composer warns when most journeys in a scope end before the minimum
-- a `group_signal` gate holds every pack
-- insurance, telecom, airline, and hotel gain the failure outcomes that make their groups carry signal
-- CI runs on every pull request
+## Slice 11: judges that can tell journeys apart
 
-Airline booking alone now passes 88% of primaries against 0% before, hotel booking alone 91% against 2%, and the lowest sub-domain across the five packs accepts 27% of its groups.
+1. **Graded controls.** Each cycle adds, beside the reversed control journey, copies of sampled journeys with one known defect, each confirmed by the pack's own machinery:
+   - a required step removed, so the replay fails at one point;
+   - an outcome decision swapped for a legal but worse choice, with a lower simulated value;
+   - one wait stretched far past its step's range, so the behavior rubric fails.
 
-The second pull request, completing the slice, covers tasks 3 and 5:
-- **Copies at export.** The exporter indexes 12-word runs of every upload and data-source row, leaves out any record that repeats one, and counts what it left out in the manifest.
-- **Cost.** The walker compiles each event's guards once, which cuts a full-feature 256-sequence batch from 0.92 to 0.52 seconds with the same journeys. Progress messages name the stage.
-- **End-to-end timing.** A 10,000-sequence banking run with episodes, decision records, and the decision-score signal takes 6.5 seconds against 4.0 plain, 1.6 times, within the target of three. The review's estimate of 49 seconds had extrapolated one cold batch; decision values are cached per policy, so later batches reuse them.
-
-1. **Natural end.** The walker marks a walk that ran out of legal events as exhausted, and `_choose` and `_rollouts` count it as long enough, as they count a journey-ending event.
-   - The composer shows each scope's typical length before generating, and warns when the minimum is beyond it. The standing constraint says caps and substitutions are shown before generation.
-   - Tests: airline and hotel booking alone pass at their policies' rates, measured against the payment and guarantee outcome shares; a primary and its rollouts agree within noise.
-2. **Group signal in every sub-domain.** A new gate, `group_signal`, runs each sub-domain alone in groups of four and needs accepted groups in at least a fifth of them (decision 8).
-   - Where no rollout can fail, the pack gains the failure branch its industry has, for example:
-     - insurance: a quote abandoned, a missed premium that lapses the policy, a claim or complaint rejected
-     - telecom: a fault that recurs after repair
-     - airline: missing miles that need a claim
-     - hotel: a charge disputed at check-out
-   - Each new branch passes the other gates, and its prior is set where the industry's rate would put it.
-3. **Copies at export.** The exporter indexes 12-word runs of every uploaded document's text and every data-source row, and checks every exported text field against them (decision 9):
-   - samples, prefixes, episodes, decision records, and tasks
-   - a record with a match is left out
-   - the manifest counts what was left out, by part
-   - Tests: a planted copy is caught in a small run and in a large run's export job; a clean run leaves nothing out.
-4. **CI.** A GitHub Actions workflow runs the Python suite and the studio's `next build` on every pull request and on `main`, with no secrets and the engine and providers mocked as the tests already do. The slice's own pull request is the first to show checks.
-5. **Cost.** Decision values are computed once per shared prefix and reused across a group's members, since the members share their prefix up to the first decision.
-   - A 10,000-sequence banking run with episodes, decision records, and the decision-score signal is measured end to end as a job, with a target of three times the plain run or less.
-   - Progress messages name the stage (journeys, episodes, decisions, scoring), so a long run says what it is doing.
-6. **Docs.** README, the contract (the exhausted walk, the new gate, the export check), the roadmap, and the delivered log.
+   The judges score the controls with the same rubrics and repeats as the originals.
+2. **Discrimination, per rubric and model.** The cycle reports how often a control scores below its original. A judge that scores its controls as high as the originals on a rubric is flagged `blind_to_defect` (decision 13). The run page shows it next to agreement, so agreement at the ceiling reads for what it is.
+3. **Pairwise with a right answer.** A journey against its defective copy, blind, in both orders: the judge should pick the original. The cycle reports pairwise control accuracy per model, the follow-up #47 named.
+4. **Questions that say what to look for.** The studio's prompts for helpfulness, correctness, conformance, and decisions name the defects a reader should check: skipped steps, a reversed order, a worse choice, an implausible wait. Their effect is measured by task 2 on the same journeys.
+5. **Docs.** README, `docs/evaluation.md`, the contract (controls in `sample`, `agreement.discrimination`, the new flags), the roadmap, and the delivered log.
 
 ### Exit criteria
 
-- Every sub-domain of every pack, alone, yields accepted groups in at least a fifth of its groups of four, and the gate enforces it for every registered pack.
-- Airline and hotel booking alone pass at their policies' rates, not near zero.
-- A planted copy of an uploaded record is caught at export and counted in the manifest.
-- CI passes on the slice's pull request.
-- The 10,000-sequence run with every consumer feature finishes within three times the plain run.
+- Every cycle reports, per rubric and model, how often a control with a known defect scores below its original, and the pairwise control's accuracy.
+- Tests show a judge that ignores the defects is flagged blind and one that sees them is not.
+- A live cycle on the local engine reports discrimination for both judges.
 
-## Delivered: Slice 9, judge completion across repositories
+## Queued: Slice 12, text worth training on
 
-Delivered by engine #120, #48, and the 4B pull request that follows it. Study rubrics are reported beside the code's solution and behavior rubrics and do not decide acceptance, for the reason pairwise does not (#47): a stratified sample holds failed journeys on purpose.
+- **Template variants.** At least three phrasings of every event in every pack, in English and Turkish, and at least twenty customer openings and follow-ups per pack. They are drawn from the text stream, so journeys do not change.
+- **Faithfulness judged.** A `turn_faithfulness` rubric, registered with the engine like the code-comparison rubrics, is asked of a sample of provider-written turns each cycle. It checks that the text states the skeleton's events and adds no outcome. A turn it calls unfaithful in every repeat reverts to its template (decision 14).
+- **A group per call.** The writer writes a whole group's sequences in one call, which share the opening and prompt, so the same cap covers up to 16 times more sequences.
 
-Work in `llm_inference_engine` first (decision 7):
-- a rubric registry that accepts rubrics over an authenticated API and persists them per tenant
-- `/v1/evals/run` taking a scheduler slot as chat does
-- the safety rubric's template including the prompt
-- an `n` parameter that repeats a judgment above temperature 0
-- typed errors for a timeout or an over-long prompt
+Exit: every pack reaches half its sentences distinct in a 64-sequence run with templates alone, in both languages. A cycle catches a planted unfaithful turn. One call writes a whole group.
 
-Then, in the studio:
-- **4B:** the judge studies a group of journeys with the warm-start passages and proposes study-specific solution and behavior rubrics. The user reviews and edits them in the judge panel before they are registered and used.
-- **Repeated judgments:** each rubric is judged three times per model. Agreement across repeats is reported next to agreement across models.
-- **Judge-side conformance and decision rubrics:** `process_conformance` and `decision_score` are registered with the engine so the judge can score them, and are compared with the code scorers.
+## Queued: Slice 13, calibration beyond one step, and the last sources
 
-Exit: a rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric.
+- **Second-order calibration** (decision 15). Next-step shares are taken after the last two events wherever at least 25 observations back them, and after the last event otherwise. The walker, the conformance scorer, and the decision values read them alike.
+- **Representativeness** adds the second-order divergence, so a conditional gap shows even when first-order shares match.
+- **Telecommunications and insurance sources** (decision 16). A terms review of the FCC's consumer complaints data and the Texas Department of Insurance complaint data, then an adapter for each that its terms allow, calibrating complaint channels and outcomes.
 
-## Delivered: Slice 10, representative everywhere and natural text
-
-Done: the hotel and airline catalogue sources with their adapters (#51), and provider-written turn text checked by code against the skeleton.
-
-- **Hotel calibration:** a catalogue adapter for the Hotel booking demand dataset (decision 10). Cancellations, no-shows, and lead times calibrate the hotel pack's guarantee, cancellation, and arrival outcomes and their durations.
-- **Airline calibration:** an adapter for the Bureau of Transportation Statistics on-time performance data. Delay and cancellation rates and delay lengths calibrate the airline pack's disruption outcomes.
-- **Telecom and insurance sources:** these follow a terms review.
-- **Provider-written turn text** (decision 11): on request, a provider model on the owner's key writes each sample's turn text from the skeleton.
-  - Code checks every turn: each event in order, no invented amount or identifier, and the run's language.
-  - A turn that fails keeps the template.
-  - The composer estimates the calls and takes a cap, as for provider rollouts.
-- **More languages** (decision 12): these wait for provider-written text.
-
-Exit: a hotel run calibrated from the catalogue reports representativeness, and provider-written turns pass the skeleton checks.
+Exit: in a calibrated airline run, delayed flights arrive late within 10 points of the data's 84%, and hotel and banking calibrated shares stay within noise of today's. Each candidate source is added with its licence, or listed with the terms that block it.
 
 ## Out of scope
 
-New sectors beyond the five, a trainer, and hosting. Jev-type remains a target family on the same contract, not a trainer.
+New sectors beyond the five, a trainer, and hosting. Jev-type remains a target family on the same contract, not a trainer. A third language waits for a study that asks for one (decision 17).
