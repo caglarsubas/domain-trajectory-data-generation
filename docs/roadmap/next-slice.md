@@ -111,7 +111,7 @@ Then, in the studio:
 
 Exit: a rubric proposed from a group is reviewed, registered, and used in a cycle, and agreement across repeats is reported per rubric.
 
-## In progress: Slice 10, representative everywhere and natural text
+## Delivered: Slice 10, representative everywhere and natural text
 
 Done: the hotel and airline catalogue sources with their adapters (#51), and provider-written turn text checked by code against the skeleton.
 
