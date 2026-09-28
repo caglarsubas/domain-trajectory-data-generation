@@ -1,147 +1,60 @@
-# Next slice: a roadmap review
+# Next slice: acceptance the judges can earn
 
-Status: approved on 28 September 2026, together with the queued Slices 12 and 13 and decisions 13 to 17 in the [overview](overview.md#decisions), all as recommended. Slices 8 to 10, approved on 26 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: approved on 28 September 2026, together with the queued Slice 15 and decisions 18 to 21 in the [overview](overview.md#decisions), all as recommended. Slices 11 to 13, approved on 28 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
-Branch off `main` at `eaba152`.
+Branch off `main` at `5de8b85`.
 
 ## Why this comes next
 
-The review re-ran every gate against `eaba152`, and every pack passes all eight:
+The review re-ran every gate against `5de8b85`, and every pack passes all nine:
 
-| Pack | Distinct sequences in 64 journeys | Lowest sub-domain's accepted groups |
-|---|---|---|
-| Airline | 57 | check-in and boarding, 32% |
-| Banking | 49 | cards and payments, 30% |
-| Hotel | 55 | in-stay services, 27% |
-| Insurance | 43 | servicing, 32% |
-| Telecommunications | 51 | activation and porting, 27% |
+| Pack | Distinct sequences in 64 journeys | Distinct sentences, English and Turkish | Lowest sub-domain's accepted groups |
+|---|---|---|---|
+| Airline | 57 | 62% | check-in and boarding, 32% |
+| Banking | 47 | 59% | cards and payments, 30% |
+| Hotel | 55 | 53% | in-stay services, 27% |
+| Insurance | 43 | 53% | servicing, 32% |
+| Telecommunications | 51 | 56% | activation and porting, 27% |
 
-A 10,000-sequence banking run with episodes, decision records, and the decision-score signal still costs about 1.5 times the plain run. Timed against Slice 8's commit on the same machine, interleaved, the two commits take the same time: 17 to 23 seconds against 9 to 16 plain.
+A 10,000-sequence banking run costs what it did at `eaba152`. Timed on the same machine, the two commits interleaved, median 12 against 10 seconds plain and 16 against 14 with episodes, decision records, and the decision-score signal, within each commit's own spread of 6 to 27 seconds. The full run still costs about 1.4 times the plain one.
 
-The findings are about what the data and the judge are worth, not whether they run.
+The findings are about whether the judge's acceptance means anything, and about calibration where the data is thin.
 
-- **The judge gives everything the top score.** A live cycle on the local `llm_inference_engine` asked two judges, `gemma4:26b` and `qwen3.6:27b`, three repeats each at temperature 0.7, about three banking journeys (132 verdicts, 2 unreadable, 25 minutes):
+- **The judges cannot tell a flawed journey from a sound one by scoring it, and the cycle still accepts.** A live cycle on the local `llm_inference_engine` asked `gemma4:26b` and `qwen3.6:27b` about three banking journeys, three controls with one known defect each, and a pairwise control, three repeats each at temperature 0.7 (158 verdicts, 9 unreadable, 85 minutes):
 
-  | Rubric | Both judges, every repeat | The code's verdict |
+  | Rubric | `gemma4:26b` | `qwen3.6:27b` |
   |---|---|---|
-  | Helpfulness | 5 of 5 on every journey | — |
-  | Correctness, safety | 1 on every journey | — |
-  | Process conformance | 5 of 5 on every journey | 2 of 3 typical; mean typicality 0.71 |
-  | Decision score | 5 of 5 on every journey | 2 of 3 took the best choice; mean 0.67 |
+  | Helpfulness, which decides acceptance | 5 of 5 on every journey; blind to the missing step and the slow wait | 3.8 on average; caught the slow wait, not the missing step |
+  | Correctness, which decides acceptance | blind to the missing step; passed the reversed control journey | blind to the missing step; passed the reversed control journey |
+  | Process conformance | scored the copy with a missing step 1.0, its original 0.25 | 1.0 against 0.75 |
+  | Decision score | blind to the worse choice | caught it, 1.0 to 0.5 |
+  | Pairwise: a journey against its flawed copy, both orders | picked the original in all 4 readable verdicts | picked the original in all 6 |
 
-  Agreement across models (3 of 3) and across repeats (spread 0) is perfect because there is nothing to disagree about. The judges agree with the code on 2 of 3 journeys, the ones the code passes, and both caught the reversed control journey. The acceptance they grant says little: the only journey they could not score well was the one whose events were put backwards.
-- **Pairwise has no right answer.** After #47 it decides nothing. The live cycle preferred the primary journey 0.83 and 0.87 and flipped once per judge. #47 named the follow-up: a pair whose answer is known.
-- **Templated text repeats.** In a 64-sequence run over all sub-domains, English:
+  Every rubric that asks for a score on its own was blind to some defect, for some judge, and Slice 11's live cycle had found the same for helpfulness. The one question with a right answer, which of two journeys is sounder, both judges answered right every time. Yet the cycle accepted the run on helpfulness, correctness, and safety.
+- **The studio's default judge pair can be one model.** The engine serves `qwen3.8:27b` and `gemma4:26b` from one substitution group (#58), so the defaults, `qwen3.8:27b` first and `gemma4:26b` second, can be one model judging twice. Each verdict records the model that answered, and nothing flags it.
+- **Calibration follows the data where the data is rich.** Measured at `afd08ea`, which #63 leaves unchanged for these scopes, from the real files, 1,500 journeys over every sub-domain, two seeds: delayed flights arrive late in 84% and 80% of calibrated airline journeys against 84% in the data, and hotel reservations are cancelled after confirmation in 33% against 36%. Banking from BPI 2017, after #60 and #62, ends submitted applications approved in 43% and 45%, declined in 23% and 20%, and abandoned in 34% and 35%, against 49%, 13%, and 37%; fitness is 0.48 and next-step divergence 0.39.
+- **Banking declines too often, for a reason the data can show.** Since #62 maps A_Validating to the start of KYC, the data holds no passed check, so the decision after one reads the shares after submission and the start of KYC. There, a direct decline is common, while most approvals come later, after a review the generated journey never took: 1,639 declines against 2,294 approvals, a 42% decline share at the decision.
+- **Telecommunications and insurance have no public source to calibrate from.** The terms review found the FCC's complaints record no step after filing, and the Texas Department of Insurance's data waits on its written confirmation. Those packs calibrate only from a user's own logs, which the studio reads and maps but gives no template or preview for.
+- **Text is done.** Every pack holds 53% to 62% of its sentences distinct from templates alone, a whole group is written per call, and live both judges caught planted unfaithful turns in English and Turkish.
 
-  | Pack | Distinct phrasings | Distinct sentences | Distinct customer messages |
-  |---|---|---|---|
-  | Airline | 35 | 23% | 10 |
-  | Banking | 28 | 29% | 12 |
-  | Hotel | 35 | 16% | 9 |
-  | Insurance | 23 | 19% | 9 |
-  | Telecommunications | 33 | 18% | 8 |
+Outside the code, the studio's `.env` still points the judge at an ngrok tunnel that answers 404; the engine runs on the host at port 8080, which the Compose stack reaches as `http://host.docker.internal:8080`.
 
-  Provider-written text varies it, but it is opt-in, costs a call per sequence, and stops at 4,000 calls a run: a 100,000-sequence run keeps templates for 96% of its sequences.
-- **Written text is not checked for meaning.** Live on `gemma4:26b`, a Turkish turn for a declined guarantee said the reservation was *cancelled* because no guarantee could be given. It passed every code check: the events, amounts, identifiers, and language were right.
-- **Calibration sees one step back.** Calibrated from the real files on 400 journeys, hotel runs match the data after a confirmation (cancelled 37% against 34%), and airline runs match delays at check-in (32% against 33%). But the pack lets only a delayed flight arrive late, and the data's late-arrival share covers every flight: delayed flights arrive late in 32% of calibrated journeys against 84% in the data.
-- **Telecommunications and insurance** still calibrate only from logs a user uploads; their catalogue sources wait on a terms review.
+## Next: Slice 14, acceptance the judges can earn
 
-Two things outside the code:
-- **The studio's judge address is offline.** `.env` points `INFERENCE_ENGINE_BASE_URL` at an ngrok tunnel that answers 404 on every path; the engine itself runs locally on port 8080 with #120. Judge cycles from the Docker stack fail until the address is updated.
-- **In flight in another session:** #53 gives the conformance judge the next-step shares the code scores typicality with. Slice 11 builds on it once it merges rather than duplicating it.
+1. **Controls for every sampled journey** (decision 19). Each sampled journey gets the flawed copies the pack confirms for it, a missing step, a worse choice, a slow wait, and its events reversed, instead of at most one of each across the sample. Discrimination then rests on up to six controls per rubric and judge, not the one or two that make today's rates all or nothing. Controls are asked once at temperature 0, as conformance is since #58, so a cycle generates about what it does today while asking more.
+2. **A rubric decides only where its judge sees** (decision 18). Helpfulness and correctness decide acceptance for a judge only if, in the same cycle, that judge scores at least half of their controls lower than the originals, and for correctness also catches the reversed journey. Otherwise they keep scoring and writing revision notes, and the cycle says they did not decide. When no rubric decides, the run is accepted or not on the code's checks alone, and the run page says the judges could not tell.
+3. **Helpfulness reads what it is asked about.** Its question names skipped steps and waits far past a step's usual time, but the judge is never told a step's usual time. The prompt gives each step's wait range, as conformance's gives the next-step shares, and the next live cycle measures whether helpfulness then sees the slow wait and the missing step.
+4. **Two models in the judge pair** (decision 20). The default primary judge becomes `qwen3.6:27b`, which saw the most defects here, with `gemma4:26b` second. A cycle whose two judges were served by one model says so on the run page, and reports agreement as one judge's.
 
-## Delivered: Slice 11, judges that can tell journeys apart
+Exit: in a live cycle, acceptance comes only from rubrics whose judge scored their controls lower, each measured over at least three controls; a rubric blind to its controls decides nothing that cycle; and a cycle judged twice by one model says so.
 
-Delivered in one pull request covering tasks 1 to 5. A live cycle on the local engine, one repeat, three banking journeys and three controls, 522 seconds:
+## Queued: Slice 15, calibration people can bring
 
-| Rubric | `gemma4:26b` | `qwen3.6:27b` |
-|---|---|---|
-| Correctness | caught the missing step, 1 to 0 | caught it, 1 to 0 |
-| Decision score | scored the worse choice lower, 1 to 0.5 | lower, 1 to 0.5 |
-| Pairwise control | picked the original in both orders | picked the original in both orders |
-| Process conformance | lower, 1 to 0.75 | blind, 1 to 1 |
-| Helpfulness | blind: 5 to 5 for the missing step, 2 to 2 for the slow wait | blind, 2 to 2 |
+1. **Banking's passed check.** Map a BPI activity to `kyc.passed`, or read the decision after a passed check from the shares the data backs there, so banking declines land within 5 points of the data's 13% while approvals and abandonment stay within 5 of theirs.
+2. **A template per pack** (decision 21). The studio offers, for each pack, a CSV template of its events with a short example log, so a telecommunications or insurance team can export its own journeys in a shape the mapper reads without guessing.
+3. **A preview before a run.** After a log is mapped, the data source shows what calibration would change: for the steps it moves most, the pack's share against the data's, and the events the data cannot see.
 
-With questions that name what to look for, the judges no longer give every journey the top score: helpfulness averaged 4 of 5 and correctness 0.67. Helpfulness, which decides acceptance, is still blind to both defects it was given, and `qwen3.6:27b` is blind on conformance; the run page now says so.
-
-1. **Graded controls.** Each cycle adds, beside the reversed control journey, copies of sampled journeys with one known defect, each confirmed by the pack's own machinery:
-   - a required step removed, so the replay fails at one point;
-   - an outcome decision swapped for a legal but worse choice, with a lower simulated value;
-   - one wait stretched far past its step's range, so the behavior rubric fails.
-
-   The judges score the controls with the same rubrics and repeats as the originals.
-2. **Discrimination, per rubric and model.** The cycle reports how often a control scores below its original. A judge that scores its controls as high as the originals on a rubric is flagged `blind_to_defect` (decision 13). The run page shows it next to agreement, so agreement at the ceiling reads for what it is.
-3. **Pairwise with a right answer.** A journey against its defective copy, blind, in both orders: the judge should pick the original. The cycle reports pairwise control accuracy per model, the follow-up #47 named.
-4. **Questions that say what to look for.** The studio's prompts for helpfulness, correctness, conformance, and decisions name the defects a reader should check: skipped steps, a reversed order, a worse choice, an implausible wait. Their effect is measured by task 2 on the same journeys.
-5. **Docs.** README, `docs/evaluation.md`, the contract (controls in `sample`, `agreement.discrimination`, the new flags), the roadmap, and the delivered log.
-
-### Exit criteria
-
-- Every cycle reports, per rubric and model, how often a control with a known defect scores below its original, and the pairwise control's accuracy.
-- Tests show a judge that ignores the defects is flagged blind and one that sees them is not.
-- A live cycle on the local engine reports discrimination for both judges.
-
-## Delivered: Slice 12, text worth training on
-
-Delivered in two pull requests, and all three exit criteria are met.
-
-### Delivered: part one, template variants
-
-Every event of every pack has at least four phrasings in English and Turkish, and the 27 events that nearly every journey passes through have eight. Narration draws one from the text stream, so the journeys stay as drawn. An event that comes an hour or more after the one before now states the wait, as in "The claim was assessed (3 days later).", as a repeat already stated the time since it last happened; the writer's skeleton carries the same wait. Every pack has at least twenty customer openings and twenty follow-ups per language. Two gates hold every pack to this: `complete_spec` asks for three plain phrasings of every event and twenty of each kind of customer line, and the new `text_variety` gate for half the sentences distinct in 64 sequences in each language.
-
-In a 64-sequence run over all sub-domains, 16 groups of four, both columns measured the same way:
-
-| Pack | Distinct sentences before | After, English and Turkish | Distinct customer messages |
-|---|---|---|---|
-| Airline | 23% | 64% | 10 to 31 |
-| Banking | 32% | 60% | 12 to 31 |
-| Hotel | 16% | 55% | 9 to 29 |
-| Insurance | 19% | 54% | 9 to 30 |
-| Telecommunications | 16% | 53% | 8 to 32 |
-
-Phrasings alone would not have reached half: with eight for every event, the packs reached 34% to 46%. A group's rollouts share the events before they part, and the events near the start of every journey carry no amount or wait, so they repeat whatever the wording. Stating waits gives most later events their own sentence. Controls are narrated the same way, so a control reads like the journeys beside it, and a stretched wait now shows in its text.
-
-### Delivered: part two, faithfulness judged and a group per call
-
-- **A group per call.** The writer writes a whole group's sequences in one call, from one skeleton: the opening they share, and for each sequence its follow-ups and its turns' events. The composer estimates one call per prompt, so the same cap covers up to 16 times as many sequences. A call's completion allowance and its wait grow with the group's events. Live on the local engine, `gemma4:26b` wrote all 48 turns of 16 sequences, groups of four in English banking and Turkish hotel runs, in 4 calls of about 80 seconds, and every turn passed the code checks.
-- **Faithfulness judged.** A written turn keeps the template it replaced. Each cycle samples written turns (`JUDGE_TEXT_SAMPLE`, 6), one per sequence before a second from any, and asks every judge `turn_faithfulness`, which the studio registers with the engine: the written turn against its events in order and its template. A turn that every readable repeat of every judge calls unfaithful goes back to its template in the stored run, in the database or in its batch file (decision 14). The cycle reports each turn's verdicts, the judge panel shows the turns put back, and the run's text note counts them.
-
-Live, as a cycle asks them, both judges read four written turns and one planted unfaithful turn per language, three repeats each at temperature 0.7, 126 seconds in all:
-
-| Planted turn | `gemma4:26b` | `qwen3.6:27b` | Result |
-|---|---|---|---|
-| English banking: "You submitted the application, and your account was then closed." | unfaithful 3 of 3 | unfaithful 3 of 3 | back to its template |
-| Turkish hotel: an accepted card guarantee written as declined | unfaithful 3 of 3 | unfaithful 3 of 3 | back to its template |
-| Eight faithful written turns | faithful 3 of 3 each | faithful 3 of 3 each | kept |
-
-Neither planted turn adds a number, identifier, or event name, so no code check could catch it. The first live run found `gemma4:26b` answering a faithful turn with no reason, which the engine read as unreadable; the rubric now requires only the verdict.
-
-## Delivered: Slice 13, calibration beyond one step, and the last sources
-
-Delivered in one pull request. Every approved slice has now shipped; the next step is a review of the roadmap against `main`, as on 28 September.
-
-- **Second-order calibration** (decision 15). A calibration also counts the next steps after each pair of events, from the start. The walker, the conformance scorer, and the decision values take next-step shares after the last two events wherever at least 25 observations among the legal options back that pair, and after the last event otherwise; the decision values' cache is keyed on the pairs too.
-- **Context as the data records it.** A journey's last two events are read over the events the data contains, so a loyalty sign-up between a flight's departure and its arrival does not hide that the flight was delayed. Until the journey reaches one of them, the data has recorded nothing, and its next one is drawn as the data's journeys start.
-- **Delays at the gate.** BTS measures a delay as the actual departure against the scheduled one, so the on-time adapter now puts the delay between boarding and departure, and a delayed flight's arrival follows the delay.
-- **Representativeness** reports `second_order_divergence`, the next-step gap after each pair of events the data backs, over every batch of a large run.
-- **Terms review** (decision 16), listed in the catalogue without adding either source:
-
-  | Source | Terms | Why it is not added |
-  |---|---|---|
-  | FCC consumer complaints | Public domain; the FCC API terms ask for a notice that it does not endorse the product | Each complaint records only when it was filed and about what: no channel of filing, provider, outcome, or closing date, so it calibrates no step after a complaint is received |
-  | Texas Department of Insurance complaints | No licence on the dataset; TDI's site terms allow only unaltered, non-commercial copies | Its dates, confirmation, and dispositions would calibrate complaint outcomes, but publishing aggregates from it waits on TDI's written confirmation |
-
-In calibrated runs from the real files, 1,500 journeys over every sub-domain, two seeds:
-
-| Measure | Data | `main` | Slice 13 |
-|---|---|---|---|
-| Airline: delayed flights arriving late | 84% | 27%, 30% | 84%, 80% |
-| Airline: delayed share of arrivals | 33% | 27%, 25% | 33%, 29% |
-| Airline: next-step divergence | 0 | 0.32, 0.32 | 0.17, 0.18 |
-| Hotel: confirmed reservations cancelled | 36% | 29%, 30% | 33%, 33% |
-| Banking, from BPI 2017: submitted applications approved | 49% | 74%, 78% | 74%, 78% |
-
-Airline meets the exit criterion. Hotel moves beyond noise, toward the data: interleaved events the data never records no longer hide the reservation's last step. Banking draws the same journeys as on `main`: its decisions follow a pair BPI backs with too few observations, so they fall back to the last event as before. BPI 2017's calibration has a problem of its own, found here: its offer activities, which the catalogue means to leave unmapped, are mapped by shared words, so the data counts approved applications being submitted again and a calibrated run's fitness is 0.29. That is a fix to the catalogue mapping, outside this slice.
+Exit: banking calibrated from BPI 2017 declines within 5 points of 13%; a telecommunications log written from the template calibrates a run to a next-step divergence under 0.1; the preview matches the calibrated run's shares.
 
 ## Out of scope
 

@@ -2,15 +2,14 @@
 
 Repository: https://github.com/caglarsubas/domain-trajectory-data-generation
 
-Last reviewed: 28 September 2026, against `main` at `eaba152`, after Slices 8 to 10 shipped. This review:
-- re-ran the gates for all five packs
-- measured how varied the templated text is in every pack
-- calibrated hotel and airline runs from the real catalogue files and compared them with the data
-- ran a live judge cycle with two judges on the local `llm_inference_engine`, which carries #120
-- timed a 10,000-sequence run against Slice 8's commit on the same machine
+Last reviewed: 28 September 2026, against `main` at `5de8b85`, after Slices 11 to 13 shipped; the judge cycle and the calibrated runs were measured at `afd08ea`, which #63 leaves unchanged for them. This review:
+- re-ran the nine gates for all five packs
+- timed a 10,000-sequence run against the previous review's commit on the same machine
+- ran a live judge cycle with two judges, controls, and the code rubrics on the local `llm_inference_engine`
+- calibrated banking runs from BPI Challenge 2017 after #60 and #62, beside the airline and hotel runs Slice 13 measured
 - checked the studio's judge configuration and the work in flight in other sessions
 
-The previous review, against `234ba5b` on 26 September, set Slices 8 to 10, which have been delivered; its evidence is in git history. What this review found, and the slices it set, are in [next-slice.md](next-slice.md); they and decisions 13 to 17 were approved the same day, all as recommended.
+The review before it, against `eaba152` earlier the same day, set Slices 11 to 13, which have been delivered; its evidence is in git history. What this review found, and the slices it set, are in [next-slice.md](next-slice.md); they and decisions 18 to 21 were approved the same day, all as recommended.
 
 Companion files: [delivered.md](delivered.md) records what each merged pull request established. [next-slice.md](next-slice.md) is the approved plan for the work now in front of us.
 
@@ -25,9 +24,9 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 | Purpose clause | What satisfies it | On `main` today | Status |
 |---|---|---|---|
 | Complete | Every journey legal end to end: zero impossible transitions, referential integrity, a terminal or horizon state | Every pack's journeys replay through its own machines. The gates' sweep of 150 random configurations per pack breaks no rule, and every event of every pack is reachable. | Met |
-| Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 41 to 57 distinct sequences in 64 journeys across the five packs, and every sub-domain reaches its milestones alone and together | Met |
-| Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Event logs in CSV, Parquet, XES, or OCEL 2.0 calibrate any pack, and the catalogue calibrates banking, hotel, and airline runs; fitness, precision, and next-step divergence after the last event and the last two are reported. Next-step shares follow the last two events wherever the data backs them, so delayed flights arrive late in 80% to 84% of calibrated journeys against 84% in the data. The terms review found no telecommunications or insurance source to add: the FCC's complaints record no step after filing, and TDI's wait on its confirmation. BPI 2017's offer activities are mapped by shared words, which a catalogue mapping fix will stop. | Partly: no telecommunications or insurance source |
-| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, repeats above temperature 0, study-specific rubrics, a control journey, audit flags, and regeneration from notes. Every cycle now asks controls with one known defect and reports, per rubric and model, whether the judge scores them lower; live, correctness, the decision score, and the pairwise control see the defects, and helpfulness is blind to them. Templated text has 53% to 64% distinct sentences in every pack and language, up from 16% to 29%. Provider-written text varies it further on request, a whole group per call, and each cycle's judges read a sample of written turns for faithfulness; a turn every repeat calls unfaithful goes back to its template. Live, both local judges caught planted unfaithful turns in English and Turkish and kept every faithful one. | Text met; the judge partly, as helpfulness is blind to defects |
+| Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 43 to 57 distinct sequences in 64 journeys across the five packs, and every sub-domain reaches its milestones alone and together | Met |
+| Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Event logs in CSV, Parquet, XES, or OCEL 2.0 calibrate any pack, and the catalogue calibrates banking, hotel, and airline runs; fitness, precision, and next-step divergence after the last event and the last two are reported. Next-step shares follow the last two events wherever the data backs them: delayed flights arrive late in 80% to 84% of calibrated journeys against 84% in the data, and hotel reservations are cancelled in 33% against 36%. Banking from BPI 2017 approves 43% to 45%, declines 20% to 23%, and abandons 34% to 35% of submitted applications, against 49%, 13%, and 37%; its declines run high because the data holds no passed check. Telecommunications and insurance have no public source their terms and data allow. | Partly; Slice 15 |
+| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, repeats above temperature 0, study-specific rubrics, controls with one known defect in every cycle, audit flags, and regeneration from notes. Live, every rubric that asks for a score on its own was blind to some defect for some judge, while both judges picked a journey over its flawed copy every time; the cycle still accepted on helpfulness and correctness. Templated text has 53% to 62% distinct sentences in every pack and language; written text is checked for faithfulness, and a turn every judge calls unfaithful goes back to its template. | Text met; the judge partly, Slice 14 |
 | Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | Groups of up to 16, the shared MiMo rewards with every signal scored, episodes in three harness formats with provider rollouts, and history prefixes. Every sub-domain of every pack yields accepted groups, which the `group_signal` gate enforces, and a journey ends at its natural length in its scope. | Met |
 | Decision scoring | Decision records at branch points: state, options, outcome, score | Decision points with policy shares and simulated values, exported as typed questions under a versioned schema every record validates against | Met |
 | Evaluation | Tasks with verifiers, held-out splits, avg@k and pass@k | Journey and agent tasks with environment, verifiers, and references, reported as avg@k and pass@k by verifier and by policy, including each provider model | Met |
@@ -104,16 +103,16 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 to 13. The suite has 392 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, and every pack passes every gate.
+All eight slices of the first plan have shipped, and so have Slices 8 to 13. The suite has 395 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, and every pack passes all nine gates.
 
-Slice 8 made the data honest at every scope, Slice 9 completed the judge across both repositories, and Slice 10 made the data representative beyond banking and the text natural on request.
+Slice 11 gave every judge cycle controls with known defects, Slice 12 made the templated text varied and the written text checked for meaning, and Slice 13 made calibration follow the last two steps.
 
-The review of 28 September, against `eaba152`, found that what remains is about what the data and the judge are worth:
-- **The judge gives everything the top score.** Live, two judges scored three banking journeys 5 of 5 and 1 of 1 on every rubric and repeat, including the conformance and decision scores the code fails for one journey each. Only the reversed control journey scored low. Slice 11, now delivered, gives each cycle controls with known defects: live, both judges caught a missing step on correctness and a worse choice on the decision score and picked the original in the pairwise control, while helpfulness stayed blind for both and conformance for `qwen3.6:27b`.
-- **Templated text repeated**, with 16% to 29% distinct sentences per pack, and provider-written text was not checked for meaning. Slice 12, now delivered, brings every pack to 53% to 64% in both languages with at least four phrasings of every event and the wait before each step, writes a whole group per call, and has the judges read written turns for faithfulness, putting an unfaithful one back to its template.
-- **Calibration saw one step back**, so a delayed flight arrived late in 32% of calibrated journeys against 84% in the data, and telecommunications and insurance had no catalogue source. Slice 13, now delivered, takes next-step shares after the last two events where the data backs them, bringing delayed flights to 80% to 84% late, and its terms review listed both candidate sources with what keeps them out.
+The review of 28 September, against `5de8b85`, found that what remains is about whether the judge's acceptance means anything, and about calibration where the data is thin:
+- **The judges cannot tell flawed journeys by scoring them, and the cycle still accepts.** Live, every rubric that asks for a score on its own was blind to some defect for some judge: `gemma4:26b` gave every journey and control 5 of 5 on helpfulness, and both judges passed the reversed control journey on correctness. Asked which of a journey and its flawed copy is sounder, both picked the original every time. Slice 14 lets a rubric decide only where its judge sees its controls, measured over enough of them to mean something, and gives helpfulness the waits it is asked about.
+- **The default judge pair can be one model**, since the engine serves `qwen3.8:27b` and `gemma4:26b` from one substitution group. Slice 14 makes `qwen3.6:27b` the primary judge and flags a cycle judged twice by one model.
+- **Banking declines too often**: 20% to 23% of submitted applications against 13% in BPI 2017, because the data holds no passed check since #62. Telecommunications and insurance have no public source, so they calibrate only from a user's own logs. Slice 15 fixes banking's passed check and adds a template and a preview for bringing a log.
 
-Outside the code, the studio's `.env` points the judge at an ngrok tunnel that is offline; the engine runs locally on port 8080.
+Outside the code, the studio's `.env` still points the judge at an ngrok tunnel that answers 404; the Compose stack reaches the host's engine as `http://host.docker.internal:8080`.
 
 ## Roadmap
 
@@ -145,6 +144,13 @@ Approved on 28 September 2026 (detail in [next-slice.md](next-slice.md)):
 | 11. Judges that can tell journeys apart (delivered) | Controls with known defects in every cycle: a removed step, a worse choice, an implausible wait; discrimination per rubric and model; pairwise with a right answer; questions that say what to look for | Every cycle reports how often a control scores below its original, per rubric and model, and the pairwise control's accuracy, and a judge that ignores defects is flagged blind |
 | 12. Text worth training on (delivered) | Template variants in every pack and language, a faithfulness rubric on provider-written turns, and a whole group per writer call | Every pack reaches half its sentences distinct with templates alone, a cycle catches a planted unfaithful turn, and one call writes a group |
 | 13. Calibration beyond one step, and the last sources (delivered) | Second-order calibration with backoff, a second-order divergence, and a terms review of telecommunications and insurance sources | Delayed flights arrive late within 10 points of the data in a calibrated airline run, and each candidate source is added with its licence or listed with what blocks it |
+
+Approved on 28 September 2026, after the second review that day (detail in [next-slice.md](next-slice.md)):
+
+| Slice | Goal | Exit criterion |
+|---|---|---|
+| 14. Acceptance the judges can earn | Controls for every sampled journey, asked once at temperature 0; a rubric decides acceptance only where its judge scores its controls lower; helpfulness told each step's usual wait; a judge pair of two models | In a live cycle, acceptance comes only from rubrics whose judge scored at least three controls lower, a blind rubric decides nothing, and a cycle judged twice by one model says so |
+| 15. Calibration people can bring | Banking's passed check calibrated, a CSV template and example log per pack, and a preview of what a mapped log changes | Banking declines within 5 points of BPI's 13%, a telecommunications log from the template calibrates a run to a next-step divergence under 0.1, and the preview matches the run |
 
 ### Slice 0. Rotate credentials and fix the judge wiring
 
@@ -257,6 +263,13 @@ Settled on 28 September 2026 for Slices 11 to 13, all as recommended:
 15. **Second-order calibration with backoff.** Next-step shares are taken after the last two events wherever at least 25 observations back them, the prior strength calibration already uses, and after the last event otherwise. As delivered, the events are those the data contains, and a journey the data has not yet seen begins as its journeys do.
 16. **Telecommunications and insurance candidates.** The FCC's consumer complaints data and the Texas Department of Insurance complaint data go to a terms review, as HMDA did. Each is added only under terms that allow it. Reviewed on 28 September 2026: the FCC's terms allow it but its records hold no step after filing, and TDI's wait on its written confirmation, so neither is added.
 17. **Languages revisited.** Decision 12 assumed a new language would need only prompts. A turn that fails its checks falls back to its template, so a language still needs phrase tables for all five packs. No third language is scheduled until a study asks for one; when one does, its tables come with Slice 12's variants.
+
+Settled on 28 September 2026 for Slices 14 and 15, all as recommended:
+
+18. **A rubric decides only where its judge sees.** Helpfulness and correctness decide acceptance for a judge only if, in the same cycle, it scores at least half of their controls lower than the originals, and for correctness also catches the reversed journey. When no rubric decides, a run is accepted or not on the code's checks alone, and the run page says the judges could not tell. This replaces decision 13's rule that acceptance follows helpfulness, correctness, and safety whatever the controls show; safety keeps deciding, as it has no control.
+19. **Controls for every sampled journey, asked once at temperature 0.** Each sampled journey gets every flawed copy the pack confirms for it, so a discrimination rate rests on up to six controls rather than one or two, and the controls are asked once at temperature 0, as conformance is since #58.
+20. **A judge pair of two models.** The default primary judge becomes `qwen3.6:27b`, with `gemma4:26b` second, in place of decision 5's `qwen3.8:27b`, which the engine serves from one substitution group with `gemma4:26b`. A cycle whose two judges were served by one model says so.
+21. **Calibration for packs without a public source comes from the user.** Telecommunications and insurance calibrate from a team's own logs, helped by a template and a preview; the Texas Department of Insurance's data is added only once TDI confirms in writing that aggregates may be published, which the owner may ask it for.
 
 ## Stack
 
