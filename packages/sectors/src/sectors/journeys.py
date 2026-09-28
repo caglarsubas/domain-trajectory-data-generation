@@ -56,6 +56,9 @@ SPANS = {
     "tr": (("dakika", "dakika"), ("saat", "saat"), ("gün", "gün")),
 }
 SINCE = {"en": "{span} after the previous one", "tr": "bir öncekinden {span} sonra"}
+# The wait before an event that is not a repeat, stated when it is an hour or more.
+LATER = {"en": "{span} later", "tr": "{span} sonra"}
+LATER_HOURS = 1.0
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,9 @@ class PackSpec:
     operations: dict[str, tuple[str, str]] = field(default_factory=dict)
     # The episode agent's system text and task, per language, with {party} and {situation} in the task.
     agent: dict[str, dict[str, str]] = field(default_factory=dict)
+    # Other phrasings of each event, per language, stating the same fact as `phrases`; narration draws one of them
+    # from the text stream, so the journeys stay as drawn.
+    variants: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -140,10 +146,13 @@ class _Member:
         self.trajectory_id = trajectory_id
         # Waits before each step after the first, which the behavior rubric reads.
         self.hours = hours
-        # Per event, the amount and time since the same event last happened; empty when it has neither.
+        # Per event, the amount and the wait: since the same event last happened, or else since the previous event
+        # when that was an hour or more; empty when it has neither.
         self.details = details or [""] * len(types)
         # Per event, the amount its narration states, which provider-written text must state too.
         self.amounts = amounts or [None] * len(types)
+        # Per event, the sentence its sequence narrates, once narrated.
+        self.sentences: list[str] = []
 
 
 class _Journey:
@@ -622,6 +631,7 @@ def _span(lang: str, hours: float) -> str:
 def _details(lang: str, events: list[Event]) -> list[str]:
     last: dict[str, datetime] = {}
     details = []
+    before: datetime | None = None
     for event in events:
         parts = []
         if event.amount is not None and event.currency:
@@ -630,9 +640,17 @@ def _details(lang: str, events: list[Event]) -> list[str]:
         if previous is not None:
             span = _span(lang, (event.event_time - previous).total_seconds() / 3600)
             parts.append(SINCE.get(lang, SINCE["en"]).format(span=span))
-        last[event.event_type] = event.event_time
+        elif before is not None and (hours := (event.event_time - before).total_seconds() / 3600) >= LATER_HOURS:
+            parts.append(LATER.get(lang, LATER["en"]).format(span=_span(lang, hours)))
+        last[event.event_type] = before = event.event_time
         details.append(", ".join(parts))
     return details
+
+
+def _sentences(pack: PackSpec, lang: str, types: list[str], details: list[str], rng: random.Random) -> list[str]:
+    """Each event's sentence: one of its phrasings, drawn from `rng`, with its details."""
+    phrases, variants = pack.phrases[lang], pack.variants.get(lang, {})
+    return [_narrate(rng.choice((phrases[name], *variants.get(name, ()))), detail) for name, detail in zip(types, details)]
 
 
 def _narrate(phrase: str, detail: str) -> str:
@@ -819,7 +837,6 @@ def _group_sample(context: _Context, members: list[_Member]) -> Sample:
     first rollout's when the first member reached no product.
     """
     pack, words, ids, steering = context.pack, context.words, context.ids, context.steering
-    phrases = pack.phrases[context.lang]
     if context.cold:
         reference = "Cold start. No warm-start corpus was used."
     else:
@@ -858,8 +875,8 @@ def _group_sample(context: _Context, members: list[_Member]) -> Sample:
             Segment(segment_id=ids.take("G"), role="system", text=system, trainable=False),
             Segment(segment_id=ids.take("G"), role="user", text=opening, trainable=False),
         ]
-        sentences = [_narrate(phrases[item], detail) for item, detail in zip(member.types, member.details)]
-        for index, turn in enumerate(_turns(sentences, context.turns)):
+        member.sentences = _sentences(pack, context.lang, member.types, member.details, words)
+        for index, turn in enumerate(_turns(member.sentences, context.turns)):
             if index:
                 segments.append(
                     Segment(segment_id=ids.take("G"), role="user", text=words.choice(pack.follow_ups[context.lang]), trainable=False)

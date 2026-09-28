@@ -1,12 +1,14 @@
 """The gates a sector pack passes before the composer offers it: the same ones banking passes.
 
-- complete_spec: every event has roles, phrases in each language, a named operation, and machines whose
-  object kinds the pack declares; every sub-domain has milestones; prompts, openings, follow-ups, a goal,
-  and agent wording exist in each language.
+- complete_spec: every event has roles, at least three phrasings in each language, a named operation, and machines
+  whose object kinds the pack declares; every sub-domain has milestones; prompts, a goal, agent wording, and at
+  least twenty openings and twenty follow-ups exist in each language.
 - legal_sweep: random configurations never break a rule, a repeat limit, or the length bound, and every
   journey classifies to a declared type.
 - every_sub_domain: each sub-domain alone, and all together, yield legal journeys that reach its milestones.
 - diversity: 64 journeys across every sub-domain hold at least 32 distinct event sequences.
+- text_variety: in each language, 64 sequences across every sub-domain, narrated from templates alone, hold at least
+  half their sentences distinct.
 - group_signal: each sub-domain alone yields accepted groups, with both a pass and a fail, in at least a fifth of
   its groups of four; a group whose rollouts all pass or all fail teaches nothing under group-relative rewards.
 - reachable: every event of the pack occurs in a large run, so every outcome is possible.
@@ -17,10 +19,16 @@
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass
 
 DIVERSITY_JOURNEYS = 64
 DIVERSITY_DISTINCT = 32
+PHRASINGS = 3
+CUSTOMER_LINES = 20
+TEXT_SEQUENCES = 64
+TEXT_DISTINCT = 0.5
+SENTENCE_END = re.compile(r"(?<=\.)\s+")
 SIGNAL_GROUPS = 100
 SIGNAL_SHARE = 0.2
 
@@ -71,6 +79,13 @@ def complete_spec(sector) -> Gate:
         for lang in sector.languages:
             if name not in pack.phrases.get(lang, {}):
                 problems.append(f"{name} has no {lang} phrase")
+                continue
+            phrasings = {pack.phrases[lang][name], *pack.variants.get(lang, {}).get(name, ())}
+            if len(phrasings) < PHRASINGS:
+                problems.append(f"{name} has fewer than {PHRASINGS} {lang} phrasings")
+            # Narration adds amounts and waits in parentheses, so a phrasing holds neither numbers nor parentheses.
+            if any(not text.endswith(".") or "(" in text or any(char.isdigit() for char in text) for text in phrasings):
+                problems.append(f"{name} has a {lang} phrasing that is not one plain sentence")
         if name not in operations:
             problems.append(f"{name} has no named operation")
         for follow in spec.follow_up:
@@ -90,6 +105,8 @@ def complete_spec(sector) -> Gate:
             "agent wording": "{party}" in wording.get("task", "") and "{situation}" in wording.get("task", "") and bool(wording.get("system")),
         }
         problems.extend(f"no {lang} {what}" for what, present in checks.items() if not present)
+        lines = {"openings": sum(len(items) for items in (pack.openings.get(lang) or {}).values()), "follow-ups": len(pack.follow_ups.get(lang) or ())}
+        problems.extend(f"{count} {lang} {what}, fewer than {CUSTOMER_LINES}" for what, count in lines.items() if count < CUSTOMER_LINES)
     return Gate("complete_spec", not problems, "; ".join(problems[:6]) or f"{len(lifecycle.events)} events, {len(sector.sub_domains)} sub-domains")
 
 
@@ -148,6 +165,25 @@ def diversity(sector) -> Gate:
     return Gate("diversity", distinct >= DIVERSITY_DISTINCT, f"{distinct} distinct sequences in {DIVERSITY_JOURNEYS} journeys")
 
 
+def text_variety(sector) -> Gate:
+    shares = {}
+    for lang in sector.languages:
+        bundle = sector.generate(**_base(
+            language=lang, sub_domains=list(sector.sub_domains), target_trajectory_count=TEXT_SEQUENCES // 4, group_size=4,
+            min_events=6, max_events=20, max_assistant_turns=3, seed="text",
+        ))
+        sentences = [
+            sentence
+            for sample in bundle.samples for sequence in sample.sequences for context in sequence.contexts
+            for segment in context.segments if segment.role == "assistant"
+            for sentence in SENTENCE_END.split(segment.text)
+        ]
+        shares[lang] = len(set(sentences)) / max(len(sentences), 1)
+    detail = ", ".join(f"{lang} {share:.0%}" for lang, share in shares.items())
+    passed = all(share >= TEXT_DISTINCT for share in shares.values())
+    return Gate("text_variety", passed, f"distinct sentences in {TEXT_SEQUENCES} sequences: {detail}")
+
+
 def group_signal(sector) -> Gate:
     shares = {}
     for domain in sector.sub_domains:
@@ -199,7 +235,7 @@ def agent_ready(sector) -> Gate:
     return Gate("agent_ready", True, f"{len(bundle.episodes)} episodes, {len(bundle.decisions)} decisions, five signals")
 
 
-GATES = (complete_spec, legal_sweep, every_sub_domain, diversity, group_signal, reachable, stable, agent_ready)
+GATES = (complete_spec, legal_sweep, every_sub_domain, diversity, text_variety, group_signal, reachable, stable, agent_ready)
 
 
 def run_gates(sector) -> list[Gate]:

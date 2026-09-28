@@ -322,7 +322,8 @@ LANGUAGES = {"en": "English", "tr": "Turkish"}
 WRITER_SYSTEM = (
     "You write the assistant's turns in a customer-service conversation for a synthetic {sector} dataset, in {language}. "
     "The skeleton gives the customer's opening and follow-ups, and for each assistant turn the events it reports, in order, "
-    "each with a template sentence, its amount, and the time since it last happened. Write one natural sentence per event, "
+    "each with a template sentence, its amount, and its wait: since the previous event, or since the same event last happened. "
+    "Write one natural sentence per event, "
     "in the order given, as the assistant speaking to the customer in the second person, in your own words: the template "
     "only states the fact, so do not copy it. State every amount exactly as given. Add no "
     "other number, date, name, account or reference number, email address, or link, and do not write the event names. "
