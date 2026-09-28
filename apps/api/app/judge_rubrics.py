@@ -10,7 +10,8 @@ on the same scale.
 
 from __future__ import annotations
 
-_OUTPUT = 'Output ONLY a single JSON object: {"score": integer 1-5, "reason": string}.'
+# A short reason keeps a judge that works through the arithmetic inside the engine's answer budget.
+_OUTPUT = 'Output ONLY a single JSON object: {"score": integer 1-5, "reason": string}. Keep the reason under 40 words.'
 _TEMPLATE = "BRIEF AND QUESTION:\n{prompt}\n\nJOURNEY:\n{response}\n\nReturn your JSON verdict now."
 
 PROCESS_CONFORMANCE = {
@@ -21,8 +22,9 @@ PROCESS_CONFORMANCE = {
         "process, and its reference next steps give, wherever the journey could go more than one way, the share of "
         "journeys taking each option. At each of those steps, divide the share of the option the journey took by the "
         "share of the most common option there, so the most common option counts 1 and a rarer one less. Average "
-        "those ratios over the steps, then score 5 for an average near 1, 4 near 0.75, 3 near 0.5, 2 near 0.25, and "
-        "1 near 0. A step the process does not allow at that point counts 0. " + _OUTPUT
+        "those ratios over the listed steps only: a step with one legal option is not listed and does not count, so "
+        "a journey with a single listed step scores that step's ratio. Then score 5 for an average near 1, 4 near "
+        "0.75, 3 near 0.5, 2 near 0.25, and 1 near 0. A step the process does not allow at that point counts 0. " + _OUTPUT
     ),
     "user_prompt_template": _TEMPLATE,
     "expected_keys": ["score", "reason"],
@@ -51,6 +53,10 @@ CODE_RUBRICS = {rubric["name"]: rubric for rubric in (PROCESS_CONFORMANCE, DECIS
 # typicality >= 0.5 for conformance, and every decision within 0.9 of the best for the decision score, which asks
 # more of the judge than the middle of its scale.
 JUDGE_PASS = {"process_conformance": 0.5, "decision_score": 0.75}
+
+# Rubrics answered by arithmetic on numbers the question gives: asked once at temperature 0, since sampling them only
+# adds noise, and a second sample at 0.7 once turned a 0 into a 1.
+DETERMINISTIC = frozenset({"process_conformance"})
 
 QUESTIONS = {
     "process_conformance": "Score how typical each step of this {label} journey is under the reference process.",
