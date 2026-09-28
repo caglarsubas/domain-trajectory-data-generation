@@ -2,8 +2,10 @@
 
 An event log's activities are mapped to the pack's event types: by the catalogue when the source comes
 from it, by what a person saved, or by a suggestion from shared words. The mapped cases become a
-calibration of next-step counts and durations. Two known exports have adapters instead: UCI Bank
-Marketing (channel and conversion) and the CFPB complaint database (channel and outcome shares).
+calibration of next-step counts and durations. Known exports have adapters instead: UCI Bank
+Marketing (channel and conversion), the CFPB complaint database (channel and outcome shares), the
+hotel booking demand datasets (a reservation's changes, cancellation, and arrival), and BTS on-time
+performance (a flight's delay, cancellation, and arrival).
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import io
 import re
 import zipfile
 from collections import Counter
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -55,10 +58,24 @@ def suggest(activities: list[str], namespace: tuple[str, ...]) -> dict[str, str 
     return mapping
 
 
+ADAPTERS = ("uci_bank_marketing", "cfpb_complaints", "hotel_booking_demand", "bts_on_time")
+
+
+def _column(name: str) -> str:
+    """A column name as the adapters compare it: `DEP_DEL15`, `DepDel15`, and `dep_del15` are one column."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+HOTEL_COLUMNS = {"iscanceled", "leadtime", "arrivaldateyear", "arrivaldatemonth", "arrivaldatedayofmonth", "reservationstatus", "reservationstatusdate"}
+BTS_COLUMNS = {"cancelled", "diverted", "depdelay", "depdel15", "arrdel15", "actualelapsedtime"}
+
+
 def _recognize(path: Path) -> str | None:
     with path.open("rb") as handle:
         head = handle.read(65536)
     if head.startswith(b"PK\x03\x04"):
+        if b"On_Time" in head:
+            return "bts_on_time"
         return "uci_bank_marketing" if b"bank" in head else None
     # Only text can be a CSV export; compressed, XML, JSON, and Parquet logs go to the event-log readers.
     if head.startswith((b"\x1f\x8b", b"PAR1")) or head.lstrip()[:1] in {b"<", b"{"} or b"\x00" in head[:1024]:
@@ -69,6 +86,11 @@ def _recognize(path: Path) -> str | None:
         return None
     if {"date received", "submitted via", "company response to consumer"} <= header:
         return "cfpb_complaints"
+    columns = {_column(name) for name in header}
+    if HOTEL_COLUMNS <= columns:
+        return "hotel_booking_demand"
+    if BTS_COLUMNS <= columns:
+        return "bts_on_time"
     return None
 
 
@@ -80,7 +102,7 @@ def calibrate_item(db: Session, item: CorpusItem, progress=None) -> dict:
     if not path.is_file():
         raise HTTPException(status_code=409, detail="the data source has no stored file yet")
     catalogue = (item.ingest or {}).get("catalogue")
-    adapter = catalogue if catalogue in {"uci_bank_marketing", "cfpb_complaints"} else _recognize(path)
+    adapter = catalogue if catalogue in ADAPTERS else _recognize(path)
     if progress is not None:
         progress(0, 2, "Reading the data source.")
     previous = item.calibration or {}
@@ -89,6 +111,10 @@ def calibrate_item(db: Session, item: CorpusItem, progress=None) -> dict:
             result = _bank_marketing(path)
         elif adapter == "cfpb_complaints":
             result = _complaints(path)
+        elif adapter == "hotel_booking_demand":
+            result = _hotel_bookings(path)
+        elif adapter == "bts_on_time":
+            result = _on_time(path)
         else:
             result = _event_log(path, namespace, previous.get("mapping"), BY_ID.get(catalogue, {}).get("mapping"), progress)
     except LogError as exc:
@@ -215,6 +241,179 @@ def _complaints(path: Path) -> dict:
         "calibration": calibration.as_dict(),
         "channels": dict(channels),
         "outcomes": {"relief": round(relief / len(rows), 4), "explanation": round(closed / len(rows), 4)},
+    }
+
+
+MONTHS = {name: number for number, name in enumerate(
+    ("january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"), start=1
+)}
+
+
+def _number(value: str) -> float:
+    return float(value.strip() or "0")
+
+
+def _hotel_bookings(path: Path) -> dict:
+    """Each booking as a reservation's path from confirmation, timed in hours from the booking date.
+
+    The data holds only bookings that were made, so it cannot say how often a guarantee is declined or a reservation
+    lapses; those events stay out and keep the pack's weights. A change is known to have happened but not when.
+    """
+    with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        reader = csv.DictReader(handle)
+        columns = {_column(name): name for name in reader.fieldnames or []}
+        missing = HOTEL_COLUMNS - set(columns)
+        if missing:
+            raise LogError(f"the booking file has no {', '.join(sorted(missing))} column")
+        statuses, terms = Counter(), Counter()
+        tally = {"changed": 0, "skipped": 0, "events": 0}
+
+        def get(row: dict, key: str) -> str:
+            return (row.get(columns.get(key, ""), "") or "").strip()
+
+        def cases():
+            for row in reader:
+                try:
+                    arrival = date(int(get(row, "arrivaldateyear")), MONTHS[get(row, "arrivaldatemonth").lower()], int(get(row, "arrivaldatedayofmonth")))
+                    booked = arrival - timedelta(days=int(_number(get(row, "leadtime"))))
+                    closed = date.fromisoformat(get(row, "reservationstatusdate")[:10])
+                    nights = int(_number(get(row, "staysinweekendnights"))) + int(_number(get(row, "staysinweeknights")))
+                    changes = int(_number(get(row, "bookingchanges")))
+                except (KeyError, ValueError):
+                    tally["skipped"] += 1
+                    continue
+                status = get(row, "reservationstatus").lower()
+                at_arrival = (arrival - booked).days * 24.0
+                steps: list[tuple[str, float | None]] = [("reservation.confirmed", 0.0)]
+                if changes > 0:
+                    tally["changed"] += 1
+                    steps += [("modification.requested", None), ("reservation.modified", None)]
+                if status == "canceled":
+                    steps.append(("reservation.cancelled", (closed - booked).days * 24.0))
+                    # A kept deposit is a cancellation fee and a refundable one is refunded; without a deposit there is neither.
+                    deposit = get(row, "deposittype").lower()
+                    if deposit == "non refund":
+                        steps.append(("cancellation.fee_charged", None))
+                    elif deposit == "refundable":
+                        steps.append(("refund.issued", None))
+                    terms[deposit or "unknown"] += 1
+                elif status == "no-show":
+                    steps += [("room.assigned", at_arrival), ("guest.no_show", None)]
+                elif status == "check-out":
+                    steps += [("room.assigned", at_arrival), ("guest.checked_in", at_arrival), ("guest.checked_out", at_arrival + nights * 24.0)]
+                else:
+                    tally["skipped"] += 1
+                    continue
+                statuses[status] += 1
+                tally["events"] += len(steps)
+                yield steps
+
+        calibration = build(cases(), source=path.name)
+    total = sum(statuses.values())
+    if not total:
+        raise LogError("the booking file has no bookings with a known final status")
+    return {
+        "format": "Hotel booking demand",
+        "cases": total,
+        "events": tally["events"],
+        "activities": {"checked out": statuses["check-out"], "cancelled": statuses["canceled"], "no-show": statuses["no-show"], "changed": tally["changed"]},
+        "mapping": {},
+        "mapped_share": 1.0,
+        "calibration": calibration.as_dict(),
+        "channels": {},
+        "outcomes": {
+            "cancelled": round(statuses["canceled"] / total, 4),
+            "no_show": round(statuses["no-show"] / total, 4),
+            "arrived": round(statuses["check-out"] / total, 4),
+            "changed": round(tally["changed"] / total, 4),
+        },
+        "skipped": tally["skipped"],
+    }
+
+
+def _open_rows(path: Path):
+    """The rows of a CSV, or of the first CSV inside a zip, streamed: a month of flights is over 200 MB unpacked."""
+    if zipfile.is_zipfile(path):
+        archive = zipfile.ZipFile(path)
+        member = next((name for name in archive.namelist() if name.lower().endswith(".csv")), None)
+        if member is None:
+            raise LogError("the archive holds no CSV file")
+        return member, io.TextIOWrapper(archive.open(member), encoding="utf-8-sig", errors="replace", newline="")
+    return path.name, path.open("r", encoding="utf-8-sig", errors="replace", newline="")
+
+
+def _on_time(path: Path) -> dict:
+    """Each flight as a checked-in passenger's path to arrival, timed in hours from its scheduled departure.
+
+    A delay runs from the scheduled departure to the actual one, when boarding is taken to close; a flight whose
+    departure or arrival was 15 minutes late or more is a delayed flight. Diverted flights are left out.
+    """
+    name, handle = _open_rows(path)
+    with handle:
+        reader = csv.DictReader(handle)
+        columns = {_column(name): name for name in reader.fieldnames or []}
+        missing = BTS_COLUMNS - set(columns)
+        if missing:
+            raise LogError(f"the flight file has no {', '.join(sorted(missing))} column")
+        counts = Counter()
+
+        def get(row: dict, key: str) -> str:
+            return (row.get(columns[key], "") or "").strip()
+
+        def flag(row: dict, key: str) -> bool:
+            value = get(row, key)
+            return bool(value) and float(value) >= 1
+
+        def cases():
+            for row in reader:
+                try:
+                    if flag(row, "cancelled"):
+                        counts["cancelled"] += 1
+                        yield [("passenger.checked_in", None), ("flight.cancelled", None)]
+                        continue
+                    if flag(row, "diverted"):
+                        counts["diverted"] += 1
+                        continue
+                    departure = max(float(get(row, "depdelay")), 0.0) / 60.0
+                    arrival = departure + float(get(row, "actualelapsedtime")) / 60.0
+                    late_departure, late_arrival = flag(row, "depdel15"), flag(row, "arrdel15")
+                except ValueError:
+                    counts["skipped"] += 1
+                    continue
+                if late_departure or late_arrival:
+                    counts["delayed"] += 1
+                    counts["arrived_late"] += late_arrival
+                    yield [
+                        ("passenger.checked_in", None),
+                        ("flight.delayed", 0.0),
+                        ("passenger.boarded", departure),
+                        ("flight.departed", departure),
+                        ("flight.arrived_late" if late_arrival else "flight.arrived", arrival),
+                    ]
+                else:
+                    counts["on_time"] += 1
+                    yield [("passenger.checked_in", None), ("passenger.boarded", None), ("flight.departed", departure), ("flight.arrived", arrival)]
+
+        calibration = build(cases(), source=name)
+    flown = counts["on_time"] + counts["delayed"]
+    total = flown + counts["cancelled"]
+    if not total:
+        raise LogError("the flight file has no flights")
+    return {
+        "format": "BTS on-time performance",
+        "cases": total,
+        "events": counts["cancelled"] * 2 + counts["on_time"] * 4 + counts["delayed"] * 5,
+        "activities": {"on time": counts["on_time"], "delayed": counts["delayed"], "cancelled": counts["cancelled"], "diverted, left out": counts["diverted"]},
+        "mapping": {},
+        "mapped_share": 1.0,
+        "calibration": calibration.as_dict(),
+        "channels": {},
+        "outcomes": {
+            "delayed": round(counts["delayed"] / total, 4),
+            "cancelled": round(counts["cancelled"] / total, 4),
+            "arrived_late_when_delayed": round(counts["arrived_late"] / counts["delayed"], 4) if counts["delayed"] else None,
+        },
+        "skipped": counts["skipped"],
     }
 
 

@@ -5,6 +5,10 @@ activities are mapped to them), how journeys start and end, and duration quantil
 blends the observed next-step shares with the pack's prior in proportion to how much data backs them,
 and dwell times follow the observed quantiles once enough steps were seen. The pack's machines still
 decide what is legal: calibration only reweights legal choices.
+
+A source sees only part of a journey: flight records know nothing of checked bags, and hotel bookings
+nothing of loyalty sign-ups. An event a source never contains keeps its prior weight wherever it is a
+choice, and the data redistributes only the weight of the choices it can see.
 """
 
 from __future__ import annotations
@@ -17,6 +21,9 @@ from dataclasses import dataclass, field
 # Observations that weigh as much as the pack's prior; more data moves the walker further toward the data.
 PRIOR_STRENGTH = 25.0
 MIN_DWELL_SAMPLES = 5
+# Durations kept per step. Past this many, an even random sample stands for them all: files are often sorted, by hotel
+# and date or by case start, so the first ones would stand for one part of the data.
+MAX_DWELL_SAMPLES = 20000
 START = "<start>"
 
 
@@ -56,17 +63,33 @@ class Calibration:
     def empty(self) -> bool:
         return not self.transitions and not self.starts
 
+    @property
+    def observed_events(self) -> set[str]:
+        """Every event type the data contains anywhere; the rest are ones its sources cannot see."""
+        found = set(self.starts) | set(self.ends) | set(self.transitions)
+        for following in self.transitions.values():
+            found.update(following)
+        return found
+
     def reweight(self, previous: str | None, options: list[tuple[str, float]]) -> list[tuple[str, float]]:
-        """Blend the observed shares of the next step with the prior weights, keeping their total."""
+        """Blend the observed shares of the next step with the prior weights, keeping their total.
+
+        Only the choices the data can see are reweighted, within the weight they held together; a choice whose
+        event the data never contains keeps its prior weight.
+        """
         observed = self.starts if previous is None else self.transitions.get(previous)
         if not observed or not options:
             return options
         seen = sum(observed.get(name, 0) for name, _ in options)
         if not seen:
             return options
-        total = sum(weight for _, weight in options) or 1.0
+        visible = self.observed_events
+        total = sum(weight for name, weight in options if name in visible) or 1.0
         trust = seen / (seen + PRIOR_STRENGTH)
-        return [(name, total * ((1 - trust) * weight / total + trust * observed.get(name, 0) / seen)) for name, weight in options]
+        return [
+            (name, total * ((1 - trust) * weight / total + trust * observed.get(name, 0) / seen)) if name in visible else (name, weight)
+            for name, weight in options
+        ]
 
     def dwell_hours(self, rng: random.Random, previous: str | None, event: str) -> float | None:
         """Hours from the previous step to this one drawn around the observed quantiles, or None without enough data."""
@@ -146,6 +169,9 @@ def build(sequences, *, source: str) -> Calibration:
     """A calibration from mapped sequences: lists of (event type, hours since the case began or None)."""
     calibration = Calibration(sources=[source])
     samples: dict[str, list[float]] = {}
+    offered: Counter = Counter()
+    # Seeded, so the same file gives the same calibration.
+    rng = random.Random(0)
     for steps in sequences:
         runs = []
         for event, when in steps:
@@ -159,9 +185,15 @@ def build(sequences, *, source: str) -> Calibration:
         for (a, at), (b, bt) in zip(runs, runs[1:]):
             calibration.transitions.setdefault(a, Counter())[b] += 1
             if at is not None and bt is not None and bt >= at:
-                bucket = samples.setdefault(f"{a}>{b}", [])
-                if len(bucket) < 20000:
+                key = f"{a}>{b}"
+                bucket = samples.setdefault(key, [])
+                offered[key] += 1
+                if len(bucket) < MAX_DWELL_SAMPLES:
                     bucket.append(bt - at)
+                else:
+                    slot = rng.randrange(offered[key])
+                    if slot < MAX_DWELL_SAMPLES:
+                        bucket[slot] = bt - at
     calibration.dwell = {key: quantiles(values) for key, values in samples.items() if values}
     return calibration
 

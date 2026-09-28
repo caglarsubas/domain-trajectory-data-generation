@@ -12,7 +12,14 @@ function status(doc) {
   const parts = [`${calibration.format}`, `${(calibration.cases || 0).toLocaleString()} cases`];
   if (calibration.events && calibration.events !== calibration.cases) parts.push(`${calibration.events.toLocaleString()} events`);
   if (calibration.mapped_share != null && calibration.mapped_share < 1) parts.push(`${Math.round(calibration.mapped_share * 100)}% of events mapped`);
-  if (calibration.outcomes) parts.push(Object.entries(calibration.outcomes).map(([name, value]) => `${name} ${Math.round(value * 100)}%`).join(", "));
+  if (calibration.outcomes) {
+    parts.push(
+      Object.entries(calibration.outcomes)
+        .filter(([, value]) => value != null)
+        .map(([name, value]) => `${name.replaceAll("_", " ")} ${Math.round(value * 100)}%`)
+        .join(", ")
+    );
+  }
   return parts.join(" · ");
 }
 

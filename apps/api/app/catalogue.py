@@ -1,4 +1,4 @@
-"""Public data sources a banking study can calibrate from, downloaded on demand into the upload store.
+"""Public data sources a study can calibrate from, downloaded on demand into the upload store.
 
 Nothing here is committed to the repository. Each source records its licence, where it came from, and
 when it was fetched. Sources whose terms are still under review, or whose data serves later slices, are
@@ -67,14 +67,46 @@ ENTRIES = [
         "calibrates": "The channels complaints arrive through and how often they end in relief.",
         "reason": "The complaint search API no longer answers and the full file is over a gigabyte, so this source is added from an export.",
     },
+    {
+        "id": "hotel_booking_demand",
+        "name": "Hotel booking demand",
+        "sector": "hotel",
+        "sub_domains": ["booking_and_reservations", "modifications_and_cancellations", "arrival_and_check_in", "check_out_and_billing"],
+        "availability": "download",
+        # The article's H1 (resort) and H2 (city) files, combined as published by the TidyTuesday project.
+        "url": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-02-11/hotels.csv",
+        "file": "hotels.csv",
+        "bytes": 16_855_599,
+        "licence": "CC BY 4.0",
+        "doi": "10.1016/j.dib.2018.11.126",
+        "citation": "Antonio, N., de Almeida, A., & Nunes, L. (2019). Hotel booking demand datasets. Data in Brief, 22, 41-49.",
+        "describes": "Bookings at a resort hotel in the Algarve and a city hotel in Lisbon with arrivals from July 2015 to August 2017: 119,390 bookings with lead time, changes, deposit type, and final status. The file combines the article's two datasets.",
+        "calibrates": "How often a confirmed reservation is changed, cancelled, or arrives; whether a cancelled deposit is kept or refunded; whether a guest arrives or does not show; the lead time from booking to arrival, the time to cancellation, and the length of stay.",
+    },
+    {
+        "id": "bts_on_time",
+        "name": "BTS on-time performance, July 2026",
+        "sector": "airline",
+        "sub_domains": ["check_in_and_boarding", "disruption_and_compensation"],
+        "availability": "download",
+        "url": "https://transtats.bts.gov/PREZIP/On_Time_Reporting_Carrier_On_Time_Performance_1987_present_2026_7.zip",
+        "file": "On_Time_Reporting_Carrier_On_Time_Performance_1987_present_2026_7.zip",
+        "bytes": 33_075_361,
+        "licence": "Public domain (US federal government data)",
+        "citation": "Bureau of Transportation Statistics, Reporting Carrier On-Time Performance (1987-present), July 2026.",
+        "describes": "Every domestic flight of the large US carriers in July 2026, with departure and arrival delays, cancellations, diversions, and elapsed times.",
+        "calibrates": "How often a flight is delayed or cancelled once passengers have checked in, how long a delay lasts, how often a delayed flight arrives late, and how long flights take.",
+    },
     {"id": "hmda", "name": "HMDA", "sector": "banking", "availability": "planned", "reason": "Follows once its terms are reviewed."},
     {"id": "freddie_mac", "name": "Freddie Mac single-family loan-level data", "sector": "banking", "availability": "planned", "reason": "Follows once its terms are reviewed; it needs registration."},
     {"id": "amlsim", "name": "AMLSim", "sector": "banking", "availability": "planned", "reason": "Transaction patterns arrive with the episode builder in Slice 6."},
     {"id": "paysim", "name": "PaySim", "sector": "banking", "availability": "planned", "reason": "Transaction patterns arrive with the episode builder in Slice 6."},
+    {"id": "telecom_sources", "name": "Telecommunications sources", "sector": "telecom", "availability": "planned", "reason": "Follow once their terms are reviewed."},
+    {"id": "insurance_sources", "name": "Insurance sources", "sector": "insurance", "availability": "planned", "reason": "Follow once their terms are reviewed."},
 ]
 
 BY_ID = {entry["id"]: entry for entry in ENTRIES}
-# The largest file a catalogue download may be; BPI Challenge 2017 is about 30 MB.
+# The largest file a catalogue download may be; BPI Challenge 2017 and a month of BTS flights are about 30 MB.
 MAX_DOWNLOAD = 60_000_000
 
 
