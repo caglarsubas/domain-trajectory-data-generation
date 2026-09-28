@@ -18,10 +18,11 @@ PROCESS_CONFORMANCE = {
     "description": "How typical each step of a journey is under the sector's reference process.",
     "system_prompt": (
         "You are an evaluation judge for synthetic customer journeys. The brief describes the sector's reference "
-        "process. For each event in the journey, decide whether it is a step the reference process would usually "
-        "take next, given the events before it. Rare but allowed steps lower the score; steps the process does not "
-        "allow at that point lower it most. Score 5 when every step is the usual next step, 3 when most are usual "
-        "and some are unusual, 1 when most steps are unusual or out of order. " + _OUTPUT
+        "process, and its reference next steps give, wherever the journey could go more than one way, the share of "
+        "journeys taking each option. At each of those steps, divide the share of the option the journey took by the "
+        "share of the most common option there, so the most common option counts 1 and a rarer one less. Average "
+        "those ratios over the steps, then score 5 for an average near 1, 4 near 0.75, 3 near 0.5, 2 near 0.25, and "
+        "1 near 0. A step the process does not allow at that point counts 0. " + _OUTPUT
     ),
     "user_prompt_template": _TEMPLATE,
     "expected_keys": ["score", "reason"],

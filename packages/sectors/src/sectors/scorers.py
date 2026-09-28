@@ -158,6 +158,9 @@ class Scorer:
         counts: dict[str, int] = {}
         ratios = []
         observed = []
+        # The shares the policy gave each legal next step wherever the journey could have gone more than one way:
+        # the reference a judge needs to score typicality as this scorer does.
+        reference = []
         for index, name in enumerate(types):
             options = walker.options(state, counts, first=index == 0)
             if walker.calibration is not None:
@@ -167,13 +170,16 @@ class Scorer:
             weights = dict(options)
             if name in weights and len(options) > 1:
                 ratios.append(weights[name] / max(weights.values()))
+                total = sum(weights.values())
+                shares = sorted(((option, weight / total) for option, weight in weights.items()), key=lambda item: -item[1])
+                reference.append({"step": index + 1, "after": types[index - 1] if index else None, "shares": {option: round(share, 3) for option, share in shares}})
             apply(lifecycle[name], state)
             counts[name] = counts.get(name, 0) + 1
         typicality = sum(ratios) / len(ratios) if ratios else 1.0
         items: dict[str, float] = {"typicality": round(typicality, 4), "steps": float(len(ratios))}
         if observed:
             items["observed_share"] = round(sum(observed) / len(observed), 4)
-        return {"score": round(typicality, 4), "passed": typicality >= TYPICAL, "items": items}
+        return {"score": round(typicality, 4), "passed": typicality >= TYPICAL, "items": items, "reference": reference}
 
     def decision(self, types: list[str]) -> dict:
         from sectors.decisions import decision_steps

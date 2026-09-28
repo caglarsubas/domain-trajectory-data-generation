@@ -200,6 +200,9 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
     assert {"process_conformance", "decision_score"} <= asked
     conformance = [call for call in judge.calls if call["rubric"] == "process_conformance"]
     assert len(conformance) == 2 * 2 and all("reference process" in call["prompt"] for call in conformance)
+    # The judge reads the same next-step shares the code scores typicality with; the cycle keeps only the verdicts.
+    assert any("Reference next steps" in call["prompt"] and "%" in call["prompt"] for call in conformance)
+    assert all(set(entry["code"]["process_conformance"]) == {"score", "passed"} for entry in cycle["sample"])
 
     # Every call is stored once per repeat, and the registered rubrics carry their digest.
     assert len(cycle["verdicts"]) == 3 * len(judge.calls)
