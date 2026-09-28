@@ -133,16 +133,21 @@ def saved_mapping(item: CorpusItem, namespace: tuple[str, ...]) -> dict[str, str
     """The events a person saved for a data source's activities.
 
     Calibrations from before these were kept apart hold only the mapping in use, catalogue entries and suggestions
-    included. There, an activity counts as saved where that mapping differs from what they gave it.
+    included. There, an activity counts as saved where that mapping differs from what they gave it, then or now.
     """
     calibration = item.calibration or {}
     if "saved" in calibration:
         return dict(calibration["saved"])
     used = calibration.get("mapping") or {}
-    catalogue = BY_ID.get((item.ingest or {}).get("catalogue"), {}).get("mapping") or {}
+    entry = BY_ID.get((item.ingest or {}).get("catalogue"), {})
+    catalogue, retired = entry.get("mapping") or {}, entry.get("retired_mapping") or {}
     suggested = suggest(list(used), namespace)
     given = {activity: catalogue.get(activity, suggested[activity]) for activity in used}
-    return {activity: event for activity, event in used.items() if event != (given[activity] if given[activity] in namespace else None)}
+    return {
+        activity: event
+        for activity, event in used.items()
+        if event != (given[activity] if given[activity] in namespace else None) and (activity, event) not in retired.items()
+    }
 
 
 def _event_log(path: Path, namespace: tuple[str, ...], saved: dict | None, catalogue: dict | None, progress) -> dict:

@@ -14,7 +14,7 @@ from sectors.journeys import Amount, PackSpec
 from sectors.lifecycle import EventSpec, LifecycleSpec, need, put
 
 GENERATOR_ID = "banking-semi-markov-v2"
-PACK_VERSION = "banking-pack-5"
+PACK_VERSION = "banking-pack-6"
 
 OD = "onboarding_and_kyc"
 RC = "risk_and_compliance"
@@ -58,13 +58,14 @@ LIFECYCLE = LifecycleSpec(
             outcome="application_completion", dwell_hours=(0.1, 2.0),
             violation="application submitted before it started",
         ),
-        # An account or loan application the customer never finishes belongs to that product's lifecycle.
+        # An account or loan application the customer never finishes belongs to that product's lifecycle. It can be
+        # abandoned once submitted too, until KYC starts: the customer never returns the documents the bank asked for.
         EventSpec(
             "application.abandoned", (OD, DP, CC),
-            requires=(need("application", "application", "started"),),
+            requires=(need("application", "application", "started", "submitted"), need("kyc", "kyc", None)),
             sets=(put("application", "application", "abandoned"),),
             weight=0.15, outcome="application_completion", ends_journey=True, dwell_hours=(2.0, 7 * DAY),
-            violation="application abandoned before it started or after it was submitted",
+            violation="application abandoned before it started or after KYC started",
         ),
         EventSpec(
             "kyc.started", (OD,),
