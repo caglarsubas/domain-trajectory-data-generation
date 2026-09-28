@@ -195,20 +195,24 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
         "notes": [],
         "study": [],
     }
-    assert {call["repeats"] for call in judge.calls} == {3} and {call["temperature"] for call in judge.calls} == {0.7}
+    sampled = [call for call in judge.calls if call["rubric"] != "process_conformance"]
+    assert {call["repeats"] for call in sampled} == {3} and {call["temperature"] for call in sampled} == {0.7}
+    # Conformance is arithmetic on the shares the question gives: asked once, at temperature 0.
+    fixed = [call for call in judge.calls if call["rubric"] == "process_conformance"]
+    assert fixed and {call["repeats"] for call in fixed} == {1} and {call["temperature"] for call in fixed} == {0.0}
     asked = {call["rubric"] for call in judge.calls}
     assert {"process_conformance", "decision_score"} <= asked
     conformance = [call for call in judge.calls if call["rubric"] == "process_conformance"]
     assert all("reference process" in call["prompt"] for call in conformance)
-    # Two journeys by two models, and any control a removed step makes, asked conformance too.
+    # Two journeys by two models, and any control a removed step makes, asked conformance too, once each.
     originals = [item for item in cycle["verdicts"] if item["rubric"] == "process_conformance" and not item["control"]]
-    assert len(originals) == 2 * 2 * 3
+    assert len(originals) == 2 * 2
     # The judge reads the same next-step shares the code scores typicality with; the cycle keeps only the verdicts.
     assert any("Reference next steps" in call["prompt"] and "%" in call["prompt"] for call in conformance)
     assert all(set(entry["code"]["process_conformance"]) == {"score", "passed"} for entry in cycle["sample"])
 
     # Every call is stored once per repeat, and the registered rubrics carry their digest.
-    assert len(cycle["verdicts"]) == 3 * len(judge.calls)
+    assert len(cycle["verdicts"]) == sum(call["repeats"] for call in judge.calls)
     assert {item["repeat"] for item in cycle["verdicts"]} == {0, 1, 2}
     assert {item["rubric_digest"] for item in cycle["verdicts"] if item["rubric"] == "decision_score"} == {"sha256:decision_score"}
     assert {item["rubric_digest"] for item in cycle["verdicts"] if item["rubric"] == "safety"} == {None}

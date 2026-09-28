@@ -31,7 +31,7 @@ Verdicts are stored on the run. Helpfulness, correctness, and safety scores unde
 
 ## Repeated judgments
 
-Every call asks the engine for `JUDGE_REPEATS` verdicts (default 3, at most 5) at `JUDGE_TEMPERATURE` (default 0.7), with seeds 0, 1, 2, and so on; one repeat is asked at temperature 0. A journey's score for a rubric is the mean of its readable repeats, and it is unscored only when none is readable. Each repeat is stored as its own verdict with its `repeat` index.
+Every call asks the engine for `JUDGE_REPEATS` verdicts (default 3, at most 5) at `JUDGE_TEMPERATURE` (default 0.7), with seeds 0, 1, 2, and so on; one repeat is asked at temperature 0. `process_conformance` is always asked once at temperature 0: its question lists the share of each next step wherever the journey could branch, and the judge averages the taken option's share over the most common one's across those steps only, the code's own measure, so sampling it adds only noise. Its reason, like `decision_score`'s, is kept under 40 words. A journey's score for a rubric is the mean of its readable repeats, and it is unscored only when none is readable. Each repeat is stored as its own verdict with its `repeat` index.
 
 The cycle reports agreement across repeats next to agreement across models, per rubric and model:
 
