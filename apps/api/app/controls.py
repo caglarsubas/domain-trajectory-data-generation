@@ -3,7 +3,9 @@
 `sectors.controls` finds a defect in a journey's event types and waits; this module builds the copy a judge reads.
 A copy keeps the original's customer messages and narrates its own events with the pack's templates, so a judge sees
 the same kind of journey as the original with one thing wrong. The pack's hard checks confirm each copy: a missing
-step must fail them, and a worse choice or a slow wait must pass them, so the only defect is the one named.
+step and reversed events must fail them, and a worse choice or a slow wait must pass them, so the only defect is the
+one named. Every sampled journey gets every control the pack confirms for it (decision 19), so a judge's
+discrimination rests on several controls per rubric rather than one.
 """
 
 from __future__ import annotations
@@ -21,7 +23,10 @@ TARGETS = {
     "missing_step": ("correctness", "helpfulness"),
     "worse_choice": ("decision_score",),
     "slow_wait": ("helpfulness",),
+    # Every event in reverse order, which the pack's replay rejects: a correctness judge must catch it (decision 18).
+    "reversed": ("correctness",),
 }
+KINDS = ("missing_step", "worse_choice", "slow_wait", "reversed")
 # The control a pairwise judge compares with its original, in order of preference: the plainest defect first.
 PAIRWISE_ORDER = ("missing_step", "slow_wait", "worse_choice")
 
@@ -102,6 +107,27 @@ def _slow_wait(bundle, trajectory_id, types, hours, pack) -> tuple[TrajectoryBun
     return copy, f"the wait before {hit['event']} stretched to {days:.0f} days, against at most {hit['longest']:g} hours"
 
 
+def broken_copy(bundle: TrajectoryBundle, trajectory_id: str) -> TrajectoryBundle | None:
+    """The journey with its events in reverse order, at the original times. None when there are too few to reverse."""
+    traj = next(item for item in bundle.trajectories if item.trajectory_id == trajectory_id)
+    if len(traj.event_ids) < 3:
+        return None
+    copy = deepcopy(bundle)
+    target = next(item for item in copy.trajectories if item.trajectory_id == trajectory_id)
+    times = sorted(event.event_time for event in copy.events if event.event_id in set(target.event_ids))
+    target.event_ids = list(reversed(target.event_ids))
+    by_id = {event.event_id: event for event in copy.events}
+    for event_id, when in zip(target.event_ids, times):
+        by_id[event_id].event_time = when
+    copy.trajectories = [target]
+    return copy
+
+
+def _reversed(bundle, trajectory_id) -> tuple[TrajectoryBundle, str] | None:
+    copy = broken_copy(bundle, trajectory_id)
+    return None if copy is None else (copy, "every event in reverse order")
+
+
 def _worse_choice(bundle, trajectory_id, types, pack, walker, floor, cap) -> tuple[TrajectoryBundle, str] | None:
     hit = found.worse_choice(pack, walker, types, floor=floor, cap=cap)
     if hit is None:
@@ -120,7 +146,7 @@ def _worse_choice(bundle, trajectory_id, types, pack, walker, floor, cap) -> tup
 
 
 def build(journeys: list[TrajectoryBundle], sector, config: dict) -> list[dict]:
-    """At most one control of each kind, from different sampled journeys where they allow it."""
+    """Every control the pack confirms for each sampled journey, journey by journey."""
     from sectors.journeys import language_code
 
     pack = sector.pack
@@ -128,25 +154,24 @@ def build(journeys: list[TrajectoryBundle], sector, config: dict) -> list[dict]:
     floor, cap = _bounds(config)
     lang = language_code(config.get("language") or "en")
     walker = found.walker_for(pack, domains)
-    primaries = [next(item for item in journey.trajectories if item.parent_trajectory_id is None) for journey in journeys]
     controls: list[dict] = []
-    used: set[str] = set()
-    for kind in found.KINDS:
-        order = sorted(range(len(journeys)), key=lambda index: primaries[index].trajectory_id in used)
-        for index in order:
-            journey, trajectory_id = journeys[index], primaries[index].trajectory_id
-            types, hours = _path(journey, trajectory_id)
+    for journey in journeys:
+        trajectory_id = next(item for item in journey.trajectories if item.parent_trajectory_id is None).trajectory_id
+        types, hours = _path(journey, trajectory_id)
+        for kind in KINDS:
             if kind == "missing_step":
                 made = _missing_step(journey, trajectory_id, types, pack)
             elif kind == "slow_wait":
                 made = _slow_wait(journey, trajectory_id, types, hours, pack)
-            else:
+            elif kind == "worse_choice":
                 made = _worse_choice(journey, trajectory_id, types, pack, walker, floor, cap)
+            else:
+                made = _reversed(journey, trajectory_id)
             if made is None:
                 continue
             copy, detail = made
             broken = bool(sector.hard_checks(copy))
-            if broken != (kind == "missing_step"):
+            if broken != (kind in ("missing_step", "reversed")):
                 continue
             _narrated(copy, trajectory_id, pack, lang)
             controls.append({
@@ -156,8 +181,6 @@ def build(journeys: list[TrajectoryBundle], sector, config: dict) -> list[dict]:
                 "detail": detail,
                 "rubrics": TARGETS[kind],
             })
-            used.add(trajectory_id)
-            break
     return controls
 
 

@@ -60,7 +60,7 @@ def load_settings() -> Settings:
             or os.environ.get("INFERENCE_ENGINE_API_KEY_ID")
             or "domain-trajectory-data-generation-primary"
         ).strip(),
-        inference_judge_model=os.environ.get("INFERENCE_ENGINE_JUDGE_MODEL", "").strip() or "qwen3.8:27b",
+        inference_judge_model=os.environ.get("INFERENCE_ENGINE_JUDGE_MODEL", "").strip() or "qwen3.6:27b",
         dev_mode=os.environ.get("TRAJ_DEV_MODE", "").strip().lower() in {"1", "true", "yes"},
         demo_runs_per_day=_count("DEMO_RUNS_PER_DAY", 10),
         demo_max_sequences=_count("DEMO_MAX_SEQUENCES", 2000),

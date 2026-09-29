@@ -6,7 +6,7 @@ from typing import Any, Callable, Protocol
 
 import httpx
 
-DEFAULT_JUDGE_MODEL = "qwen3.8:27b"
+DEFAULT_JUDGE_MODEL = "qwen3.6:27b"
 # The engine allows a completion 240 s; the client waits longer so the engine reports its own timeout.
 JUDGE_TIMEOUT_SECONDS = 300.0
 RETRY_AFTER_CAP_SECONDS = 30.0

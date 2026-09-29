@@ -8,7 +8,7 @@ from app.judging import sample_entries
 from test_api import _auth, _link, _project, _ready_key, _run
 from trajectory_contract import TrajectoryBundle
 
-PRIMARY, SECOND = "qwen3.8:27b", "gemma4:26b"
+PRIMARY, SECOND = "qwen3.6:27b", "gemma4:26b"
 
 
 def _events(text: str) -> str:
@@ -67,9 +67,10 @@ def test_a_cycle_judges_a_sample_with_both_models_and_reports_agreement(client, 
     assert cycle["models"] == [PRIMARY, SECOND]
     assert len(cycle["sample"]) == 3 and all(entry["alternative"] for entry in cycle["sample"])
     assert {call["model"] for call in runtime.judge.calls} == {PRIMARY, SECOND}
-    # Per model: five calls per journey, the reversed control, each control's rubrics, and the pairwise control in both orders.
+    # Per model: five calls per journey, each control's rubrics, the reversed copies among them, and the pairwise control
+    # in both orders.
     controls = [item for entry in cycle["sample"] for item in entry.get("controls", [])]
-    per_model = 3 * 5 + 1 + sum(len(item["rubrics"]) * (2 if item["kind"].startswith("pairwise:") else 1) for item in controls)
+    per_model = 3 * 5 + sum(len(item["rubrics"]) * (2 if item["kind"].startswith("pairwise:") else 1) for item in controls)
     assert controls and len(runtime.judge.calls) == 2 * per_model == len(cycle["verdicts"])
 
     scores = cycle["scores"]
@@ -92,7 +93,8 @@ def test_a_cycle_judges_a_sample_with_both_models_and_reports_agreement(client, 
     assert body["headline_score"] == cycle["headline_score"]
     pairwise = [item for item in cycle["verdicts"] if item["rubric"] == "pairwise_quality"]
     assert {item["order"] for item in pairwise} == {"ab", "ba"}
-    assert sum(item["canary"] for item in cycle["verdicts"]) == 2
+    # Every sampled journey's reversed copy is a control journey, asked of both models.
+    assert cycle["canary"]["journeys"] == 3 and sum(item["canary"] for item in cycle["verdicts"]) == 2 * 3
     assert {item["trajectory_id"] for item in cycle["verdicts"]} == {entry["trajectory_id"] for entry in cycle["sample"]}
 
 
@@ -158,7 +160,12 @@ def test_a_legal_journey_judged_incorrect_is_flagged_as_a_likely_false_negative(
     cycle = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["cycles"][0]
     negatives = [flag for flag in cycle["flags"] if flag["kind"] == "likely_false_negative"]
     assert len(negatives) == 3 * 2
-    assert cycle["accepted"] is False
+    # It calls the flawed copies incorrect too, so it cannot tell them apart: correctness decides nothing (decision 18),
+    # and the run stands on the code's checks. Its scores still write the revision notes.
+    deciding = cycle["agreement"]["deciding"]
+    assert deciding["code_only"] is True and not deciding["rubrics"]["correctness"]["decides"]
+    assert "lower than their originals" in deciding["rubrics"]["correctness"]["why"]
+    assert cycle["accepted"] is True
     assert any(note.startswith("correctness 0 below 0.5. the order looks wrong") for note in cycle["revision_notes"])
 
 

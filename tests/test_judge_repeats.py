@@ -12,7 +12,7 @@ from app.judge_rubrics import CODE_RUBRICS, DECISION_SCORE
 from app.settings import SettingsError, load_settings
 from test_api import RecordingJudge, _auth, _link, _project, _ready_key, _run
 
-PRIMARY, SECOND = "qwen3.8:27b", "gemma4:26b"
+PRIMARY, SECOND = "qwen3.6:27b", "gemma4:26b"
 
 
 def _client(handler):
@@ -244,7 +244,13 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
         "notes": [],
         "study": [],
     }
-    assert {call["repeats"] for call in judge.calls} == {3} and {call["temperature"] for call in judge.calls} == {0.7}
+    # A control is asked once at temperature 0 so that every journey can have them (decision 19); every other call is repeated.
+    once = [call for call in judge.calls if call["repeats"] == 1]
+    repeated = [call for call in judge.calls if call["repeats"] != 1]
+    assert {call["repeats"] for call in repeated} == {3} and {call["temperature"] for call in repeated} == {0.7}
+    assert once and {call["temperature"] for call in once} == {0.0}
+    controls = [item for item in cycle["verdicts"] if item["control"]]
+    assert len(once) == len(controls)
     asked = {call["rubric"] for call in judge.calls}
     # Process conformance is scored by code alone; the judge is never asked it.
     assert "decision_score" in asked and "process_conformance" not in asked
