@@ -43,6 +43,10 @@ function explain(flag, names) {
       return `${flag.model} scored journeys with a known defect no lower than their originals on ${label(flag.rubric, names)}, so its scores there cannot tell a flawed journey from a sound one.`;
     case "code_disagrees":
       return `${flag.model} and the code scorer disagree on ${label(flag.rubric, names)}.`;
+    case "did_not_decide":
+      return `${label(flag.rubric, names)} did not decide acceptance: ${flag.model} could not tell its controls from their originals.`;
+    case "same_model":
+      return `${flag.model} were served by one model, so their agreement is one model agreeing with itself.`;
     case "unfaithful_turn":
       return `${flag.model} found written turns that change or add to the facts they had to state.`;
     default:
@@ -81,7 +85,7 @@ function stability(item) {
   return item?.calls ? `${item.stable} of ${item.calls} stable` : "—";
 }
 
-const CONTROLS = { missing_step: "a step removed", worse_choice: "a worse choice", slow_wait: "a wait stretched" };
+const CONTROLS = { missing_step: "a step removed", worse_choice: "a worse choice", slow_wait: "a wait stretched", reversed: "its events reversed" };
 
 function controlLabel(control) {
   const kind = (control || "").replace(/^pairwise:/, "");
@@ -134,6 +138,8 @@ export default function JudgePanel({ cycle, onPick }) {
   const pairwiseControl = cycle.agreement?.pairwise_control || {};
   const controlled = Object.keys(discrimination).length > 0 || Object.keys(pairwiseControl).length > 0;
   const faithfulness = cycle.agreement?.faithfulness;
+  const deciding = cycle.agreement?.deciding;
+  const sameModel = cycle.agreement?.same_model || [];
   const reverted = (faithfulness?.rows || []).filter((row) => row.revert);
   const names = Object.fromEntries(Object.entries(judging?.rubrics || {}).filter(([, info]) => info.source === "study"));
   const againstCode = [...COMPARED.filter((rubric) => code[rubric]), ...Object.keys(code).filter((rubric) => code[rubric].study)];
@@ -159,6 +165,19 @@ export default function JudgePanel({ cycle, onPick }) {
       {(judging?.notes || []).map((note) => (
         <p className="lede" key={note}>{note}</p>
       ))}
+      {deciding?.rubrics && Object.keys(deciding.rubrics).length ? (
+        <p className="lede">
+          {deciding.code_only
+            ? `Neither helpfulness nor correctness decided acceptance: ${deciding.judge} could not tell their controls from the originals, so the run stands on the code's checks and safety alone.`
+            : `Acceptance followed ${Object.entries(deciding.rubrics).filter(([, row]) => row.decides).map(([rubric]) => label(rubric, names)).join(" and ")} and safety, because ${deciding.judge} scored their controls lower than the originals.`}{" "}
+          {Object.entries(deciding.rubrics).map(([rubric, row]) => `${label(rubric, names)}: ${row.why}.`).join(" ")}
+        </p>
+      ) : null}
+      {sameModel.length ? (
+        <p className="lede">
+          Both judges were served by {sameModel.join(" and ")}, so agreement across models here is one model agreeing with itself.
+        </p>
+      ) : null}
       {cycle.reference?.length ? (
         <p className="lede">
           The brief carried {cycle.reference.length} warm-start {cycle.reference.length === 1 ? "passage" : "passages"} chosen for this study, from{" "}
@@ -320,7 +339,8 @@ export default function JudgePanel({ cycle, onPick }) {
       ) : null}
       {cycle.canary ? (
         <p className="lede">
-          Control journey (events put out of order, which the pack's replay rejects):{" "}
+          {cycle.canary.journeys > 1 ? `The ${cycle.canary.journeys} journeys with their events reversed` : "The control journey with its events reversed"}, which
+          the pack's replay rejects, on correctness:{" "}
           {Object.entries(cycle.canary.results)
             .map(([model, score]) => `${model} ${score == null ? "gave no verdict" : score >= 0.5 ? "passed it" : "caught it"}`)
             .join("; ")}
@@ -332,7 +352,7 @@ export default function JudgePanel({ cycle, onPick }) {
           {flags.map((flag) => (
             <li key={`${flag.kind}|${flag.model}|${flag.rubric}`} data-kind={flag.kind}>
               {explain(flag, names)}
-              {!["likely_false_positive", "blind_to_defect", "unfaithful_turn"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
+              {!["likely_false_positive", "blind_to_defect", "unfaithful_turn", "did_not_decide", "same_model"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
             </li>
           ))}
         </ul>

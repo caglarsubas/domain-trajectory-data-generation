@@ -12,7 +12,7 @@ from app.judge_rubrics import CODE_RUBRICS, DECISION_SCORE, PROCESS_CONFORMANCE
 from app.settings import SettingsError, load_settings
 from test_api import RecordingJudge, _auth, _link, _project, _ready_key, _run
 
-PRIMARY, SECOND = "qwen3.8:27b", "gemma4:26b"
+PRIMARY, SECOND = "qwen3.6:27b", "gemma4:26b"
 
 
 def _client(handler):
@@ -195,11 +195,15 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
         "notes": [],
         "study": [],
     }
-    sampled = [call for call in judge.calls if call["rubric"] != "process_conformance"]
-    assert {call["repeats"] for call in sampled} == {3} and {call["temperature"] for call in sampled} == {0.7}
-    # Conformance is arithmetic on the shares the question gives: asked once, at temperature 0.
-    fixed = [call for call in judge.calls if call["rubric"] == "process_conformance"]
-    assert fixed and {call["repeats"] for call in fixed} == {1} and {call["temperature"] for call in fixed} == {0.0}
+    # Conformance is arithmetic on the shares the question gives, and a control is asked once so every journey can have
+    # them (decision 19): those calls are asked once at temperature 0, and every other call is repeated.
+    once = [call for call in judge.calls if call["repeats"] == 1]
+    repeated = [call for call in judge.calls if call["repeats"] != 1]
+    assert {call["repeats"] for call in repeated} == {3} and {call["temperature"] for call in repeated} == {0.7}
+    assert once and {call["temperature"] for call in once} == {0.0}
+    controls = [item for item in cycle["verdicts"] if item["control"]]
+    conformance = [item for item in cycle["verdicts"] if item["rubric"] == "process_conformance" and not item["control"]]
+    assert controls and len(once) == len(controls) + len(conformance)
     asked = {call["rubric"] for call in judge.calls}
     assert {"process_conformance", "decision_score"} <= asked
     conformance = [call for call in judge.calls if call["rubric"] == "process_conformance"]

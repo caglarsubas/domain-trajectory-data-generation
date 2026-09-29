@@ -5,7 +5,8 @@ import pytest
 from app import jobs, runtime
 from test_api import RecordingJudge, _auth, _link, _project, _ready_key, _run
 
-LOW = {"helpfulness": 1, "correctness": 0, "safety": 1, "pairwise_quality": 1}
+# Low, but above what the judge gives the flawed controls, so helpfulness and correctness decide.
+LOW = {"helpfulness": 2, "correctness": 0.25, "safety": 1, "pairwise_quality": 1}
 
 
 def _study(client, email):

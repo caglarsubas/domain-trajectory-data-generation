@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 
 from app import runtime
-from app.controls import TARGETS, build
+from app.controls import KINDS, TARGETS, build
 from app.evaluation import _discrimination, render_journey
 from app.judging import sample_entries
 from app.store import DbStore
@@ -70,14 +70,20 @@ def test_each_defect_is_found_and_confirmed_by_the_pack():
 def test_controls_are_flawed_copies_that_read_like_their_originals():
     journeys = _journeys()
     controls = build(journeys, BANKING, CONFIG)
-    assert [control["kind"] for control in controls] == ["missing_step", "worse_choice", "slow_wait"]
-    assert len({control["trajectory_id"] for control in controls}) == 3
     originals = {next(t for t in j.trajectories if t.parent_trajectory_id is None).trajectory_id: j for j in journeys}
+    # Every sampled journey gets every control the pack confirms for it, in a fixed order (decision 19).
+    by_journey = {}
+    for control in controls:
+        by_journey.setdefault(control["trajectory_id"], []).append(control["kind"])
+    assert set(by_journey) == set(originals)
+    assert all(kinds == [kind for kind in KINDS if kind in kinds] for kinds in by_journey.values())
+    assert all("reversed" in kinds and "slow_wait" in kinds for kinds in by_journey.values())
+    assert {kind for kinds in by_journey.values() for kind in kinds} == set(KINDS)
     for control in controls:
         copy, tid = control["bundle"], control["trajectory_id"]
         assert control["rubrics"] == TARGETS[control["kind"]] and control["detail"]
-        # The missing step breaks the pack's rules; the others keep them, so their defect is the only one.
-        assert bool(BANKING.hard_checks(copy)) == (control["kind"] == "missing_step")
+        # A missing step and reversed events break the pack's rules; the others keep them, so their defect is the only one.
+        assert bool(BANKING.hard_checks(copy)) == (control["kind"] in ("missing_step", "reversed"))
         text, _ = render_journey(copy, tid, 24000)
         original, _ = render_journey(originals[tid], tid, 24000)
         assert text.split("\n")[0] == original.split("\n")[0] and "Sample text:" in text and text != original
@@ -165,11 +171,19 @@ def test_a_judge_that_sees_the_defects_scores_the_controls_lower(client, four_jo
     for rubric in ("correctness", "helpfulness"):
         for model, row in discrimination[rubric].items():
             assert row["rate"] == 1.0 and row["blind"] is False and row["controls"] >= 1
-    assert discrimination["correctness"]["qwen3.8:27b"]["kinds"]["missing_step"] == {"original": 1.0, "control": 0.0, "lower": True}
+    missing = discrimination["correctness"]["qwen3.6:27b"]["kinds"]["missing_step"]
+    assert missing["lower"] == missing["controls"] >= 1 and (missing["original"], missing["control"]) == (1.0, 0.0)
+    # Every sampled journey has its reversed copy, and a judge that sees caught them all.
+    backwards = discrimination["correctness"]["qwen3.6:27b"]["kinds"]["reversed"]
+    assert backwards["controls"] == len(cycle["sample"]) == backwards["lower"]
+    # It saw both rubrics' controls, so both decide.
+    deciding = cycle["agreement"]["deciding"]
+    assert deciding["judge"] == "qwen3.6:27b" and deciding["code_only"] is False
+    assert all(row["decides"] for row in deciding["rubrics"].values()) and set(deciding["rubrics"]) == {"helpfulness", "correctness"}
     assert all(row["accuracy"] == 1.0 and not row["blind"] for row in cycle["agreement"]["pairwise_control"].values())
     # This judge never looks at decisions, so it is blind there and only there: the flag is per rubric.
     blind = {(flag["rubric"], flag["model"]) for flag in cycle["flags"] if flag["kind"] == "blind_to_defect"}
-    assert blind == {("decision_score", "qwen3.8:27b"), ("decision_score", "gemma4:26b")}
+    assert blind == {("decision_score", "qwen3.6:27b"), ("decision_score", "gemma4:26b")}
     # Controls measure the judge and decide nothing: the rule-breaking copy writes no note and flags no journey.
     assert cycle["accepted"] is True and cycle["revision_notes"] == []
     assert not any(flag["kind"] == "likely_false_negative" for flag in cycle["flags"])
@@ -184,7 +198,7 @@ def test_a_judge_that_gives_everything_the_top_score_is_flagged_blind(client, fo
     # Always picking the first journey is right in one order and wrong in the other: chance, so blind.
     assert all(row["accuracy"] == 0.5 and row["blind"] for row in cycle["agreement"]["pairwise_control"].values())
     blind = {(flag["rubric"], flag["model"]) for flag in cycle["flags"] if flag["kind"] == "blind_to_defect"}
-    assert ("correctness", "qwen3.8:27b") in blind and ("pairwise_quality", "gemma4:26b") in blind
+    assert ("correctness", "qwen3.6:27b") in blind and ("pairwise_quality", "gemma4:26b") in blind
     # The acceptance decision is the one the judge would make without controls.
     assert cycle["accepted"] is True
 
@@ -212,6 +226,6 @@ def test_discrimination_compares_each_control_with_its_original_mean():
     discrimination, pairwise = _discrimination(verdicts, per, flags)
     assert discrimination["helpfulness"]["judge"]["controls"] == 2 and discrimination["helpfulness"]["judge"]["rate"] == 0.5
     assert discrimination["helpfulness"]["judge"]["blind"] is False
-    assert discrimination["correctness"]["judge"] == {"controls": 1, "lower": 0, "kinds": {"missing_step": {"original": 1.0, "control": 1.0, "lower": False}}, "rate": 0.0, "blind": True}
+    assert discrimination["correctness"]["judge"] == {"controls": 1, "lower": 0, "kinds": {"missing_step": {"controls": 1, "lower": 0, "original": 1.0, "control": 1.0}}, "rate": 0.0, "blind": True}
     assert pairwise["judge"] == {"calls": 2, "accuracy": 0.75, "blind": False}
     assert flags == [{"kind": "blind_to_defect", "trajectory_id": None, "rubric": "correctness", "model": "judge"}]

@@ -14,7 +14,7 @@ VERDICT = {
     "object": "eval",
     "created": 1,
     "rubric": "safety",
-    "judge_model": "qwen3.8:27b",
+    "judge_model": "qwen3.6:27b",
     "verdict": {"score": 1, "parsed": {"safe": True}, "raw": "{}", "parse_status": "clean"},
     "duration_ms": 4,
 }
@@ -64,8 +64,8 @@ def test_trailing_v1_dot_no_longer_doubles_the_path():
     client = _client(handler, base_url="http://engine.test/v1.")
     verdict = client.run_eval(rubric="safety", prompt="p", response="r")
     assert seen["path"] == "/v1/evals/run"
-    assert seen["body"]["judge_model"] == "qwen3.8:27b"
-    assert verdict["judge_model"] == "qwen3.8:27b"
+    assert seen["body"]["judge_model"] == "qwen3.6:27b"
+    assert verdict["judge_model"] == "qwen3.6:27b"
     client.close()
 
 
@@ -222,8 +222,8 @@ def test_keys_can_be_replaced_and_deleted_by_their_owner_only(client):
 class HalfReadableJudge:
     def run_eval(self, **kwargs):
         if kwargs["rubric"] == "safety":
-            return {"score": 1, "parsed": {"safe": True}, "raw": "{}", "readable": True, "judge_model": "qwen3.8:27b", "duration_ms": 1}
-        return {"score": 0, "parsed": {}, "raw": "", "readable": False, "judge_model": "qwen3.8:27b", "duration_ms": 1}
+            return {"score": 1, "parsed": {"safe": True}, "raw": "{}", "readable": True, "judge_model": "qwen3.6:27b", "duration_ms": 1}
+        return {"score": 0, "parsed": {}, "raw": "", "readable": False, "judge_model": "qwen3.6:27b", "duration_ms": 1}
 
 
 def test_unreadable_verdict_is_unscored_and_adds_no_revision_note(client):

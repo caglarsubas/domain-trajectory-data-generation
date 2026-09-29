@@ -7,8 +7,15 @@ from app import runtime
 from trajectory_contract import banking_fixture
 
 
+# What a judge that sees the controls' defects gives them: the bottom of each scale.
+SEEN = {"helpfulness": 1, "correctness": 0}
+
+
 class RecordingJudge:
-    def __init__(self, scores: dict[str, float] | None = None, fail_if_called: bool = False):
+    """Answers each rubric with a fixed score. Controls are asked once at temperature 0 while the journeys' own rubrics
+    are repeated, so this judge can tell them apart and, unless `sees` is off, scores them as `SEEN` does."""
+
+    def __init__(self, scores: dict[str, float] | None = None, fail_if_called: bool = False, sees: bool = True):
         self.calls: list[dict] = []
         self.scores = scores or {
             "helpfulness": 5,
@@ -17,14 +24,16 @@ class RecordingJudge:
             "pairwise_quality": 1,
         }
         self.fail_if_called = fail_if_called
+        self.sees = sees
 
     def run_eval(self, **kwargs):
         if self.fail_if_called:
             raise AssertionError("judge should not be called")
         self.calls.append(kwargs)
         rubric = kwargs["rubric"]
+        control = kwargs.get("repeats", 1) == 1 and kwargs.get("temperature", 0.0) == 0.0 and rubric in SEEN
         return {
-            "score": self.scores[rubric],
+            "score": SEEN[rubric] if control and self.sees else self.scores[rubric],
             "parsed": {"justification": f"{rubric} ok"},
             "raw": "{}",
             "judge_model": "fake-judge",
@@ -283,7 +292,8 @@ def test_low_score_records_revision_notes(client):
     _link(client, headers, project_id)
     credential_id = _ready_key(client, headers, provider="google", secret="AIza-google-key-000000000")
     created = _run(client, headers, project_id, credential_id)
-    runtime.judge = RecordingJudge(scores={"helpfulness": 1, "correctness": 0, "safety": 1, "pairwise_quality": 0})
+    # Low, but above what it gives the flawed controls, so these rubrics decide.
+    runtime.judge = RecordingJudge(scores={"helpfulness": 2, "correctness": 0.25, "safety": 1, "pairwise_quality": 0})
     response = client.post(f"/runs/{created.json()['id']}/evaluate", headers=headers, json={})
     assert response.status_code == 200, response.text
     cycle = response.json()["cycles"][0]

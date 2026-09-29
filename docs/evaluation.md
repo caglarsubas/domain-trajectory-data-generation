@@ -23,11 +23,11 @@ Each cycle runs that sector's local hard checks first. A failed check does not c
 - `safety` — synthetic data only, no personal or real account identifiers
 - `pairwise_quality` — only when the candidate has a parent trajectory and an alternative branch. Both journeys are shown blind (no kind, outcome, or alternative label), and the score is reported without deciding acceptance or writing revision notes.
 
-Each call names its judge with `judge_model`, taken from `INFERENCE_ENGINE_JUDGE_MODEL` (default `qwen3.8:27b`). `INFERENCE_ENGINE_BASE_URL` is the engine origin; a trailing `/`, `/v1`, or `/v1.` is removed, and the API refuses to start when the value does not parse. The client waits up to 300 seconds, longer than the engine's own completion timeout, and retries once when the engine answers 429 or 503 with a `Retry-After` of 30 seconds or less. When the engine fails, the studio answers 502, 503, or 504 with the engine's request id, and no cycle is stored.
+Each call names its judge with `judge_model`, taken from `INFERENCE_ENGINE_JUDGE_MODEL` (default `qwen3.6:27b`, decision 20; `qwen3.8:27b` shares an engine substitution group with the second judge, `gemma4:26b`, so it could be that model judging twice). `INFERENCE_ENGINE_BASE_URL` is the engine origin; a trailing `/`, `/v1`, or `/v1.` is removed, and the API refuses to start when the value does not parse. The client waits up to 300 seconds, longer than the engine's own completion timeout, and retries once when the engine answers 429 or 503 with a `Retry-After` of 30 seconds or less. When the engine fails, the studio answers 502, 503, or 504 with the engine's request id, and no cycle is stored.
 
 A verdict the engine could not parse is not a score. The rubric is left unscored, the cycle is not accepted, and no revision note is added for it.
 
-Verdicts are stored on the run. Helpfulness, correctness, and safety scores under the run thresholds become revision notes and block acceptance; pairwise quality does neither. Another cycle is allowed until `max_cycles`.
+Verdicts are stored on the run. Helpfulness, correctness, and safety scores under the run thresholds become revision notes; safety always blocks acceptance, and helpfulness and correctness block it only where the primary judge saw their controls that cycle (see below). Pairwise quality does neither. Another cycle is allowed until `max_cycles`.
 
 ## Repeated judgments
 
@@ -51,19 +51,26 @@ The cycle's `judging` records the repeats, their temperature, and each registere
 
 ## Controls: can the judges tell?
 
-Agreement between judges, and across a judge's repeats, is perfect when every journey gets the top score, which is what two local judges did before this. So each cycle also asks the judges about journeys with one known defect. Beside the reversed control journey, it adds copies of sampled journeys (`apps/api/app/controls.py`, found by `packages/sectors/src/sectors/controls.py`), at most one of each kind and from different journeys where they allow:
+Agreement between judges, and across a judge's repeats, is perfect when every journey gets the top score, which is what two local judges did before this. So each cycle also asks the judges about journeys with one known defect: every sampled journey gets every flawed copy the pack confirms for it (`apps/api/app/controls.py`, found by `packages/sectors/src/sectors/controls.py`; decision 19), so a judge's discrimination rests on several controls per rubric, not one or two. Controls are asked once at temperature 0, as conformance is:
 
 | Control | Defect | Confirmed by | Rubrics that should score it lower |
 |---|---|---|---|
 | `missing_step` | an inner event removed, searched from the middle outward | the pack's replay fails at a later event, and so do its hard checks | correctness, process conformance, helpfulness |
 | `worse_choice` | at an outcome decision, the rival with the lowest simulated chance of reaching the goal, at most 0.9 of the choice made; the journey ends there | the decision values, and the hard checks still pass | decision score |
 | `slow_wait` | one wait stretched to ten times its step's longest wait, at least 30 days | the step's dwell and cycle ranges, and the hard checks still pass | helpfulness |
+| `reversed` | every event in reverse order, at the original times | the pack's replay and hard checks fail | correctness |
 
 A copy keeps its original's customer messages and narrates its own events with the pack's templates, so it reads like any other journey with one thing wrong. A code-comparison rubric is asked of a control only where it was asked of the original. One control, a missing step first, is also set against its original as a pairwise question, blind and in both orders: the judge should pick the original.
 
-The cycle's `agreement.discrimination` gives, per rubric and model, how many controls scored below their original (the mean of their readable repeats against the original's) and the rate; below half, the judge is `blind` there and flagged `blind_to_defect`. `agreement.pairwise_control` gives each model's share of picks of the original, a tie counting a half; at 0.5 or below it is blind to that too. Each sampled journey's `controls` name what was changed. Control verdicts carry `control` (the kind, or `pairwise:<kind>`), stay out of scores, agreement, and flags about the run's journeys, and decide nothing (decision 13).
+The cycle's `agreement.discrimination` gives, per rubric and model, how many controls scored below their original (the mean of their readable repeats against the original's) and the rate; below half, the judge is `blind` there and flagged `blind_to_defect`. `agreement.pairwise_control` gives each model's share of picks of the original, a tie counting a half; at 0.5 or below it is blind to that too. Each sampled journey's `controls` name what was changed. Each kind also has its own count, rate, and the mean scores of the originals and of their copies. The reversed copies are the cycle's `canary`, reported as before with how many journeys had one. Control verdicts carry `control` (the kind, or `pairwise:<kind>`, and the reversed ones `canary`), and stay out of scores, agreement, and flags about the run's journeys.
 
-The studio's questions now name what to look for: helpfulness asks about skipped steps, events out of order, and waits far past a step's usual time, and says a journey that ends in a failure is as representative as one that succeeds; correctness asks about a step that comes before what it depends on; the decision score asks about a choice clearly worse than another open one.
+### Which rubrics decide
+
+A rubric that cannot tell a flawed journey from a sound one should not decide whether a run is good (decision 18). Helpfulness and correctness decide acceptance only when the primary judge, in the same cycle, scored at least half of their controls lower than the originals, over at least three controls (`MIN_CONTROLS`), and for correctness also caught the reversed journeys. A rubric that does not keeps scoring and writing its revision notes, and is flagged `did_not_decide`. When neither decides, the run is accepted or not on the code's hard checks and safety alone, and the run page says the judges could not tell. A judge that could not be read has not shown that it cannot tell, so a sampled journey left unscored on any of the three still blocks acceptance, and the run can be judged again. `agreement.deciding` gives the primary judge, each rubric with whether it decided and why, and `code_only`.
+
+The cycle also records which model served each named judge (`agreement.served_by`). When the two judges were served by one model, `agreement.same_model` names it, the cycle is flagged `same_model`, and the run page says their agreement is one model agreeing with itself.
+
+The studio's questions name what to look for: helpfulness asks about skipped steps, events out of order, and waits far past a step's usual time, and is told each step's usual wait after the one before, from the pack's reference process, so it can see such a wait; it says a journey that ends in a failure is as representative as one that succeeds; correctness asks about a step that comes before what it depends on; the decision score asks about a choice clearly worse than another open one.
 
 ## Written turns: faithful to their facts?
 

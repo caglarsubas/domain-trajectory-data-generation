@@ -1,4 +1,4 @@
-# Next slice: acceptance the judges can earn
+# Next slice: calibration people can bring
 
 Status: approved on 28 September 2026, together with the queued Slice 15 and decisions 18 to 21 in the [overview](overview.md#decisions), all as recommended. Slices 11 to 13, approved on 28 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
@@ -39,7 +39,17 @@ The findings are about whether the judge's acceptance means anything, and about 
 
 Outside the code, the studio's `.env` still points the judge at an ngrok tunnel that answers 404; the engine runs on the host at port 8080, which the Compose stack reaches as `http://host.docker.internal:8080`.
 
-## Next: Slice 14, acceptance the judges can earn
+## Next: Slice 15, calibration people can bring
+
+1. **Banking's passed check.** Map a BPI activity to `kyc.passed`, or read the decision after a passed check from the shares the data backs there, so banking declines land within 5 points of the data's 13% while approvals and abandonment stay within 5 of theirs.
+2. **A template per pack** (decision 21). The studio offers, for each pack, a CSV template of its events with a short example log, so a telecommunications or insurance team can export its own journeys in a shape the mapper reads without guessing.
+3. **A preview before a run.** After a log is mapped, the data source shows what calibration would change: for the steps it moves most, the pack's share against the data's, and the events the data cannot see.
+
+Exit: banking calibrated from BPI 2017 declines within 5 points of 13%; a telecommunications log written from the template calibrates a run to a next-step divergence under 0.1; the preview matches the calibrated run's shares.
+
+## Delivered: Slice 14, acceptance the judges can earn
+
+Delivered in one pull request covering tasks 1 to 4, and the exit criteria are met.
 
 1. **Controls for every sampled journey** (decision 19). Each sampled journey gets the flawed copies the pack confirms for it, a missing step, a worse choice, a slow wait, and its events reversed, instead of at most one of each across the sample. Discrimination then rests on up to six controls per rubric and judge, not the one or two that make today's rates all or nothing. Controls are asked once at temperature 0, as conformance is since #58, so a cycle generates about what it does today while asking more.
 2. **A rubric decides only where its judge sees** (decision 18). Helpfulness and correctness decide acceptance for a judge only if, in the same cycle, that judge scores at least half of their controls lower than the originals, and for correctness also catches the reversed journey. Otherwise they keep scoring and writing revision notes, and the cycle says they did not decide. When no rubric decides, the run is accepted or not on the code's checks alone, and the run page says the judges could not tell.
@@ -48,13 +58,17 @@ Outside the code, the studio's `.env` still points the judge at an ngrok tunnel 
 
 Exit: in a live cycle, acceptance comes only from rubrics whose judge scored their controls lower, each measured over at least three controls; a rubric blind to its controls decides nothing that cycle; and a cycle judged twice by one model says so.
 
-## Queued: Slice 15, calibration people can bring
+Live on the local engine, three banking journeys, their 11 controls, and a pairwise control, three repeats for the journeys' own rubrics and one at temperature 0 for the controls (152 verdicts, 5 unreadable, 33 minutes). The engine served the second judge, named `gemma4:26b`, with `qwen3.8:27b` from its substitution group, which `served_by` records:
 
-1. **Banking's passed check.** Map a BPI activity to `kyc.passed`, or read the decision after a passed check from the shares the data backs there, so banking declines land within 5 points of the data's 13% while approvals and abandonment stay within 5 of theirs.
-2. **A template per pack** (decision 21). The studio offers, for each pack, a CSV template of its events with a short example log, so a telecommunications or insurance team can export its own journeys in a shape the mapper reads without guessing.
-3. **A preview before a run.** After a log is mapped, the data source shows what calibration would change: for the steps it moves most, the pack's share against the data's, and the events the data cannot see.
+| Rubric | `qwen3.6:27b`, primary | second, served by `qwen3.8:27b` |
+|---|---|---|
+| Helpfulness | 1 of 6 controls lower (slow wait 1 of 3, missing step 0 of 3): does not decide | 3 of 6 (slow wait 3 of 3, missing step 0 of 3) |
+| Correctness | 2 of 5 lower (reversed 2 of 2, missing step 0 of 3): does not decide | 2 of 6 (reversed 2 of 3) |
+| Process conformance | 0 of 3 | 0 of 3 |
+| Decision score | 1 of 2 | 0 of 2 |
+| Pairwise control | picked the original 2 of 2 | 2 of 2 |
 
-Exit: banking calibrated from BPI 2017 declines within 5 points of 13%; a telecommunications log written from the template calibrates a run to a next-step divergence under 0.1; the preview matches the calibrated run's shares.
+Neither helpfulness nor correctness decided, so the run was accepted on the code's checks and safety, and the run page says the judges could not tell. With each step's usual wait in its question, the second judge caught every stretched wait on helpfulness; no judge caught a missing step on any rubric that scores a journey on its own. A second cycle naming `qwen3.8:27b` and `gemma4:26b` was served by `qwen3.8:27b` for both and flagged `same_model`.
 
 ## Out of scope
 

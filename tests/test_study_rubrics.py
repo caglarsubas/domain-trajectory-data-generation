@@ -13,7 +13,7 @@ from app.models import StudyRubric
 from app.study_rubrics import MAX_CRITERIA, TEXT_CHARS, TITLE_CHARS, clean, definition
 from test_api import _auth, _link, _project, _ready_key, _run
 
-PRIMARY = "qwen3.8:27b"
+PRIMARY = "qwen3.6:27b"
 
 PROPOSALS = {
     "solution": {
