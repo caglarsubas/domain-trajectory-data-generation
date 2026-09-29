@@ -444,3 +444,15 @@ Slice 17, in one pull request. Before a cycle, a regeneration, or a rubric propo
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/73
 
 Docs only. Against `e00c382` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `74ae828`. Set against real hotel cases, both judges caught out-of-order journeys in 91% to 97% of comparisons but could not tell a calibrated run from an uncalibrated one, and part of what they read was the comparison's own: checkout outside the study's scope, and times finer than the data's whole days. Their reasons led to a defect in the data: calibrated waits came from a log-normal fitted to three quantiles and clamped at twice the 90th percentile, so their tails were two to four times too heavy and up to a third of a step's draws landed on one value. Slices 18 (waits as the data has them) and 19 (a fair realism comparison) were approved with decisions 25 and 26.
+
+## 74. Draw calibrated waits between the data's own quantiles and measure them, completing Slice 18
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/74
+
+Slice 18, in one pull request. Calibration keeps each timed step's waits every 5% and the resolution its data records times at, and the walker draws between them, spread over the day where the data records dates; calibrations stored with three quantiles draw within bounded tails instead of clamping at twice the 90th percentile (decision 25). Representativeness compares each timed step's waits with the data's, read as the data records them, and the run page lists the steps furthest off. On calibrated hotel and BPI 2017 runs, the largest share of draws on one value fell from up to 24% to under 1%, and each well-backed step puts 5% to 15% of its waits past the data's 90th percentile, against 20% to 45% before. It also fixed a calibrated run written in batches listing event names as its batches, which kept its journeys from opening.
+
+## 75. Fit the studio's header on a phone
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/75
+
+Below 640 pixels the header wraps, its links on their own row within the page's 16-pixel gutter, and long run headings on the studio page break anywhere, so no studio page scrolls sideways at 375 or 320 pixels; desktop is unchanged.

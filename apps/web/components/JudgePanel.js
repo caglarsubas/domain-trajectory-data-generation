@@ -45,6 +45,8 @@ function explain(flag, names) {
       return `${flag.model} and the code scorer disagree on ${label(flag.rubric, names)}.`;
     case "distinguishable":
       return `${flag.model} told generated journeys from real ones in three of four comparisons or more.`;
+    case "blind_to_realism":
+      return `${flag.model} did not pick real cases over journeys shown out of order in three of four, so its picks against generated journeys say nothing about realism.`;
     case "did_not_decide":
       return `${label(flag.rubric, names)} did not decide acceptance: ${flag.model} could not tell its controls from their originals.`;
     case "same_model":
@@ -296,15 +298,16 @@ export default function JudgePanel({ cycle, onPick }) {
       {realism && Object.keys(realism.models || {}).length ? (
         <>
           <p className="lede">
-            Each sampled journey was set against a real case from {realism.sources.join(", ")}, blind and in both orders, both shown only as
-            the steps the data records and the time since the first. A judge that picks the real case about half the time cannot tell them
-            apart; this decides nothing.
+            {realism.comparisons
+              ? `${realism.comparisons} of this run's journeys were each set against a real case from ${realism.sources.join(", ")}, blind and in both orders, both shown only as the steps the data records within this study's scope and the time since the first${realism.resolution_hours >= 24 ? ", in whole days, as the data records dates" : ""}. As a control, ${realism.controls} were also shown out of order; a judge that does not pick the real case over those in three of four does not see realism, and its picks are not read. A judge that sees it and picks the real case about half the time cannot tell ours from theirs; this decides nothing.`
+              : `Each sampled journey was set against a real case from ${realism.sources.join(", ")}, blind and in both orders, both shown only as the steps the data records and the time since the first. A judge that picks the real case about half the time cannot tell them apart; this decides nothing.`}
           </p>
           <table className="target-table">
             <thead>
               <tr>
                 <th>Generated against real</th>
                 <th>Picked the real case</th>
+                {realism.controls ? <th>Over an out-of-order journey</th> : null}
                 <th>What gave it away</th>
               </tr>
             </thead>
@@ -312,7 +315,13 @@ export default function JudgePanel({ cycle, onPick }) {
               {Object.entries(realism.models).map(([model, row]) => (
                 <tr key={model}>
                   <td>{model}</td>
-                  <td>{`${Math.round(row.picked_real * 100)}% of ${row.calls}`}{row.distinguishable ? " · can tell" : ""}</td>
+                  <td>
+                    {row.sees === false ? "Not read: " : ""}
+                    {`${Math.round(row.picked_real * 100)}% of ${row.calls}`}{row.distinguishable ? " · can tell" : ""}
+                  </td>
+                  {realism.controls ? (
+                    <td>{row.control?.picked_real != null ? `${Math.round(row.control.picked_real * 100)}% of ${row.control.calls}${row.sees ? "" : " · blind to realism"}` : "—"}</td>
+                  ) : null}
                   <td>{(row.reasons || []).slice(0, 2).join(" ")}</td>
                 </tr>
               ))}
@@ -382,7 +391,7 @@ export default function JudgePanel({ cycle, onPick }) {
           {flags.map((flag) => (
             <li key={`${flag.kind}|${flag.model}|${flag.rubric}`} data-kind={flag.kind}>
               {explain(flag, names)}
-              {!["likely_false_positive", "blind_to_defect", "unfaithful_turn", "did_not_decide", "same_model", "distinguishable"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
+              {!["likely_false_positive", "blind_to_defect", "unfaithful_turn", "did_not_decide", "same_model", "distinguishable", "blind_to_realism"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
             </li>
           ))}
         </ul>

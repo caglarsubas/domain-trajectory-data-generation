@@ -39,6 +39,7 @@ class Settings:
     demo_rubric_proposals_per_day: int = 5
     judge_temperature: float = 0.7
     judge_text_sample: int = 6
+    realism_sample: int = 16
 
 
 def load_settings() -> Settings:
@@ -81,6 +82,8 @@ def load_settings() -> Settings:
         judge_temperature=_temperature("JUDGE_TEMPERATURE", 0.7),
         # Provider-written turns each cycle reads for faithfulness; 0 reads none.
         judge_text_sample=min(_count("JUDGE_TEXT_SAMPLE", 6), 50),
+        # Generated journeys each cycle sets against real cases, apart from the rubric sample; 0 asks none (decision 26).
+        realism_sample=min(_count("REALISM_SAMPLE", 16), 48),
     )
 
 

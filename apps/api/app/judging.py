@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app import faithfulness, runtime, study_rubrics
 from app.controls import build as build_controls
 from app.evaluation import code_signals, evaluate_journeys
+from app.realism import prepare as prepare_realism
 from app.retrieval import reference as reference_passages
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable, RubricLimitReached, RubricsUnsupported
 from app.judge_rubrics import CODE_RUBRICS, STUDY_KINDS, TURN_FAITHFULNESS
@@ -137,24 +138,28 @@ def real_cases(db: Session, run: Run) -> dict | None:
     """Real cases from the study's own data sources, for the judge to set against generated journeys (decision 22).
 
     Each source kept a sample at calibration, as event types and hours since each case began. Generated journeys are
-    shown cut to the events those sources record, and a step no sampled case ever times is shown untimed on both sides.
+    shown cut to the events those sources record, a step no sampled case ever times is shown untimed on both sides, and
+    both are drawn at the coarsest resolution the sources record times at (`app.realism`).
     """
     from sectors.calibration import Calibration
 
+    from app.realism import source_resolution
+
     items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id, CorpusItem.kind == "data_source")))
-    cases, visible, sources = [], set(), []
+    cases, visible, sources, by_source = [], set(), [], []
     for item in items:
         found = item.calibration or {}
         if found.get("status") != "ready" or not found.get("real_cases") or not found.get("calibration"):
             continue
         cases.extend(found["real_cases"])
+        by_source.append(found["real_cases"])
         visible |= Calibration.from_dict(found["calibration"]).observed_events
         sources.append(item.name)
     if not cases:
         return None
     timed = {event for case in cases for event, hours in case if hours is not None}
     untimed = sorted({event for case in cases for event, _ in case} - timed)
-    return {"cases": cases, "visible": sorted(visible), "untimed": untimed, "sources": sources}
+    return {"cases": cases, "visible": sorted(visible), "untimed": untimed, "sources": sources, "resolution": source_resolution(by_source)}
 
 
 def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
@@ -239,7 +244,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 study=study,
                 controls=build_controls(journeys, sector, run.config),
                 faithfulness=faithful,
-                realism=real_cases(db, run),
+                realism=prepare_realism(real_cases(db, run), found, sector, run.config, cfg.realism_sample, f"{run.id}|{cycle_index}"),
             )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc

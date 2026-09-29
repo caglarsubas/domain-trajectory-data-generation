@@ -212,30 +212,43 @@ REALISM_QUESTION = (
 )
 # A judge that picks the real case this often or more can tell generated journeys from real ones (decision 23).
 DISTINGUISHABLE = 0.75
+# A judge that picks the real case over an out-of-order journey less often than this does not see realism at all, so its
+# rate against generated journeys is not read as a finding (decision 26).
+SEES_REALISM = 0.75
 
 
-def render_steps(steps: list[tuple[str, float | None]], untimed: set[str]) -> str:
+def render_steps(steps: list[tuple[str, float | None]], untimed: set[str], resolution: float = 0.0) -> str:
     """A case as a data source records it: its steps in order, each with the time since the first timed one, except
-    where the data never times that step. Real and generated journeys are drawn this way alike."""
+    where the data never times that step, and in whole days where the data records dates. Real and generated journeys
+    are drawn this way alike."""
     base = next((hours for event, hours in steps if hours is not None and event not in untimed), None)
     lines = ["Journey.", "Steps:"]
+    started = False
     for index, (event, hours) in enumerate(steps, start=1):
         if hours is None or base is None or event in untimed:
             lines.append(f"{index}. {event}")
+        elif resolution >= 24:
+            days = round((hours - base) / 24)
+            when = "at the start" if not started else "the same day as the first step" if days == 0 else f"{days} {'day' if days == 1 else 'days'} after the first step"
+            started = True
+            lines.append(f"{index}. {event}, {when}")
         else:
             lines.append(f"{index}. {event}, " + (f"{_span(hours - base)} after the first step" if hours > base else "at the start"))
     return "\n".join(lines)
 
 
-def generated_steps(bundle: TrajectoryBundle, trajectory_id: str, visible: set[str]) -> list[tuple[str, float]]:
-    """A generated journey cut to the events the data records, timed in hours from its first such event."""
+def generated_steps(bundle: TrajectoryBundle, trajectory_id: str, visible: set[str], resolution: float = 0.0) -> list[tuple[str, float]]:
+    """A generated journey cut to the events the data records, timed from its first such event as the data would record
+    it: in hours, or between calendar dates or whole hours where the data records those (decision 26)."""
+    from sectors.calibration import _recorded
+
     events = {event.event_id: event for event in bundle.events}
     traj = next(item for item in bundle.trajectories if item.trajectory_id == trajectory_id)
     kept = [events[item] for item in traj.event_ids if item in events and events[item].event_type in visible]
     if not kept:
         return []
     start = kept[0].event_time
-    return [(event.event_type, round((event.event_time - start).total_seconds() / 3600, 3)) for event in kept]
+    return [(event.event_type, round(_recorded(start, event.event_time, resolution), 3)) for event in kept]
 
 
 def usual_waits(lifecycle, types: list[str]) -> str:
@@ -372,21 +385,20 @@ def evaluate_journeys(
         calls.append({**mark, "order": "ba", "payload": {"prompt": question, "response": flawed, "response_b": mine}})
         entry.setdefault("controls", []).append({"kind": f"pairwise:{chosen['kind']}", "detail": chosen["detail"], "rubrics": ["pairwise_quality"]})
 
-    # Each sampled journey against a real case from the study's data, blind and in both orders, asked once at temperature
-    # 0; "ab" puts the real case first.
-    real = (realism or {}).get("cases") or []
+    # Generated journeys of the run's own realism sample against real cases from the study's data (`app.realism`), and
+    # out-of-order copies as its control, blind and in both orders, asked once at temperature 0; "ab" puts the real case
+    # first. Both sides are cut to the study's scope and drawn at the data's resolution (decision 26).
+    real = (realism or {}).get("pairs") or []
     if real:
-        visible, untimed = set(realism["visible"]), set(realism.get("untimed") or ())
+        untimed, resolution = set(realism.get("untimed") or ()), float(realism.get("resolution") or 0.0)
         question = REALISM_QUESTION.format(label=label)
-        for index, (journey, entry) in enumerate(zip(journeys, sample)):
-            mine = generated_steps(journey, entry["trajectory_id"], visible)
-            if len(mine) < 2:
-                continue
-            theirs = render_steps([tuple(step) for step in real[index % len(real)]], untimed)
-            ours = render_steps(mine, untimed)
-            mark = {"trajectory_id": entry["trajectory_id"], "canary": False, "control": "realism", "rubric": "pairwise_quality"}
-            calls.append({**mark, "order": "ab", "payload": {"prompt": question, "response": theirs, "response_b": ours}})
-            calls.append({**mark, "order": "ba", "payload": {"prompt": question, "response": ours, "response_b": theirs}})
+        for control, pairs in (("realism", real), ("realism:out_of_order", realism.get("controls") or [])):
+            for pair in pairs:
+                theirs = render_steps([tuple(step) for step in pair["real"]], untimed, resolution)
+                ours = render_steps([tuple(step) for step in pair["generated"]], untimed, resolution)
+                mark = {"trajectory_id": pair["trajectory_id"], "canary": False, "control": control, "rubric": "pairwise_quality"}
+                calls.append({**mark, "order": "ab", "payload": {"prompt": question, "response": theirs, "response_b": ours}})
+                calls.append({**mark, "order": "ba", "payload": {"prompt": question, "response": ours, "response_b": theirs}})
 
     turns = (faithfulness or {}).get("turns") or []
     language = LANGUAGE_NAMES.get((faithfulness or {}).get("language", ""), (faithfulness or {}).get("language", ""))
@@ -404,7 +416,11 @@ def evaluate_journeys(
             what = "a control journey" if call["canary"] else call["rubric"].replace("_", " ")
             if call.get("segment_id"):
                 what += " of a written turn"
-            if call.get("control"):
+            if call.get("control") == "realism":
+                what = "generated against real"
+            elif call.get("control") == "realism:out_of_order":
+                what = "an out-of-order journey against real"
+            elif call.get("control"):
                 what += f" of a {call['control'].split(':')[-1].replace('_', ' ')} control"
             progress(index, len(planned), f"{model}: {what} ({index + 1} of {len(planned)}).")
         # A control is asked once at temperature 0, so that every sampled journey can have them (decision 19).
@@ -692,14 +708,19 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
 
 
 def _realism(verdicts: list[dict], models: list[str], flags: list[dict], realism: dict) -> dict:
-    """Per judge, how often it picked the real case over a generated journey, a tie counting half, and what it said."""
+    """Per judge, how often it picked the real case over a generated journey, a tie counting half, and what it said; and how
+    often it picked the real case over an out-of-order journey. Only a judge that catches three out-of-order journeys in
+    four sees realism, and only its rate is read as a finding (decision 26)."""
     found = {}
     for model in models:
-        picks, reasons = [], []
+        picks, controls, reasons = [], [], []
         for item in verdicts:
-            if item.get("control") != "realism" or item["judge_model"] != model or not item["readable"]:
+            if not (item.get("control") or "").startswith("realism") or item["judge_model"] != model or not item["readable"]:
                 continue
             picked = item["score"] if item["order"] == "ab" else 1.0 - item["score"]
+            if item["control"] != "realism":
+                controls.append(picked)
+                continue
             picks.append(picked)
             reason = _justification(item)
             if reason and reason not in reasons:
@@ -707,10 +728,28 @@ def _realism(verdicts: list[dict], models: list[str], flags: list[dict], realism
         if not picks:
             continue
         rate = round(mean(picks), 4)
-        found[model] = {"calls": len(picks), "picked_real": rate, "distinguishable": rate >= DISTINGUISHABLE, "reasons": reasons[:6]}
-        if rate >= DISTINGUISHABLE:
+        caught = round(mean(controls), 4) if controls else None
+        sees = caught is not None and caught >= SEES_REALISM
+        found[model] = {
+            "calls": len(picks),
+            "picked_real": rate,
+            "control": {"calls": len(controls), "picked_real": caught},
+            "sees": sees,
+            "distinguishable": sees and rate >= DISTINGUISHABLE,
+            "reasons": reasons[:6],
+        }
+        if sees and rate >= DISTINGUISHABLE:
             flags.append({"kind": "distinguishable", "trajectory_id": None, "rubric": "pairwise_quality", "model": model})
-    return {"sources": list(realism.get("sources") or []), "cases": len(realism.get("cases") or []), "models": found}
+        elif caught is not None and not sees:
+            flags.append({"kind": "blind_to_realism", "trajectory_id": None, "rubric": "pairwise_quality", "model": model})
+    return {
+        "sources": list(realism.get("sources") or []),
+        "cases": int(realism.get("cases") or 0),
+        "resolution_hours": float(realism.get("resolution") or 0.0),
+        "comparisons": len(realism.get("pairs") or []),
+        "controls": len(realism.get("controls") or []),
+        "models": found,
+    }
 
 
 def _faithfulness(verdicts: list[dict], turns: list[dict], models: list[str], flags: list[dict]) -> dict:
@@ -775,7 +814,7 @@ def _discrimination(verdicts: list[dict], per: dict, flags: list[dict]) -> tuple
         control = item.get("control")
         if not control or not item["readable"]:
             continue
-        if control == "realism":
+        if control.startswith("realism"):
             # Generated against real measures something else; `_realism` reads it.
             continue
         if control.startswith("pairwise:"):
