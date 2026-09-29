@@ -1,6 +1,6 @@
-# Next slice: waits as the data has them
+# Next slice: a fair realism comparison
 
-Status: approved on 29 September 2026, together with the queued Slice 19 and decisions 25 and 26 in the [overview](overview.md#decisions), all as recommended. Slices 16 and 17, approved on 29 September, have shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: approved on 29 September 2026, together with the queued Slice 19 and decisions 25 and 26 in the [overview](overview.md#decisions), all as recommended; Slice 18 has shipped. Slices 16 and 17, approved on 29 September, shipped before them; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
 Branch off `main` at `e00c382`.
 
@@ -51,15 +51,7 @@ This review asked whether the one measure where a judge compares, generated agai
 
 So the waits of every calibrated run are less representative than the next steps it reports, and the realism comparison mixes that with tells of its own.
 
-## Next: Slice 18, waits as the data has them
-
-1. **Waits from the data's own distribution** (decision 25). Calibration keeps each timed step's waits as 21 quantiles, every 5% of its sample. The walker draws a wait by interpolating between them, so no wait falls outside the range the data shows, and none piles up on one value.
-2. **Stored calibrations without a spike.** A calibration stored with three quantiles draws within the range they span, with tails bounded by the data's own spread instead of clamped, until its source is calibrated again.
-3. **Waits measured.** Representativeness reports, for each timed step the data backs, how far the generated waits lie from the data's: the share above the data's 90th percentile, and a distance over the quantiles. The run page shows the steps furthest off.
-
-Exit: in calibrated hotel and banking runs, no single wait holds more than 1% of a step's draws; every timed step the data backs with enough cases puts between 5% and 15% of its draws above the data's 90th percentile; and the quality report shows each step's distance.
-
-## Queued: Slice 19, a fair realism comparison
+## Next: Slice 19, a fair realism comparison
 
 1. **The same scope on both sides** (decision 26). A real case is cut to the events of the study's own sub-domains before it is shown, as the generated journey is cut to the events the data records.
 2. **The same resolution on both sides.** Calibration records the resolution of a source's times, such as whole days for a source that records dates, and both sides are drawn at it.
@@ -69,6 +61,31 @@ Exit: in calibrated hotel and banking runs, no single wait holds more than 1% of
 Exit: in live cycles on hotel runs scoped to booking, changes and cancellations, and arrival, calibrated and uncalibrated, each judge catches the out-of-order control in three of four comparisons or more; no reason cites a step outside the study's scope or a time finer than a day; and each judge's rate over 16 comparisons is reported for both runs.
 
 Considered and not proposed: telling the judge what the data says, such as how far ahead bookings are made. The code already compares those statistics, and after Slice 18 it will compare waits too; putting them in the question would make the comparison less blind.
+
+## Delivered: Slice 18, waits as the data has them
+
+Delivered in one pull request covering tasks 1 to 3, and the exit criterion is met.
+
+1. **Waits from the data's own distribution** (decision 25). Calibration keeps each timed step's waits as 21 quantiles, every 5% of its sample. The walker draws a wait by interpolating between them, so no wait falls outside the range the data shows, and none piles up on one value.
+2. **Stored calibrations without a spike.** A calibration stored with three quantiles draws within the range they span, with tails bounded by the data's own spread instead of clamped, until its source is calibrated again.
+3. **Waits measured.** Representativeness reports, for each timed step the data backs, how far the generated waits lie from the data's: the share above the data's 90th percentile, and a distance over the quantiles. The run page shows the steps furthest off.
+
+Exit: in calibrated hotel and banking runs, no single wait holds more than 1% of a step's draws; every timed step the data backs with enough cases puts between 5% and 15% of its draws above the data's 90th percentile; and the quality report shows each step's distance.
+
+Measured on calibrated runs of 1,500 journeys over every sub-domain, two seeds each, hotel from the booking demand data and banking from BPI 2017, with the walker before this slice patched back in for comparison:
+
+| Timed step | Largest share on one value, before → after | Past the data's 90th percentile, before → after |
+|---|---|---|
+| Hotel: booking to arrival | 12% to 13% → 0.1% | 21% to 22% → 10% to 11% |
+| Hotel: arrival to departure | 2.0% to 2.4% → 0.3% | 10% to 11% → 5% to 7% |
+| BPI 2017: submitted to KYC started | 0.9% to 1.2% → 0.1% | 4% to 5% → 8% to 11% |
+| BPI 2017: KYC started to review required | 21% to 24% → 0.3% | 29% to 31% → 8% to 10% |
+| BPI 2017: submitted to abandoned | 5% to 6% → 0.2% | 34% to 37% → 11% to 13% |
+| BPI 2017: started to abandoned | 11% to 15% → 0.5% to 0.6% | 39% to 45% → 11% to 12% |
+
+The run's wait distance fell from 0.24 to 0.31 to 0.04 to 0.13. Every timed step with at least 25 cases in the data and 100 draws lands within 5% to 15% of its draws past the data's 90th percentile; where the data records dates, as the hotel data does, generated waits are read between dates too, and its many one-night stays tie at the 90th percentile, which puts departures at the low end. A step drawn fewer than 100 times, such as BPI's review to abandonment, cannot show a share below 1% at all, and its distance, 0.27, is mostly sampling noise. Calibrations stored before the slice, with three quantiles, draw as cleanly: at most 0.6% on one value, and 8% to 13% past the 90th percentile.
+
+Found on the way: a calibrated run large enough to be written in batches recorded an event name in place of each batch's name, because counting its second-order steps reused the batch's variable, so its journeys could not be opened and anything reading its batches by name missed them. Fixed, with a test that opens one.
 
 ## Out of scope
 

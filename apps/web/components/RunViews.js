@@ -20,7 +20,9 @@ export function QualityCard({ quality }) {
   if (!quality) return null;
   const { complete, comprehensive, representative, qualitative } = quality;
   const coverage = Object.entries(comprehensive.event_type_coverage || {});
+  const waits = representative.status === "measured" ? representative.waits : null;
   return (
+    <>
     <div className="quality">
       <div className="quality-tile" data-state={complete.passed ? "good" : "bad"}>
         <span>Complete</span>
@@ -49,6 +51,7 @@ export function QualityCard({ quality }) {
           <small>
             Against {(representative.sources || []).join(", ")}
             {representative.next_step_divergence != null ? ` · next-step divergence ${representative.next_step_divergence}` : ""}
+            {waits ? ` · wait distance ${waits.distance}, ${pct(waits.above_p90)} of waits past the data's 90th percentile` : ""}
           </small>
         </div>
       ) : (
@@ -64,6 +67,40 @@ export function QualityCard({ quality }) {
         <small>{qualitative.reason}</small>
       </div>
     </div>
+    {waits?.steps?.length ? <WaitTable waits={waits} /> : null}
+    </>
+  );
+}
+
+// Each timed step's waits against the data's, furthest off first (decision 25): the data draws one in ten waits past its
+// 90th percentile, and the distance is 0 when the quantiles match and 0.69 at twice or half as long.
+function WaitTable({ waits }) {
+  return (
+    <table className="target-table wait-table">
+      <thead>
+        <tr>
+          <th>Waits against the data</th>
+          <th>Median, data · run</th>
+          <th>90th percentile, data · run</th>
+          <th>Run past the data&apos;s 90th</th>
+          <th>Distance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {waits.steps.slice(0, 5).map((row) => {
+          const [before, after] = row.step.split(">");
+          return (
+            <tr key={row.step} title={`${row.drawn} generated waits against ${row.cases} in the data`}>
+              <td>{shortLabel(before)} → {shortLabel(after)}</td>
+              <td>{formatHours(row.median_hours[0])} · {formatHours(row.median_hours[1])}</td>
+              <td>{formatHours(row.p90_hours[0])} · {formatHours(row.p90_hours[1])}</td>
+              <td>{pct(row.above_p90)}</td>
+              <td>{row.distance}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

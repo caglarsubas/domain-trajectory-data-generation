@@ -112,8 +112,10 @@ def test_bookings_become_reservation_paths_timed_from_the_booking(tmp_path):
     options = [("guarantee.accepted", 0.9), ("guarantee.declined", 0.05), ("reservation.lapsed", 0.05)]
     assert calibration.reweight("reservation.created", options) == options
     # Lead time, time to cancellation, and length of stay are timed.
-    median, low, high, samples = calibration.dwell["reservation.confirmed>room.assigned"]
+    median, low, high, samples, levels, resolution = calibration.dwell["reservation.confirmed>room.assigned"]
     assert samples > 50 and 10 * 24 <= low <= median <= high <= 210 * 24
+    # The data records dates, so its waits are whole days.
+    assert resolution == 24.0 and levels == sorted(levels) and len(levels) == 21
     assert calibration.dwell["guest.checked_in>guest.checked_out"][3] == 110
     assert calibration.dwell["reservation.confirmed>reservation.cancelled"][3] > 0
 

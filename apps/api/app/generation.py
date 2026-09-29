@@ -319,13 +319,19 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
                 totals["flags"][flag] = totals["flags"].get(flag, 0) + flagged
             if kwargs.get("calibration"):
                 # Each step after its two events, over every batch, for the run's second-order divergence.
-                from sectors.calibration import triples_of
+                from sectors.calibration import add_waits, triples_of, waits_of
 
                 kinds = {event.event_id: event.event_type for event in bundle.events}
-                primaries = [[kinds[item] for item in trajectory.event_ids] for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
+                times = {event.event_id: event.event_time for event in bundle.events}
+                chosen = [trajectory for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
+                primaries = [[kinds[item] for item in trajectory.event_ids] for trajectory in chosen]
                 summed = totals.setdefault("triples", {})
-                for (context, name), count in triples_of(primaries, kwargs["calibration"].observed_events).items():
-                    summed[f"{context}|{name}"] = summed.get(f"{context}|{name}", 0) + count
+                # `event`, not `name`: `name` is this batch's, and the run's index lists the batches by it.
+                for (context, event), count in triples_of(primaries, kwargs["calibration"].observed_events).items():
+                    summed[f"{context}|{event}"] = summed.get(f"{context}|{event}", 0) + count
+                # Each timed step's waits over every batch, for the run's wait measure (decision 25).
+                timed = [[(kinds[item], times[item]) for item in trajectory.event_ids] for trajectory in chosen]
+                add_waits(totals.setdefault("waits", {}), waits_of(timed, kwargs["calibration"]))
             for signal, found in (rewards.get("signals") or {}).items():
                 # Weighted sums, so the run's means and pass@k are over every sequence and group, not every batch.
                 summed = totals.setdefault("signals", {}).setdefault(signal, {"score": 0.0, "passes": 0.0, "sequences": 0, "pass_at_k": {}, "groups": {}})
@@ -423,7 +429,7 @@ def generate_batched(db: Session, run: Run, *, feedback_rows: list, parent: Run 
             "flags": totals["flags"],
             "note": None if totals["signal"] else "Groups of one carry no group-relative signal; set a group size above 1.",
         },
-        "quality": _with_representative(quality.report(), kwargs.get("calibration"), overview.report(), totals.get("triples")),
+        "quality": _with_representative(quality.report(), kwargs.get("calibration"), overview.report(), totals.get("triples"), totals.get("waits")),
         "overview": overview.report(),
         "calibration": (meta_first or {}).get("calibration"),
         "episodes": _episode_totals(totals.get("episodes"), state.get("provider") or calls.as_dict() if agent is not None else None),
@@ -535,9 +541,9 @@ def _operations(items: list) -> list[dict]:
     return found
 
 
-def _with_representative(report: dict, calibration, summary: dict, triples: dict | None = None) -> dict:
-    """A large run's representativeness, measured over the steps of every batch through the overview's edges, and over
-    each step after its two events as the batches counted them."""
+def _with_representative(report: dict, calibration, summary: dict, triples: dict | None = None, waits: dict | None = None) -> dict:
+    """A large run's representativeness, measured over the steps of every batch through the overview's edges, over each
+    step after its two events as the batches counted them, and over each timed step's waits as they added them up."""
     if calibration is None:
         return report
     from collections import Counter
@@ -546,7 +552,7 @@ def _with_representative(report: dict, calibration, summary: dict, triples: dict
 
     steps = Counter({(edge["from"], edge["to"]): edge["count"] for edge in summary.get("edges") or []})
     after_two = Counter({tuple(key.rsplit("|", 1)): count for key, count in (triples or {}).items()})
-    return {**report, "representative": representativeness(calibration, steps, after_two)}
+    return {**report, "representative": representativeness(calibration, steps, after_two, waits)}
 
 
 def _facts_counts(db: Session, config: dict, project_id: str, items: list, sector) -> dict:
