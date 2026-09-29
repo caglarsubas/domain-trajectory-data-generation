@@ -22,7 +22,7 @@ from trajectory_contract.models import TrajectoryBundle
 from app.judge import Judge
 from app.controls import pairwise_pick
 from app.faithfulness import facts
-from app.judge_rubrics import DETERMINISTIC, FAITHFULNESS_QUESTION, JUDGE_PASS, QUESTIONS, TURN_FAITHFULNESS
+from app.judge_rubrics import FAITHFULNESS_QUESTION, JUDGE_PASS, QUESTIONS, TURN_FAITHFULNESS
 
 UNREADABLE = "_unreadable"
 
@@ -75,7 +75,7 @@ PAIRWISE_QUESTION = (
     "failure: an abandoned order, a declined application, a failed check, or a missed payment is as valid an "
     "outcome as a completed one. Prefer the journey whose steps, order, and timing are more realistic for this "
     "sector. Do not prefer a journey because it succeeds or because it has more events. If both are equally "
-    "realistic, answer tie."
+    "realistic, answer tie. Keep your reason under 40 words."
 )
 
 
@@ -105,23 +105,11 @@ def code_signals(bundle: TrajectoryBundle, trajectory_id: str) -> dict[str, dict
         for sequence in sample.sequences:
             if sequence.trajectory_id == trajectory_id and sequence.signals:
                 return {
-                    name: {"score": float(found["score"]), "passed": bool(found["passed"]), **({"reference": found["reference"]} if found.get("reference") else {})}
+                    name: {"score": float(found["score"]), "passed": bool(found["passed"])}
                     for name, found in sequence.signals.items()
                     if name in CODE_SIGNALS
                 }
     return {}
-
-
-def reference_shares(reference: list[dict] | None) -> str:
-    """The reference process for one journey: where it could go more than one way, each next step's share."""
-    if not reference:
-        return ""
-    lines = ["Reference next steps: at each step where the process could go more than one way, the share of journeys taking each option."]
-    for point in reference:
-        after = f"after {point['after']}" if point.get("after") else "at the start"
-        options = ", ".join(f"{name} {share:.0%}" for name, share in point["shares"].items())
-        lines.append(f"- Step {point['step']}, {after}: {options}.")
-    return "\n".join(lines)
 
 
 def render_journey(bundle: TrajectoryBundle, trajectory_id: str, budget_chars: int = 24_000, blind: bool = False) -> tuple[str, bool]:
@@ -264,16 +252,14 @@ def evaluate_journeys(
     calls: list[dict] = []
     sample = []
 
-    def payload(rubric: str, text: str, reference: list[dict] | None = None) -> dict:
+    def payload(rubric: str, text: str) -> dict:
         if rubric == "helpfulness":
             return {"prompt": brief + "\n" + HELPFULNESS_QUESTION.format(label=label), "response": text}
         if rubric == "correctness":
             return {"prompt": CORRECTNESS_QUESTION.format(label=label), "response": text, "expected": brief}
         if rubric == "safety":
             return {"prompt": "Confirm the journey is synthetic and holds no real personal or account identifiers.", "response": text}
-        question = brief + "\n" + QUESTIONS[rubric].format(label=label)
-        shares = reference_shares(reference)
-        return {"prompt": question + ("\n" + shares if shares else ""), "response": text}
+        return {"prompt": brief + "\n" + QUESTIONS[rubric].format(label=label), "response": text}
 
     for journey in journeys:
         primary = next(item for item in journey.trajectories if item.parent_trajectory_id is None)
@@ -296,7 +282,7 @@ def evaluate_journeys(
             calls.append({**own, "rubric": rubric, "payload": payload(rubric, text)})
         for rubric in COMPARED:
             if rubric in compared and rubric in sample[-1]["code"]:
-                calls.append({**own, "rubric": rubric, "payload": payload(rubric, text, signals[rubric].get("reference"))})
+                calls.append({**own, "rubric": rubric, "payload": payload(rubric, text)})
         for name, info in study.items():
             question = brief + f"\nScore this {label} journey against the study's {info['kind']} rubric."
             calls.append({**own, "rubric": name, "payload": {"prompt": question, "response": text}})
@@ -335,7 +321,7 @@ def evaluate_journeys(
             continue
         mark = {"trajectory_id": control["trajectory_id"], "order": None, "canary": False, "control": control["kind"]}
         for rubric in rubrics:
-            calls.append({**mark, "rubric": rubric, "payload": payload(rubric, text, control.get("reference"))})
+            calls.append({**mark, "rubric": rubric, "payload": payload(rubric, text)})
         entry.setdefault("controls", []).append({"kind": control["kind"], "detail": control["detail"], "rubrics": rubrics})
         asked_controls.append(control)
     chosen = pairwise_pick(asked_controls)
@@ -368,10 +354,7 @@ def evaluate_journeys(
             if call.get("control"):
                 what += f" of a {call['control'].split(':')[-1].replace('_', ' ')} control"
             progress(index, len(planned), f"{model}: {what} ({index + 1} of {len(planned)}).")
-        fixed = call["rubric"] in DETERMINISTIC
-        result = judge.run_eval(
-            rubric=call["rubric"], judge_model=model, repeats=1 if fixed else repeats, temperature=0.0 if fixed else temperature, **call["payload"]
-        )
+        result = judge.run_eval(rubric=call["rubric"], judge_model=model, repeats=repeats, temperature=temperature, **call["payload"])
         # One entry per repeat; a judge that answers once is one repeat.
         answers = result.get("verdicts") or [result]
         for repeat, answer in enumerate(answers):

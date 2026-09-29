@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Callable, Protocol
 
@@ -139,6 +140,19 @@ class InferenceEngineClient:
             payload = result.json()
             # An engine without repeats returns only `verdict`; that is one repeat, whatever was asked.
             verdicts = [_verdict(item) for item in payload.get("verdicts") or [payload["verdict"]]]
+            if repeats > 1:
+                # A sampled repeat can come back as an empty object on one seed (qwen3.8:27b did on seed 1 for pairwise),
+                # so it is asked once more on a seed no repeat used. A retry that is still empty stays unreadable.
+                for index, verdict in enumerate(verdicts):
+                    if not _empty(verdict):
+                        continue
+                    try:
+                        again = self._post("/v1/evals/run", {**{k: v for k, v in body.items() if k != "n"}, "seed": repeats + index, "temperature": temperature})
+                        retried = _verdict(again.json()["verdict"])
+                    except (JudgeUnavailable, ValueError, KeyError, TypeError):
+                        continue
+                    if retried["readable"]:
+                        verdicts[index] = {**retried, "retried": True}
             return {
                 **verdicts[0],
                 "verdicts": verdicts,
@@ -232,6 +246,14 @@ class InferenceEngineClient:
 
     def close(self) -> None:
         self._client.close()
+
+
+def _empty(verdict: dict[str, Any]) -> bool:
+    """A verdict the model answered with an empty JSON object."""
+    try:
+        return not verdict["readable"] and json.loads(verdict["raw"] or "null") == {}
+    except ValueError:
+        return False
 
 
 def _verdict(item: dict[str, Any]) -> dict[str, Any]:

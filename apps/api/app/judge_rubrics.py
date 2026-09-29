@@ -1,8 +1,13 @@
 """Rubrics the studio registers with the engine, so the judge can score what the code scorers already score.
 
-`process_conformance` and `decision_score` are code signals (packages/sectors/src/sectors/scorers.py). The judge scores
-the same two questions from the rendered journey and the brief, and each cycle reports how often the judge and the code
-agree. The code verdict stays the signal; these rubrics measure the judge, and they never decide acceptance.
+`decision_score` is a code signal (packages/sectors/src/sectors/scorers.py). The judge scores the same question from the
+rendered journey and the brief, and each cycle reports how often the judge and the code agree. The code verdict stays the
+signal; the rubric measures the judge, and it never decides acceptance.
+
+`process_conformance` is scored by code alone. It is the share of each step taken over the most common option's, averaged
+over the steps that could branch. Given those shares and the option each step took, judges still let one rare step decide
+the score (0.25 to 0.5 for a declined application the code scores 0.71 to 0.79), so asking them measured arithmetic, not
+the judge.
 
 Each is a declarative engine rubric: the engine normalises the 1-5 score to 0-1, so a judge score and a code score sit
 on the same scale.
@@ -10,26 +15,9 @@ on the same scale.
 
 from __future__ import annotations
 
-# A short reason keeps a judge that works through the arithmetic inside the engine's answer budget.
+# A short reason keeps a judge inside the engine's answer budget.
 _OUTPUT = 'Output ONLY a single JSON object: {"score": integer 1-5, "reason": string}. Keep the reason under 40 words.'
 _TEMPLATE = "BRIEF AND QUESTION:\n{prompt}\n\nJOURNEY:\n{response}\n\nReturn your JSON verdict now."
-
-PROCESS_CONFORMANCE = {
-    "name": "process_conformance",
-    "description": "How typical each step of a journey is under the sector's reference process.",
-    "system_prompt": (
-        "You are an evaluation judge for synthetic customer journeys. The brief describes the sector's reference "
-        "process, and its reference next steps give, wherever the journey could go more than one way, the share of "
-        "journeys taking each option. At each of those steps, divide the share of the option the journey took by the "
-        "share of the most common option there, so the most common option counts 1 and a rarer one less. Average "
-        "those ratios over the listed steps only: a step with one legal option is not listed and does not count, so "
-        "a journey with a single listed step scores that step's ratio. Then score 5 for an average near 1, 4 near "
-        "0.75, 3 near 0.5, 2 near 0.25, and 1 near 0. A step the process does not allow at that point counts 0. " + _OUTPUT
-    ),
-    "user_prompt_template": _TEMPLATE,
-    "expected_keys": ["score", "reason"],
-    "score": {"kind": "number", "key": "score", "min": 1, "max": 5},
-}
 
 DECISION_SCORE = {
     "name": "decision_score",
@@ -47,19 +35,13 @@ DECISION_SCORE = {
     "score": {"kind": "number", "key": "score", "min": 1, "max": 5},
 }
 
-CODE_RUBRICS = {rubric["name"]: rubric for rubric in (PROCESS_CONFORMANCE, DECISION_SCORE)}
+CODE_RUBRICS = {rubric["name"]: rubric for rubric in (DECISION_SCORE,)}
 
 # The normalised judge score at which the judge's verdict counts as a pass, to set against the code's own pass rule:
-# typicality >= 0.5 for conformance, and every decision within 0.9 of the best for the decision score, which asks
-# more of the judge than the middle of its scale.
-JUDGE_PASS = {"process_conformance": 0.5, "decision_score": 0.75}
-
-# Rubrics answered by arithmetic on numbers the question gives: asked once at temperature 0, since sampling them only
-# adds noise, and a second sample at 0.7 once turned a 0 into a 1.
-DETERMINISTIC = frozenset({"process_conformance"})
+# every decision within 0.9 of the best, which asks more of the judge than the middle of its scale.
+JUDGE_PASS = {"decision_score": 0.75}
 
 QUESTIONS = {
-    "process_conformance": "Score how typical each step of this {label} journey is under the reference process.",
     "decision_score": (
         "Score whether each outcome decision in this {label} journey took a choice as good as the best one there. A "
         "choice clearly worse than another available one, such as giving up where going on was open, lowers the score."

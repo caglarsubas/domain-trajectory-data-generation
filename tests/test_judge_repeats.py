@@ -8,7 +8,7 @@ import pytest
 from app import runtime
 from app.evaluation import summarize
 from app.judge import InferenceEngineClient, JudgeUnavailable, RubricsUnsupported
-from app.judge_rubrics import CODE_RUBRICS, DECISION_SCORE, PROCESS_CONFORMANCE
+from app.judge_rubrics import CODE_RUBRICS, DECISION_SCORE
 from app.settings import SettingsError, load_settings
 from test_api import RecordingJudge, _auth, _link, _project, _ready_key, _run
 
@@ -45,11 +45,60 @@ def test_repeats_ask_the_engine_for_n_verdicts_above_temperature_zero():
         return httpx.Response(200, json={"judge_model": PRIMARY, "verdict": verdicts[0], "verdicts": verdicts, "rubric_digest": "sha256:abc", "duration_ms": 9})
 
     client = _client(handler)
-    result = client.run_eval(rubric="process_conformance", prompt="p", response="r", repeats=3, temperature=0.7)
+    result = client.run_eval(rubric="decision_score", prompt="p", response="r", repeats=3, temperature=0.7)
     assert seen["body"]["n"] == 3 and seen["body"]["temperature"] == 0.7 and seen["body"]["seed"] == 0
     assert [item["score"] for item in result["verdicts"]] == [1.0, 0.0, 0.75]
     assert [item["readable"] for item in result["verdicts"]] == [True, False, True]
     assert result["score"] == 1.0 and result["rubric_digest"] == "sha256:abc"
+    client.close()
+
+
+EMPTY = {"score": 0.0, "parsed": {}, "raw": "{\n}", "parse_status": "failed"}
+
+
+def _retrying(second):
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        if len(bodies) == 1:
+            verdicts = [_engine_verdict(1.0), EMPTY, _engine_verdict(0.75)]
+            return httpx.Response(200, json={"judge_model": PRIMARY, "verdict": verdicts[0], "verdicts": verdicts, "duration_ms": 9})
+        return httpx.Response(200, json={"judge_model": PRIMARY, "verdict": second, "duration_ms": 3})
+
+    return bodies, _client(handler)
+
+
+def test_an_empty_repeat_is_asked_again_once_on_a_seed_no_repeat_used():
+    bodies, client = _retrying(_engine_verdict(0.5))
+    result = client.run_eval(rubric="pairwise_quality", prompt="p", response="a", response_b="b", repeats=3, temperature=0.7)
+    assert len(bodies) == 2
+    retry = bodies[1]
+    assert "n" not in retry and retry["seed"] == 4 and retry["temperature"] == 0.7 and retry["response_b"] == "b"
+    assert [item["score"] for item in result["verdicts"]] == [1.0, 0.5, 0.75]
+    assert [item.get("retried", False) for item in result["verdicts"]] == [False, True, False]
+    assert all(item["readable"] for item in result["verdicts"])
+    client.close()
+
+
+def test_a_retry_that_is_still_empty_leaves_the_repeat_unreadable():
+    bodies, client = _retrying(EMPTY)
+    result = client.run_eval(rubric="pairwise_quality", prompt="p", response="a", response_b="b", repeats=3, temperature=0.7)
+    assert len(bodies) == 2
+    assert [item["readable"] for item in result["verdicts"]] == [True, False, True]
+    client.close()
+
+
+def test_a_single_call_is_not_retried():
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"judge_model": PRIMARY, "verdict": EMPTY, "duration_ms": 3})
+
+    client = _client(handler)
+    assert client.run_eval(rubric="decision_score", prompt="p", response="r")["readable"] is False
+    assert len(bodies) == 1
     client.close()
 
 
@@ -78,8 +127,8 @@ def test_registering_a_rubric_posts_its_definition_and_returns_the_digest():
         return httpx.Response(201, json={**seen["body"], "source": "tenant", "digest": "sha256:d1"})
 
     client = _client(handler)
-    assert client.register_rubric(PROCESS_CONFORMANCE) == {"name": "process_conformance", "digest": "sha256:d1"}
-    assert seen["path"] == "/v1/evals/rubrics" and seen["body"] == PROCESS_CONFORMANCE
+    assert client.register_rubric(DECISION_SCORE) == {"name": "decision_score", "digest": "sha256:d1"}
+    assert seen["path"] == "/v1/evals/rubrics" and seen["body"] == DECISION_SCORE
     assert seen["auth"] == "Bearer sk-tenant-secret"
     client.close()
 
@@ -156,7 +205,7 @@ class RepeatingJudge:
 
     def run_eval(self, *, rubric, judge_model=None, repeats=1, temperature=0.0, **payload):
         self.calls.append({"rubric": rubric, "model": judge_model, "repeats": repeats, "temperature": temperature, **payload})
-        base = {"helpfulness": 4, "correctness": 1, "safety": 1, "pairwise_quality": 1, "process_conformance": 1.0, "decision_score": 0.25}[rubric]
+        base = {"helpfulness": 4, "correctness": 1, "safety": 1, "pairwise_quality": 1, "decision_score": 0.25}[rubric]
         if rubric == "pairwise_quality" and payload["response"].split("\n")[0].endswith("alternative."):
             base = 0
         verdicts = []
@@ -187,29 +236,19 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
     assert body.status_code == 200, body.text
     cycle = body.json()["cycles"][0]
 
-    assert [item["name"] for item in judge.registered] == ["decision_score", "process_conformance"]
+    assert [item["name"] for item in judge.registered] == ["decision_score"]
     assert cycle["judging"] == {
         "repeats": 3,
         "temperature": 0.7,
-        "rubrics": {name: {"source": "tenant", "digest": f"sha256:{name}"} for name in ("decision_score", "process_conformance")},
+        "rubrics": {"decision_score": {"source": "tenant", "digest": "sha256:decision_score"}},
         "notes": [],
         "study": [],
     }
-    sampled = [call for call in judge.calls if call["rubric"] != "process_conformance"]
-    assert {call["repeats"] for call in sampled} == {3} and {call["temperature"] for call in sampled} == {0.7}
-    # Conformance is arithmetic on the shares the question gives: asked once, at temperature 0.
-    fixed = [call for call in judge.calls if call["rubric"] == "process_conformance"]
-    assert fixed and {call["repeats"] for call in fixed} == {1} and {call["temperature"] for call in fixed} == {0.0}
+    assert {call["repeats"] for call in judge.calls} == {3} and {call["temperature"] for call in judge.calls} == {0.7}
     asked = {call["rubric"] for call in judge.calls}
-    assert {"process_conformance", "decision_score"} <= asked
-    conformance = [call for call in judge.calls if call["rubric"] == "process_conformance"]
-    assert all("reference process" in call["prompt"] for call in conformance)
-    # Two journeys by two models, and any control a removed step makes, asked conformance too, once each.
-    originals = [item for item in cycle["verdicts"] if item["rubric"] == "process_conformance" and not item["control"]]
-    assert len(originals) == 2 * 2
-    # The judge reads the same next-step shares the code scores typicality with; the cycle keeps only the verdicts.
-    assert any("Reference next steps" in call["prompt"] and "%" in call["prompt"] for call in conformance)
-    assert all(set(entry["code"]["process_conformance"]) == {"score", "passed"} for entry in cycle["sample"])
+    # Process conformance is scored by code alone; the judge is never asked it.
+    assert "decision_score" in asked and "process_conformance" not in asked
+    assert all(set(entry["code"]["decision_score"]) == {"score", "passed"} for entry in cycle["sample"])
 
     # Every call is stored once per repeat, and the registered rubrics carry their digest.
     assert len(cycle["verdicts"]) == sum(call["repeats"] for call in judge.calls)
@@ -227,14 +266,11 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
 
     code = cycle["agreement"]["code"]
     sample = cycle["sample"]
-    passed = sum(entry["code"]["process_conformance"]["passed"] for entry in sample)
-    assert code["process_conformance"]["code"]["journeys"] == 2
-    assert code["process_conformance"]["models"][PRIMARY]["agree"] == passed
-    assert code["process_conformance"]["models"][PRIMARY]["mean"] == 1.0
+    assert set(code) == {"decision_score"} and len(sample) == 2
     decided = code["decision_score"]
     assert decided["judge_pass"] == 0.75 and decided["models"][PRIMARY]["mean"] == 0.25
     assert decided["models"][PRIMARY]["agree"] == 2 - decided["code"]["passed"]
-    assert "process_conformance" not in cycle["scores"] and "decision_score" not in cycle["scores"]
+    assert "decision_score" not in cycle["scores"]
     # The judge thinks every decision is poor, yet the comparison rubrics never decide acceptance.
     assert cycle["accepted"] is True
 
@@ -243,17 +279,17 @@ def test_an_unreadable_comparison_verdict_neither_blocks_acceptance_nor_reopens_
     class Unreadable(RepeatingJudge):
         def run_eval(self, *, rubric, **kwargs):
             result = super().run_eval(rubric=rubric, **kwargs)
-            if rubric == "process_conformance":
+            if rubric == "decision_score":
                 for item in result["verdicts"]:
                     item.update(readable=False, raw="")
                 result.update(result["verdicts"][0])
             return result
 
     headers, project_id, credential_id = _study(client, "unreadable-compared@example.com")
-    run = _run(client, headers, project_id, credential_id, target_trajectory_count=10, event_budget=None).json()
+    run = _run(client, headers, project_id, credential_id, target_trajectory_count=10, event_budget=None, signal_mechanism="decision_score").json()
     runtime.judge = Unreadable()
     cycle = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["cycles"][0]
-    assert ("unreadable", "process_conformance") in {(flag["kind"], flag["rubric"]) for flag in cycle["flags"]}
+    assert ("unreadable", "decision_score") in {(flag["kind"], flag["rubric"]) for flag in cycle["flags"]}
     assert cycle["accepted"] is True
     again = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={})
     assert again.status_code == 409 and "already read" in again.json()["detail"]
@@ -261,12 +297,12 @@ def test_an_unreadable_comparison_verdict_neither_blocks_acceptance_nor_reopens_
 
 def test_a_judge_without_a_registry_still_judges_and_says_what_it_skipped(client, two_journeys):
     headers, project_id, credential_id = _study(client, "no-registry@example.com")
-    run = _run(client, headers, project_id, credential_id, target_trajectory_count=10, event_budget=None).json()
+    run = _run(client, headers, project_id, credential_id, target_trajectory_count=10, event_budget=None, signal_mechanism="decision_score").json()
     runtime.judge = RecordingJudge()
     cycle = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["cycles"][0]
     assert {call["rubric"] for call in runtime.judge.calls} == {"helpfulness", "correctness", "safety", "pairwise_quality"}
     assert cycle["judging"]["rubrics"] == {}
-    assert cycle["judging"]["notes"] == ["This judge does not accept rubrics. The judge did not score process_conformance."]
+    assert cycle["judging"]["notes"] == ["This judge does not accept rubrics. The judge did not score decision_score."]
     assert cycle["agreement"]["code"] == {} and cycle["agreement"]["repeats"] == {}
 
 
@@ -289,12 +325,12 @@ def _v(tid, rubric, score, repeat, *, readable=True, order=None, model="judge"):
 
 
 def test_repeats_are_averaged_and_their_spread_reported():
-    sample = [{"trajectory_id": "T1", "code": {"process_conformance": {"score": 0.4, "passed": False}}}]
+    sample = [{"trajectory_id": "T1", "code": {"decision_score": {"score": 0.9, "passed": True}}}]
     verdicts = [
         _v("T1", "helpfulness", 5, 0), _v("T1", "helpfulness", 4, 1), _v("T1", "helpfulness", 0, 2, readable=False),
         _v("T1", "correctness", 1, 0), _v("T1", "correctness", 1, 1),
         _v("T1", "safety", 1, 0), _v("T1", "safety", 0, 1),
-        _v("T1", "process_conformance", 0.75, 0), _v("T1", "process_conformance", 0.25, 1),
+        _v("T1", "decision_score", 0.75, 0), _v("T1", "decision_score", 0.25, 1),
     ]
     result = summarize(verdicts, sample, ["judge"], {})
     assert result["scores"]["helpfulness"]["judge"] == 4.5
@@ -302,10 +338,10 @@ def test_repeats_are_averaged_and_their_spread_reported():
     repeats = result["agreement"]["repeats"]
     assert repeats["helpfulness"]["judge"] == {"calls": 1, "stable": 1, "rate": 1.0, "mean_spread": 0.2}
     assert repeats["safety"]["judge"]["stable"] == 0
-    code = result["agreement"]["code"]["process_conformance"]
-    # The judge's mean of 0.5 passes where the code's typicality of 0.4 fails.
-    assert code["models"]["judge"] == {"journeys": 1, "mean": 0.5, "agree": 0, "rate": 0.0, "mean_gap": 0.1}
-    assert {"kind": "code_disagrees", "trajectory_id": "T1", "rubric": "process_conformance", "model": "judge"} in result["flags"]
+    code = result["agreement"]["code"]["decision_score"]
+    # The judge's mean of 0.5 fails its 0.75 bar where the code's 0.9 passes.
+    assert code["models"]["judge"] == {"journeys": 1, "mean": 0.5, "agree": 0, "rate": 0.0, "mean_gap": 0.4}
+    assert {"kind": "code_disagrees", "trajectory_id": "T1", "rubric": "decision_score", "model": "judge"} in result["flags"]
     assert result["accepted"] is False
 
 
