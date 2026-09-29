@@ -43,6 +43,8 @@ function explain(flag, names) {
       return `${flag.model} scored journeys with a known defect no lower than their originals on ${label(flag.rubric, names)}, so its scores there cannot tell a flawed journey from a sound one.`;
     case "code_disagrees":
       return `${flag.model} and the code scorer disagree on ${label(flag.rubric, names)}.`;
+    case "distinguishable":
+      return `${flag.model} told generated journeys from real ones in three of four comparisons or more.`;
     case "did_not_decide":
       return `${label(flag.rubric, names)} did not decide acceptance: ${flag.model} could not tell its controls from their originals.`;
     case "same_model":
@@ -138,6 +140,7 @@ export default function JudgePanel({ cycle, onPick }) {
   const pairwiseControl = cycle.agreement?.pairwise_control || {};
   const controlled = Object.keys(discrimination).length > 0 || Object.keys(pairwiseControl).length > 0;
   const faithfulness = cycle.agreement?.faithfulness;
+  const realism = cycle.agreement?.realism;
   const deciding = cycle.agreement?.deciding;
   const sameModel = cycle.agreement?.same_model || [];
   const reverted = (faithfulness?.rows || []).filter((row) => row.revert);
@@ -290,6 +293,33 @@ export default function JudgePanel({ cycle, onPick }) {
           </table>
         </>
       ) : null}
+      {realism && Object.keys(realism.models || {}).length ? (
+        <>
+          <p className="lede">
+            Each sampled journey was set against a real case from {realism.sources.join(", ")}, blind and in both orders, both shown only as
+            the steps the data records and the time since the first. A judge that picks the real case about half the time cannot tell them
+            apart; this decides nothing.
+          </p>
+          <table className="target-table">
+            <thead>
+              <tr>
+                <th>Generated against real</th>
+                <th>Picked the real case</th>
+                <th>What gave it away</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(realism.models).map(([model, row]) => (
+                <tr key={model}>
+                  <td>{model}</td>
+                  <td>{`${Math.round(row.picked_real * 100)}% of ${row.calls}`}{row.distinguishable ? " · can tell" : ""}</td>
+                  <td>{(row.reasons || []).slice(0, 2).join(" ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
       {faithfulness?.turns ? (
         <>
           <p className="lede">
@@ -352,7 +382,7 @@ export default function JudgePanel({ cycle, onPick }) {
           {flags.map((flag) => (
             <li key={`${flag.kind}|${flag.model}|${flag.rubric}`} data-kind={flag.kind}>
               {explain(flag, names)}
-              {!["likely_false_positive", "blind_to_defect", "unfaithful_turn", "did_not_decide", "same_model"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
+              {!["likely_false_positive", "blind_to_defect", "unfaithful_turn", "did_not_decide", "same_model", "distinguishable"].includes(flag.kind) ? ` ${flag.journeys.size} ${flag.journeys.size === 1 ? "journey" : "journeys"}.` : ""}
             </li>
           ))}
         </ul>

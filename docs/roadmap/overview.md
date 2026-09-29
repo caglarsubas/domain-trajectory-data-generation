@@ -102,10 +102,10 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 to 15. The suite has 418 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
+All eight slices of the first plan have shipped, and so have Slices 8 to 16. The suite has 425 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
 
 The review of 29 September, against `74ae828`, found that what remains is what the judge can add, and whether the studio's own stack can reach it:
-- **The judges compare well and score badly.** Live, as in Slice 14, no judge caught a missing step on any rubric that scores a journey on its own, so the run stood on the code's checks, as decision 18 intends; both judges caught every reversed journey and answered every pairwise question with a right answer correctly. Slice 16 puts that to use: where a study has real journeys, a cycle asks the judges to tell a generated journey from a real one, and reports how often they can.
+- **The judges compare well and score badly.** Live, as in Slice 14, no judge caught a missing step on any rubric that scores a journey on its own, so the run stood on the code's checks, as decision 18 intends; both judges caught every reversed journey and answered every pairwise question with a right answer correctly. Slice 16, now delivered, puts that to use: where a study has real journeys, a cycle asks the judges to tell a generated journey from a real one. Live on hotel runs, both picked the real case in 62% to 67% of comparisons, calibrated or not, and their reasons showed they judge by their own expectations, calling lead times of 222 to 298 days improbable though 17% of the data's bookings are made 200 days or more ahead.
 - **The studio's stack cannot reach the judge.** Its `.env` has pointed at a dead ngrok tunnel through three reviews, and the studio says so only when a cycle fails. Slice 17 checks the judge before a cycle and points the stack at the host's engine by default.
 
 ## Roadmap
@@ -150,7 +150,7 @@ Approved on 29 September 2026 (detail in [next-slice.md](next-slice.md)):
 
 | Slice | Goal | Exit criterion |
 |---|---|---|
-| 16. A judge that can tell ours from theirs | Where a study has real journeys, generated and real ones set side by side, blind and in both orders, as event types and relative times; how often each judge picks the real one, with its reasons, reported and never deciding | A live cycle reports each judge's rate of picking the real case, with reasons, for a hotel run calibrated from the catalogue and for the same run uncalibrated |
+| 16. A judge that can tell ours from theirs (delivered) | Where a study has real journeys, generated and real ones set side by side, blind and in both orders, as event types and relative times; how often each judge picks the real one, with its reasons, reported and never deciding | A live cycle reports each judge's rate of picking the real case, with reasons, for a hotel run calibrated from the catalogue and for the same run uncalibrated |
 | 17. A judge the stack can reach | The study page checks the engine, its rubric registry, and the judge models before a cycle, warns when the last cycle found one model behind both judges, and the stack points at the host's engine by default | With the engine unreachable the studio says so before a cycle, and with the address pointed at the host's engine a cycle from the Compose stack succeeds |
 
 ### Slice 0. Rotate credentials and fix the judge wiring

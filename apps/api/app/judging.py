@@ -133,6 +133,30 @@ def register(judge, definition: dict, db: Session) -> str:
         return judge.register_rubric(definition)["digest"]
 
 
+def real_cases(db: Session, run: Run) -> dict | None:
+    """Real cases from the study's own data sources, for the judge to set against generated journeys (decision 22).
+
+    Each source kept a sample at calibration, as event types and hours since each case began. Generated journeys are
+    shown cut to the events those sources record, and a step no sampled case ever times is shown untimed on both sides.
+    """
+    from sectors.calibration import Calibration
+
+    items = list(db.scalars(select(CorpusItem).where(CorpusItem.project_id == run.project_id, CorpusItem.kind == "data_source")))
+    cases, visible, sources = [], set(), []
+    for item in items:
+        found = item.calibration or {}
+        if found.get("status") != "ready" or not found.get("real_cases") or not found.get("calibration"):
+            continue
+        cases.extend(found["real_cases"])
+        visible |= Calibration.from_dict(found["calibration"]).observed_events
+        sources.append(item.name)
+    if not cases:
+        return None
+    timed = {event for case in cases for event, hours in case if hours is not None}
+    untimed = sorted({event for case in cases for event, _ in case} - timed)
+    return {"cases": cases, "visible": sorted(visible), "untimed": untimed, "sources": sources}
+
+
 def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     """Judge a sample of the run's journeys, record the cycle and its verdicts, and return the cycle."""
     if run.cycle_count >= int(run.config["max_cycles"]):
@@ -215,6 +239,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 study=study,
                 controls=build_controls(journeys, sector, run.config),
                 faithfulness=faithful,
+                realism=real_cases(db, run),
             )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc

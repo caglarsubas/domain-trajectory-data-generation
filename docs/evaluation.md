@@ -72,6 +72,14 @@ The cycle also records which model served each named judge (`agreement.served_by
 
 The studio's questions name what to look for: helpfulness asks about skipped steps, events out of order, and waits far past a step's usual time, and is told each step's usual wait after the one before, from the pack's reference process, so it can see such a wait; it says a journey that ends in a failure is as representative as one that succeeds; correctness asks about a step that comes before what it depends on; the decision score asks about a choice clearly worse than another open one.
 
+## Generated against real: can the judges tell?
+
+Asked to score a journey on its own, the judges miss defects they catch every time when asked which of two journeys is sounder. So where a study has real journeys, each cycle also asks them to tell a generated journey from a real one (decision 22). A data source whose cases are journeys, an uploaded event log or the hotel and BTS catalogue sources, keeps a sample at calibration: up to 24 cases (`REAL_CASES`), drawn evenly with a fixed seed, as event types and hours since each case began and nothing else. They stay on the data source, are never returned by the API, and never reach an export.
+
+Each sampled journey is set against one of those cases, blind and in both orders, asked once at temperature 0. Both are drawn alike (`render_steps`): the steps in order, each with the time since the first, and the generated journey cut to the events the study's sources record, timed from the first of them, so neither a step the data cannot see nor a time it never records gives the generated one away. The question says one was recorded from a real customer and asks for it, with a reason under 40 words.
+
+The cycle's `agreement.realism` gives the sources, how many real cases they hold, and per judge how many verdicts it gave, how often it picked the real case (a tie counting half), and the reasons it gave. A judge that picks the real case in three of four or more is flagged `distinguishable`. Like the controls, the comparison decides nothing (decision 23): its verdicts carry `control: realism` and stay out of the journeys' scores and the controls' discrimination.
+
 ## Written turns: faithful to their facts?
 
 Provider-written turns pass code checks for their events, amounts, identifiers, and language, and can still change what happened: live, a Turkish turn for a declined guarantee said the reservation was cancelled. So when a run has written turns, each cycle also reads a sample of them (`JUDGE_TEXT_SAMPLE`, 6 by default, at most 50; 0 reads none), taken in a seeded order, one per sequence before a second from any (`apps/api/app/faithfulness.py`). A large run is read batch by batch until the sample has enough candidates.

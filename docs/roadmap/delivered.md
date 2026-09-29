@@ -420,3 +420,9 @@ https://github.com/caglarsubas/domain-trajectory-data-generation/pull/68
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/69
 
 Slice 15's second and third tasks; #66 shipped the first. Each pack offers its events with their sub-domains and meanings, and an example log of its own journeys as `case_id`, `activity`, and `timestamp`, and an activity named exactly as a pack event maps to itself. Each calibration carries a preview from 600 journeys with and without it: the steps it moves most, the events the data cannot see, and a new weighted divergence that counts each event by how often the run leaves it. A telecommunications log written from the template, from a process far from the pack's priors, calibrates a run to a next-step divergence of 0.082, and the preview's shares are within 0.06 of the run's; the weighted divergence, 0.014 against 0.024 uncalibrated, is the one that tells the two apart.
+
+## 70. Review the roadmap after Slices 14 and 15 and approve Slices 16 and 17
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/70
+
+Docs only. Against `74ae828` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `5de8b85`. A live cycle with `qwen3.6:27b` and `gemma4:26b` found, as in Slice 14, that no judge caught a missing step on any rubric that scores a journey on its own, so the run stood on the code's checks, while both caught every reversed journey and answered every pairwise question with a right answer correctly. The studio's `.env` still points the judge at a dead tunnel. Slices 16 (a judge that can tell ours from theirs) and 17 (a judge the stack can reach) were approved with decisions 22 to 24.
