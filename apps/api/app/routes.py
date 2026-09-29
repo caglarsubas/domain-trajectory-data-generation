@@ -38,7 +38,7 @@ from app.schemas import (
     RunBody,
     StudyRubricEdit,
 )
-from app import runtime, study_rubrics
+from app import judge_status, runtime, study_rubrics
 from app.security import decrypt_secret, encrypt_secret, fingerprint, hash_password, issue_token, read_token, verify_password
 from sectors.journeys import STUDIO_TRAJECTORY_CAP
 from sectors.registry import get_sector
@@ -794,6 +794,8 @@ def regenerate(run_id: str, body: RegenerateBody, account: AccountDep, db: Db, c
     if any(item not in known for item in feedback_ids):
         raise HTTPException(status_code=422, detail="feedback does not belong to the parent run")
     config = {**parent.config, "regeneration": {"from_run": parent.id, "round": current + 1, "revision_notes": list(cycle.revision_notes or [])}}
+    # The child is judged as soon as it is generated, so a judge that cannot answer refuses the regeneration too.
+    judge_status.require_ready(cfg)
     _require_run_quota(db, account, cfg, config)
     quotas.require_daily(db, account, cfg, "judge_cycles")
     child = Run(
@@ -888,6 +890,7 @@ def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: 
             status_code=409,
             detail="The judge has already read this run. Regenerate from its notes instead of judging the same journeys again.",
         )
+    judge_status.require_ready(cfg)
     if body.candidate is not None:
         TrajectoryBundle.model_validate(body.candidate)
         run.candidate = body.candidate
@@ -897,6 +900,16 @@ def evaluate(run_id: str, body: EvaluateBody, account: AccountDep, db: Db, cfg: 
     _raise_if_refused(db, job)
     db.refresh(run)
     return run_out(run, db)
+
+
+@router.get("/projects/{project_id}/judge")
+def study_judge(project_id: str, account: AccountDep, db: Db, cfg: Cfg, fresh: bool = False) -> dict:
+    """Whether the judge can run for this study, and whether its last cycle's two judges were served by one model."""
+    project = require_project(db, project_id, account)
+    found = {**judge_status.status(cfg, fresh=fresh), "last_cycle": judge_status.last_cycle(db, project.id, cfg)}
+    if account.kind == "admin":
+        found["address"] = judge_status.address(cfg)
+    return found
 
 
 @router.post("/runs/{run_id}/rubric-proposals")
@@ -909,6 +922,7 @@ def propose_rubrics(run_id: str, account: AccountDep, db: Db, cfg: Cfg) -> dict:
     ).first()
     if busy is not None:
         raise HTTPException(status_code=409, detail="The judge is already proposing rubrics for this study.")
+    judge_status.require_ready(cfg)
     quotas.require_daily(db, account, cfg, "rubric_proposals")
     job = jobs.enqueue(db, kind="propose_rubrics", owner_id=account.id, run_id=run.id, project_id=run.project_id, payload={})
     _raise_if_refused(db, job)

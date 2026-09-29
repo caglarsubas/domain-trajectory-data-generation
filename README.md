@@ -17,6 +17,7 @@ A studio for configuring trajectory runs, inspecting generated journeys, leaving
 python3 -m pip install -e ".[dev]"
 cp .env.example .env
 # Fill CREDENTIAL_MASTER_KEY, JWT_SECRET, and the inference-engine values.
+# Outside Compose, an engine on this machine is INFERENCE_ENGINE_BASE_URL=http://127.0.0.1:8080.
 # Do not commit .env.
 
 export DATABASE_URL=sqlite:///./data/traj.db
@@ -40,7 +41,7 @@ GitHub Actions runs the Python suite and the studio build on every pull request 
 
 The studio calls the API through its own server, so sign-in works when the page is opened on a host other than localhost. Set `NEXT_PUBLIC_API_URL` only when the browser should call the API directly.
 
-Compose fills local defaults when these are unset or empty in `.env`: `CREDENTIAL_MASTER_KEY`, `JWT_SECRET`, `ADMIN_EMAIL` (`admin@example.com`), and `ADMIN_PASSWORD` (`choose-a-password-123`). Put a real inference-engine key in `.env` when you want the judge to run. Do not commit `.env`.
+Compose fills local defaults when these are unset or empty in `.env`: `CREDENTIAL_MASTER_KEY`, `JWT_SECRET`, `ADMIN_EMAIL` (`admin@example.com`), and `ADMIN_PASSWORD` (`choose-a-password-123`). The judge's engine is expected on the host: when `.env` leaves `INFERENCE_ENGINE_BASE_URL` empty, Compose points the API and the worker at `llm_inference_engine` on the host's port 8080 as `http://host.docker.internal:8080`, a name Docker Desktop resolves and Compose maps to the host on Linux. To use an engine elsewhere, set its origin there, such as `https://engine.example.com`. Put the engine's platform key in `INFERENCE_ENGINE_API_KEY` when you want the judge to run. Do not commit `.env`.
 
 ```bash
 docker compose up --build
@@ -192,7 +193,7 @@ A run the judge has read is not judged again; only a cycle with an unreadable pr
 
 Export follows the judge. An accepted run exports as it is; any other needs `allow_unaccepted=true` on the part or in the export job's body, and its manifest records `review.exported_without_acceptance` and a known limitation. A large run keeps an unaccepted export apart from an accepted one.
 
-The engine judges at temperature 0, so asking one model the same question twice returns the same verdict; repeats wait on the engine, as do study-specific rubrics.
+The judge is checked before a cycle (decision 24). `GET /projects/{id}/judge` asks the engine's health route, its rubric registry, and its model list, and says whether each answered and whether the judge models are among the ones listed, naming what failed and why. The run page shows the answers above the judge button; when one failed, the button is disabled with the reason, and a cycle, a regeneration, or a rubric proposal requested anyway is refused with 503 and the same reason, with no job queued. A passing check is kept for a minute and a failing one for ten seconds; Check again asks afresh. An offline tunnel, which answers every path with 404, is told from an engine. The engine does not say which models it serves for one another, so the page also says, before the next cycle, when the study's last cycle found one model answering for both judges and the judge models have not changed since. The admin also sees the address checked, without credentials.
 
 ## Accounts
 

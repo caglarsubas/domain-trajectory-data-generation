@@ -1,6 +1,6 @@
-# Next slice: a judge the stack can reach
+# Next slice: a roadmap review
 
-Status: approved on 29 September 2026, together with the queued Slice 17 and decisions 22 to 24 in the [overview](overview.md#decisions), all as recommended. Slices 14 and 15, approved on 28 September, have shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: approved on 29 September 2026, together with the queued Slice 17 and decisions 22 to 24 in the [overview](overview.md#decisions), all as recommended; both slices have shipped, so a review comes next. Slices 14 and 15, approved on 28 September, shipped before them; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
 Branch off `main` at `74ae828`.
 
@@ -33,14 +33,6 @@ The data now meets every clause it is measured against; what remains is what the
 - **The studio's own stack still cannot reach the judge.** `.env` points `INFERENCE_ENGINE_BASE_URL` at an ngrok tunnel that has answered 404 through three reviews, and the studio says so only when a cycle fails. The engine runs on the host at port 8080.
 - **Calibration follows the data wherever there is data.** Airline and hotel runs as Slice 13 measured; banking from BPI 2017 after #66 approves 50% to 52%, declines 11%, and abandons 36% to 38% of submitted applications, against 49%, 13%, and 37%; telecommunications and insurance calibrate from a team's own log, mapped whole from the template, with a preview (#69).
 
-## Next: Slice 17, a judge the stack can reach
-
-1. **The judge checked before a cycle** (decision 24). The study page shows whether the engine answers, whether its rubric registry does, and whether both judge models are among the ones it lists, and the judge button says why it cannot run instead of queuing a cycle that will fail.
-2. **One model, said before.** When the last cycle found both judges served by one model, the study page says so before the next.
-3. **A host engine by default.** `.env.example`, Compose, and the README point the stack at an engine on the host, `http://host.docker.internal:8080`, and say how to point it elsewhere.
-
-Exit: with the engine unreachable, the studio says so before a cycle; with the address pointed at the host's engine, a cycle from the Compose stack succeeds.
-
 ## Delivered: Slice 16, a judge that can tell ours from theirs
 
 Delivered in one pull request covering tasks 1 to 3, and the exit criterion is met.
@@ -59,6 +51,18 @@ Live on the local engine, two full cycles on hotel runs over booking, changes an
 | Uncalibrated | 66.7% of 6 | 66.7% of 6 |
 
 Neither judge could tell generated from real in three comparisons of four, and at six to eight comparisons the difference between the runs is noise. Their reasons say what they go by: their own expectations more than the data. Both called gaps of 222 to 298 days between confirming a reservation and arriving highly improbable, though 17% of the data's 119,390 bookings are made 200 days or more ahead, and `gemma4:26b` took several steps at one moment for a sign of generation. The measure reports what a judge believes about the domain, which is sometimes not what the data shows. Correctness decided acceptance in both cycles, since the primary judge saw its controls.
+
+## Delivered: Slice 17, a judge the stack can reach
+
+Delivered in one pull request covering tasks 1 to 3, and the exit criterion is met.
+
+1. **The judge checked before a cycle** (decision 24). The study page shows whether the engine answers, whether its rubric registry does, and whether both judge models are among the ones it lists, and the judge button says why it cannot run instead of queuing a cycle that will fail.
+2. **One model, said before.** When the last cycle found both judges served by one model, the study page says so before the next.
+3. **A host engine by default.** `.env.example`, Compose, and the README point the stack at an engine on the host, `http://host.docker.internal:8080`, and say how to point it elsewhere.
+
+Exit: with the engine unreachable, the studio says so before a cycle; with the address pointed at the host's engine, a cycle from the Compose stack succeeds.
+
+Live, from a Compose stack built from this branch beside the running one, with only the platform key set: the check found engine 0.1.13 ready, 6 rubrics, and `qwen3.6:27b` and `gemma4:26b` listed, and a cycle on a cold banking run, two sampled journeys, finished in 5 minutes 21 seconds with 80 verdicts, 1 unreadable, each judge served by its own model. Neither judge saw enough of its controls to decide, so the run was accepted on the code's checks and safety (decision 18). With the API pointed at a port where no engine listens, the run page said "The judge cannot run", named the engine as unanswered and left the other two questions unasked, and disabled the judge button; the API refused the cycle with 503 and queued no job. Check again, after the address was restored, found the judge ready. By the time of the check, the studio's own `.env` already pointed at the host's engine.
 
 ## Out of scope
 

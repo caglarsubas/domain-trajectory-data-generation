@@ -426,3 +426,9 @@ Slice 15's second and third tasks; #66 shipped the first. Each pack offers its e
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/70
 
 Docs only. Against `74ae828` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `5de8b85`. A live cycle with `qwen3.6:27b` and `gemma4:26b` found, as in Slice 14, that no judge caught a missing step on any rubric that scores a journey on its own, so the run stood on the code's checks, while both caught every reversed journey and answered every pairwise question with a right answer correctly. The studio's `.env` still points the judge at a dead tunnel. Slices 16 (a judge that can tell ours from theirs) and 17 (a judge the stack can reach) were approved with decisions 22 to 24.
+
+## 71. Set generated journeys against real cases from the study's data and report whether each judge can tell them apart, completing Slice 16
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/71
+
+Slice 16, in one pull request. Calibration keeps a seeded sample of up to 24 real cases from an uploaded log or the hotel and BTS catalogue sources, as event types and hours since the case began, and never returns or exports it. Each cycle sets every sampled journey against one, blind and in both orders, both drawn in the same form, and reports each judge's rate of picking the real case and its reasons, flagging `distinguishable` at three in four; the comparison decides nothing (decisions 22 and 23). On two hotel runs, calibrated and uncalibrated, both `qwen3.6:27b` and `gemma4:26b` picked the real case 62.5% and 66.7% of the time, so neither could tell, and their reasons followed their own expectations more than the data: both called booking 222 to 298 days ahead improbable, though 17% of the data's bookings are made 200 days or more ahead.

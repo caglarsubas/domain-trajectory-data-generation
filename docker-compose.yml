@@ -28,7 +28,8 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-choose-a-password-123}
       UPLOAD_DIR: /app/data/uploads
-      INFERENCE_ENGINE_BASE_URL: ${INFERENCE_ENGINE_BASE_URL:-}
+      # An engine on the host by default; set INFERENCE_ENGINE_BASE_URL in .env to point elsewhere.
+      INFERENCE_ENGINE_BASE_URL: ${INFERENCE_ENGINE_BASE_URL:-http://host.docker.internal:8080}
       INFERENCE_ENGINE_API_KEY: ${INFERENCE_ENGINE_API_KEY:-}
       INFERENCE_ENGINE_TENANT: ${INFERENCE_ENGINE_TENANT:-domain-trajectory-data-generation}
       INFERENCE_ENGINE_ORG_ID: ${INFERENCE_ENGINE_ORG_ID:-org-trajdata}
@@ -44,6 +45,9 @@ services:
       DEMO_JUDGE_CYCLES_PER_DAY: ${DEMO_JUDGE_CYCLES_PER_DAY:-10}
       DEMO_DEEP_SEARCHES_PER_DAY: ${DEMO_DEEP_SEARCHES_PER_DAY:-3}
       DEMO_MAX_PROVIDER_CALLS: ${DEMO_MAX_PROVIDER_CALLS:-100}
+    # Docker Desktop resolves host.docker.internal itself; on Linux this maps it to the host.
+    extra_hosts: &host-engine
+      - "host.docker.internal:host-gateway"
     ports:
       - "${API_HOST_PORT:-18000}:8000"
     volumes:
@@ -59,6 +63,7 @@ services:
       dockerfile: apps/api/Dockerfile
     command: ["python", "-m", "app.worker"]
     environment: *api-environment
+    extra_hosts: *host-engine
     volumes:
       - traj_uploads:/app/data/uploads
       - traj_runs:/app/data/runs
