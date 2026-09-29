@@ -25,7 +25,7 @@ from trajectory_contract.models import (
     TrajectoryBundle,
 )
 
-from sectors.calibration import Calibration, representativeness, steps_of, triples_of
+from sectors.calibration import Calibration, representativeness, steps_of, triples_of, waits_of
 from sectors.jurisdictions import Jurisdiction, get_jurisdiction
 from sectors.lifecycle import LifecycleSpec, Path, Walker, allowed_events, dwell
 from sectors import rewards
@@ -338,8 +338,13 @@ def generate_bundle(
         bundle.generation.decisions = summarize_decisions(bundle.decisions)
     if calibrated is not None:
         kinds = {event.event_id: event.event_type for event in bundle.events}
-        primaries = [[kinds[item] for item in trajectory.event_ids] for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
-        bundle.generation.quality["representative"] = representativeness(calibrated, steps_of(primaries), triples_of(primaries, calibrated.observed_events))
+        times = {event.event_id: event.event_time for event in bundle.events}
+        chosen = [trajectory for trajectory in bundle.trajectories if trajectory.parent_trajectory_id is None]
+        primaries = [[kinds[item] for item in trajectory.event_ids] for trajectory in chosen]
+        timed = [[(kinds[item], times[item]) for item in trajectory.event_ids] for trajectory in chosen]
+        bundle.generation.quality["representative"] = representativeness(
+            calibrated, steps_of(primaries), triples_of(primaries, calibrated.observed_events), waits_of(timed, calibrated)
+        )
     return bundle
 
 

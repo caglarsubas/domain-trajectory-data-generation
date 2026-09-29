@@ -3,8 +3,8 @@
 A calibration holds directly-follows counts between the pack's event types (after a data source's
 activities are mapped to them), the same counts after each pair of events, how journeys start and end, and
 duration quantiles per step. The walker blends the observed next-step shares with the pack's prior in
-proportion to how much data backs them, and dwell times follow the observed quantiles once enough steps
-were seen. The shares are taken after the last two events wherever at least PRIOR_STRENGTH observations back
+proportion to how much data backs them, and dwell times are drawn between the observed quantiles once enough
+steps were seen (decision 25). The shares are taken after the last two events wherever at least PRIOR_STRENGTH observations back
 them, and after the last event otherwise (decision 15), so an outcome that depends on the step before last,
 such as a delayed flight's arrival, follows the data. The pack's machines still decide what is legal:
 calibration only reweights legal choices.
@@ -24,6 +24,7 @@ import math
 import random
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime
 from functools import cached_property
 
 # Observations that weigh as much as the pack's prior; more data moves the walker further toward the data.
@@ -32,6 +33,12 @@ MIN_DWELL_SAMPLES = 5
 # Durations kept per step. Past this many, an even random sample stands for them all: files are often sorted, by hotel
 # and date or by case start, so the first ones would stand for one part of the data.
 MAX_DWELL_SAMPLES = 20000
+# Waits kept per timed step: every 5% of them, from the shortest to the longest.
+WAIT_LEVELS = 21
+# Generated waits are counted in bins of this width over log(1 + hours), so batches add up and quantiles stay within 2%.
+WAIT_BIN = 0.02
+# Fewer generated waits than this for a step say too little to set against the data.
+MIN_DRAWN_WAITS = 20
 START = "<start>"
 
 
@@ -55,8 +62,10 @@ class Calibration:
     pairs: dict[str, Counter] = field(default_factory=dict)
     starts: Counter = field(default_factory=Counter)
     ends: Counter = field(default_factory=Counter)
-    # "a>b": (median hours, 10th percentile, 90th percentile, samples)
-    dwell: dict[str, tuple[float, float, float, int]] = field(default_factory=dict)
+    # "a>b": (median hours, 10th percentile, 90th percentile, samples, the waits every 5% from shortest to longest, and the
+    # resolution the data records times at: 24 for dates, 1 for whole hours, 0 for finer). Calibrations stored before
+    # decision 25 hold the first four only.
+    dwell: dict[str, tuple] = field(default_factory=dict)
     cases: int = 0
     sources: list[str] = field(default_factory=list)
 
@@ -204,16 +213,30 @@ class Calibration:
         ]
 
     def dwell_hours(self, rng: random.Random, previous: str | None, event: str) -> float | None:
-        """Hours from the previous step to this one drawn around the observed quantiles, or None without enough data."""
+        """Hours from the previous step to this one, drawn between the data's own quantiles, or None without enough data.
+
+        A draw never leaves the range the data shows, so no wait piles up at a bound. Where the data records only dates or
+        hours, the draw is spread over the day or hour the recorded wait stands for (decision 25). A step whose median wait
+        is zero is one the data cannot time, and keeps the pack's range.
+        """
         if previous is None:
             return None
         found = self.dwell.get(f"{previous}>{event}")
         if not found or found[3] < MIN_DWELL_SAMPLES or found[0] <= 0:
             return None
-        median, low, high, _ = found
-        low, high = max(low, 1e-3), max(high, low * 1.01)
-        sigma = max(0.1, (math.log(high) - math.log(low)) / 2.563)
-        return min(high * 2, max(low / 2, rng.lognormvariate(math.log(median), sigma)))
+        if len(found) > 4 and found[4]:
+            levels = found[4]
+            points = [(index / (len(levels) - 1), value) for index, value in enumerate(levels)]
+            resolution = found[5] if len(found) > 5 else 0.0
+        else:
+            # Stored before decision 25 with three quantiles: each tail reaches as far past them as the median lies inside.
+            median, low, high = found[:3]
+            points = [(0.0, max(0.0, 2 * low - median)), (0.1, low), (0.5, median), (0.9, high), (1.0, high + (high - median))]
+            resolution = resolution_of(found[:3])
+        hours = _between(rng.random(), points)
+        if resolution:
+            hours = abs(hours + resolution * (rng.random() - 0.5))
+        return hours
 
     def projected(self, allowed, depth: int = 8) -> "Calibration":
         """The calibration seen from a run's scope: steps through events it leaves out are followed to the next event it keeps."""
@@ -277,14 +300,44 @@ def merge(calibrations: list[Calibration]) -> Calibration:
     return merged
 
 
-def quantiles(samples: list[float]) -> tuple[float, float, float, int]:
+def quantiles(samples: list[float], resolution: float = 0.0) -> tuple:
+    """A step's waits: the median, 10th and 90th percentiles, and count, then its waits every 5% from the shortest to the
+    longest, read between neighbouring samples so a few waits still give distinct levels, and the data's resolution."""
     ordered = sorted(samples)
     count = len(ordered)
 
     def at(share: float) -> float:
         return round(ordered[min(count - 1, int(share * (count - 1) + 0.5))], 4)
 
-    return at(0.5), at(0.1), at(0.9), count
+    def between(share: float) -> float:
+        place = share * (count - 1)
+        low = int(place)
+        high = min(low + 1, count - 1)
+        # Six significant figures: steps recorded a fraction of a second apart keep their waits.
+        return float(f"{ordered[low] + (place - low) * (ordered[high] - ordered[low]):.6g}")
+
+    levels = [between(index / (WAIT_LEVELS - 1)) for index in range(WAIT_LEVELS)]
+    return at(0.5), at(0.1), at(0.9), count, levels, resolution
+
+
+def resolution_of(values) -> float:
+    """The coarsest of a day or an hour that every wait is a whole number of, or 0 for finer times: a source that records
+    dates gives whole days. Waits that are all zero say nothing about it."""
+    nonzero = [value for value in values if value]
+    if not nonzero:
+        return 0.0
+    for size in (24.0, 1.0):
+        if all(abs(value / size - round(value / size)) < 1e-6 for value in nonzero):
+            return size
+    return 0.0
+
+
+def _between(share: float, points: list[tuple[float, float]]) -> float:
+    """The value at `share` on a line through (share, value) points in order."""
+    for (left, low), (right, high) in zip(points, points[1:]):
+        if share <= right:
+            return low + (share - left) / (right - left) * (high - low) if right > left else high
+    return points[-1][1]
 
 
 def build(sequences, *, source: str) -> Calibration:
@@ -319,7 +372,9 @@ def build(sequences, *, source: str) -> Calibration:
                     slot = rng.randrange(offered[key])
                     if slot < MAX_DWELL_SAMPLES:
                         bucket[slot] = bt - at
-    calibration.dwell = {key: quantiles(values) for key, values in samples.items() if values}
+    # A source's times share one resolution, so it is read over every step's waits at once.
+    resolution = resolution_of([value for values in samples.values() for value in values])
+    calibration.dwell = {key: quantiles(values, resolution) for key, values in samples.items() if values}
     return calibration
 
 
@@ -347,9 +402,100 @@ def triples_of(sequences: list[list[str]], visible: set[str] | None = None) -> C
     return generated
 
 
-def representativeness(calibration: Calibration, generated: Counter, triples: Counter | None = None) -> dict:
+def waits_of(journeys, calibration: Calibration) -> dict[str, dict[int, int]]:
+    """Each timed step's generated waits as a histogram over log(1 + hours), from journeys given as (event type, time) in
+    order. A wait is read as the data records it: between calendar dates where the data records dates, and between whole
+    hours where it records hours, so the two sides are compared alike. Histograms of several batches add up."""
+    found: dict[str, dict[int, int]] = {}
+    for steps in journeys:
+        for (a, at), (b, bt) in zip(steps, steps[1:]):
+            entry = calibration.dwell.get(f"{a}>{b}")
+            if a == b or entry is None:
+                continue
+            hours = _recorded(at, bt, entry[5] if len(entry) > 5 else resolution_of(entry[:3]))
+            bins = found.setdefault(f"{a}>{b}", {})
+            index = int(math.log1p(hours) / WAIT_BIN)
+            bins[index] = bins.get(index, 0) + 1
+    return found
+
+
+def add_waits(total: dict, more: dict) -> dict:
+    """Two histograms of waits as one; keys may have come back from JSON as strings."""
+    for key, bins in more.items():
+        into = total.setdefault(key, {})
+        for index, count in bins.items():
+            into[str(index)] = into.get(str(index), 0) + count
+    return total
+
+
+def _recorded(at: datetime, bt: datetime, resolution: float) -> float:
+    if resolution >= 24:
+        return max((bt.date() - at.date()).days, 0) * 24.0
+    if resolution >= 1:
+        floor = lambda moment: moment.replace(minute=0, second=0, microsecond=0)
+        return max((floor(bt) - floor(at)).total_seconds() / 3600, 0.0)
+    return max((bt - at).total_seconds() / 3600, 0.0)
+
+
+def _drawn_at(bins: dict, share: float) -> float:
+    """The wait at `share` of a histogram's draws, read at the middle of its bin."""
+    ordered = sorted((int(index), count) for index, count in bins.items())
+    total = sum(count for _, count in ordered)
+    seen = 0
+    for index, count in ordered:
+        seen += count
+        if seen >= share * total:
+            return math.expm1((index + 0.5) * WAIT_BIN)
+    return math.expm1((ordered[-1][0] + 0.5) * WAIT_BIN)
+
+
+def wait_fit(calibration: Calibration, waits: dict) -> dict | None:
+    """How each timed step's generated waits lie from the data's: the share above the data's 90th percentile, 10% when
+    they match, and the mean gap between their quantiles on a log scale, 0 when they match and 0.69 at twice or half. The
+    scale counts in the data's own unit, days where it records dates, so a day's difference near zero is not read as a
+    far larger gap than the data can show."""
+    rows = []
+    for key, entry in calibration.dwell.items():
+        bins = waits.get(key) or {}
+        drawn = sum(bins.values())
+        # A step the data cannot time keeps the pack's range, so its waits are not the data's to judge.
+        if entry[3] < MIN_DWELL_SAMPLES or entry[0] <= 0 or drawn < MIN_DRAWN_WAITS:
+            continue
+        if len(entry) > 4 and entry[4]:
+            levels = entry[4]
+            theirs = {index / (len(levels) - 1): value for index, value in enumerate(levels)}
+            theirs = {share: value for share, value in theirs.items() if 0 < share < 1}
+        else:
+            theirs = {0.1: entry[1], 0.5: entry[0], 0.9: entry[2]}
+        mine = {share: _drawn_at(bins, share) for share in theirs}
+        unit = (entry[5] if len(entry) > 5 else resolution_of(entry[:3])) or 1.0
+        threshold = int(math.log1p(entry[2]) / WAIT_BIN)
+        above = sum(count for index, count in bins.items() if int(index) > threshold) / drawn
+        rows.append({
+            "step": key,
+            "cases": entry[3],
+            "drawn": drawn,
+            "median_hours": [round(entry[0], 2), round(mine[min(mine, key=lambda share: abs(share - 0.5))], 2)],
+            "p90_hours": [round(entry[2], 2), round(mine[min(mine, key=lambda share: abs(share - 0.9))], 2)],
+            "above_p90": round(above, 3),
+            "distance": round(sum(abs(math.log1p(mine[share] / unit) - math.log1p(value / unit)) for share, value in theirs.items()) / len(theirs), 3),
+        })
+    if not rows:
+        return None
+    rows.sort(key=lambda row: (-row["distance"], row["step"]))
+    weight = sum(row["drawn"] for row in rows)
+    return {
+        "timed_steps": len(rows),
+        "distance": round(sum(row["distance"] * row["drawn"] for row in rows) / weight, 3),
+        "above_p90": round(sum(row["above_p90"] * row["drawn"] for row in rows) / weight, 3),
+        "steps": rows[:8],
+    }
+
+
+def representativeness(calibration: Calibration, generated: Counter, triples: Counter | None = None, waits: dict | None = None) -> dict:
     """How the generated journeys compare with the data: fitness, precision, the gap between next-step shares, and the
-    same gap after each pair of events, where a conditional outcome shows even when the next-step shares match."""
+    same gap after each pair of events, where a conditional outcome shows even when the next-step shares match; and, given
+    the generated waits, how far each timed step's waits lie from the data's (decision 25)."""
     real = Counter()
     for a, following in calibration.transitions.items():
         for b, count in following.items():
@@ -391,7 +537,8 @@ def representativeness(calibration: Calibration, generated: Counter, triples: Co
         "weighted_divergence": round(sum(gap * weight for gap, weight in zip(gaps, weights)) / sum(weights), 3) if gaps else None,
         "second_order_divergence": round(sum(second) / len(second), 3) if second else None,
         "covered_events": len(events & covered),
-        "explanation": "Among events both the data and the run contain: fitness is the share of observed steps the generated journeys also take, precision the share of generated steps the data shows, and divergence compares next-step shares, 0 when they match, after the last event and after the last two; the weighted divergence counts each event by how often the run leaves it.",
+        "waits": wait_fit(calibration, waits) if waits else None,
+        "explanation": "Among events both the data and the run contain: fitness is the share of observed steps the generated journeys also take, precision the share of generated steps the data shows, and divergence compares next-step shares, 0 when they match, after the last event and after the last two; the weighted divergence counts each event by how often the run leaves it. Waits compare each timed step with the data: the share above the data's 90th percentile, 10% when they match, and the distance between their quantiles on a log scale, 0 when they match and 0.69 at twice or half as long.",
     }
 
 

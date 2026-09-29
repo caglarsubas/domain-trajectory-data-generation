@@ -438,3 +438,9 @@ Slice 16, in one pull request. Calibration keeps a seeded sample of up to 24 rea
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/72
 
 Slice 17, in one pull request. Before a cycle, a regeneration, or a rubric proposal, the studio asks the engine's health route, its rubric registry, and its model list, and refuses with 503 and the reason instead of queuing a job that would fail; an offline tunnel is told from an engine. The run page shows the three answers above the judge buttons, disables them when one failed, and says before the next cycle when the study's last cycle found one model answering for both judges (decision 24). Compose, `.env.example`, and the README point at `http://host.docker.internal:8080`. From a Compose stack built from the branch, a cycle reached the host's engine and finished in 5 minutes 21 seconds with 80 verdicts; pointed at a port with no engine, the studio said so before a cycle and queued none.
+
+## 73. Review the roadmap after Slices 16 and 17 and approve Slices 18 and 19
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/73
+
+Docs only. Against `e00c382` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `74ae828`. Set against real hotel cases, both judges caught out-of-order journeys in 91% to 97% of comparisons but could not tell a calibrated run from an uncalibrated one, and part of what they read was the comparison's own: checkout outside the study's scope, and times finer than the data's whole days. Their reasons led to a defect in the data: calibrated waits came from a log-normal fitted to three quantiles and clamped at twice the 90th percentile, so their tails were two to four times too heavy and up to a third of a step's draws landed on one value. Slices 18 (waits as the data has them) and 19 (a fair realism comparison) were approved with decisions 25 and 26.

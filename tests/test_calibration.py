@@ -124,7 +124,8 @@ def test_a_calibration_reweights_legal_choices_and_times_steps():
     sequences = [[("a", 0.0), ("b", 2.0), ("c", 50.0)] for _ in range(90)] + [[("a", 0.0), ("d", 5.0)] for _ in range(10)]
     calibration = build(sequences, source="toy")
     assert calibration.cases == 100 and calibration.transitions["a"] == {"b": 90, "d": 10}
-    assert calibration.dwell["a>b"] == (2.0, 2.0, 2.0, 90)
+    # The median, 10th and 90th percentiles, and count, then the waits every 5% and the resolution: whole hours here.
+    assert calibration.dwell["a>b"] == (2.0, 2.0, 2.0, 90, [2.0] * 21, 1.0)
     blended = dict(calibration.reweight("a", [("b", 1.0), ("d", 1.0), ("c", 1.0), ("e", 1.0)]))
     # c is in the data but never follows a, so it gives way; e is nowhere in the data, so the data says nothing about it.
     assert blended["b"] > blended["d"] > blended["c"] > 0 and blended["e"] == 1.0
@@ -313,6 +314,11 @@ def test_a_large_calibrated_run_measures_representativeness_across_batches(clien
     # Each step after its two events is counted over every batch, so the second-order gap is measured for the whole run.
     assert representative["status"] == "measured" and 0.0 <= representative["second_order_divergence"] <= 1.0
     assert run["generation"]["calibration"]["second_order_contexts"] > 0
+    # The batches add up their waits too, and every step of this log takes the same time in every case.
+    assert representative["waits"]["timed_steps"] >= 1 and representative["waits"]["distance"] < 0.1
+    # The index lists the batches by their own names, so each journey opens.
+    first = client.get(f"/runs/{run['id']}/journeys?limit=1", headers=headers).json()["data"][0]["trajectory_id"]
+    assert client.get(f"/runs/{run['id']}/journeys/{first}", headers=headers).status_code == 200
 
 
 def test_a_catalogue_download_streams_under_the_guard_and_its_limit(tmp_path):
