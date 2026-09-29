@@ -1,12 +1,12 @@
-# Next slice: a roadmap review
+# Next slice: waits as the data has them
 
-Status: approved on 29 September 2026, together with the queued Slice 17 and decisions 22 to 24 in the [overview](overview.md#decisions), all as recommended; both slices have shipped, so a review comes next. Slices 14 and 15, approved on 28 September, shipped before them; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: approved on 29 September 2026, together with the queued Slice 19 and decisions 25 and 26 in the [overview](overview.md#decisions), all as recommended. Slices 16 and 17, approved on 29 September, have shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
-Branch off `main` at `74ae828`.
+Branch off `main` at `e00c382`.
 
 ## Why this comes next
 
-The review re-ran every gate against `74ae828`, and every pack passes all nine:
+The review re-ran every gate against `e00c382`, and every pack passes all nine, with the same measures as at `74ae828`:
 
 | Pack | Distinct sequences in 64 journeys | Distinct sentences, English and Turkish | Lowest sub-domain's accepted groups |
 |---|---|---|---|
@@ -16,53 +16,59 @@ The review re-ran every gate against `74ae828`, and every pack passes all nine:
 | Insurance | 43 | 53% | servicing, 32% |
 | Telecommunications | 51 | 56% | activation and porting, 27% |
 
-A 10,000-sequence banking run costs what it did at `5de8b85`: timed on the same machine, the two commits interleaved, 4.5 to 4.8 seconds plain against 4.6 to 5.1, and 6.9 to 7.2 with episodes, decision records, and the decision-score signal against 6.7 to 7.5. The full run costs about 1.5 times the plain one.
+A 10,000-sequence banking run costs what it did at `74ae828`. Timed on the same machine, the two commits interleaved, it took 4.6 to 5.0 seconds plain against 4.7 to 4.8, and 6.8 to 7.7 with episodes, decision records, and the decision-score signal against 7.1 to 7.5. CI passes on `main`, and no pull request is open. The studio's `.env` now points at the host's engine, so the Compose stack reaches the judge; the running stack predates #72 and needs `docker compose up -d --build` to show the judge check.
 
-The data now meets every clause it is measured against; what remains is what the judge can add, and whether the studio's own stack can reach it.
+This review asked whether the one measure where a judge compares, generated against real, says what it appears to say. The judges' reasons led to a defect in the data itself.
 
-- **The judges still cannot see a missing step by scoring, and now the run stands on the code, as decided.** A live cycle on the local `llm_inference_engine` asked `qwen3.6:27b` and `gemma4:26b` about three banking journeys, their 11 controls, and a pairwise control (140 verdicts, 1 unreadable after #68's retry, 8 minutes):
+- **The realism comparison detects a broken journey.** Live on the local engine, 16 hotel journeys per run, over booking, changes and cancellations, and arrival, were each set against a real case from the hotel booking demand data, in both orders, once at temperature 0 (192 verdicts, none unreadable, 7 minutes with the two judges in parallel). As a control, each calibrated journey was also shown out of order: its first recorded step moved to the end, its times kept.
 
-  | Rubric | `qwen3.6:27b`, primary | `gemma4:26b` |
+  | Hotel run | `qwen3.6:27b` picked the real case | `gemma4:26b` |
   |---|---|---|
-  | Helpfulness | 1 of 6 controls lower: does not decide | 1 of 6 |
-  | Correctness | 2 of 5 (reversed 2 of 2, missing step 0 of 3): does not decide | 3 of 6 (reversed 3 of 3) |
-  | Decision score | 1 of 2 | 0 of 2 |
-  | Pairwise: a journey against its flawed copy, both orders | picked the original 2 of 2 | 2 of 2 |
+  | Calibrated from the catalogue | 69% of 32 | 66% of 32 |
+  | Uncalibrated | 75% of 32 | 53% of 32 |
+  | Out of order, the control | 97% of 32 | 91% of 32 |
 
-  Neither deciding rubric saw its controls, so the run was accepted on the code's checks and safety, and the run page says the judges could not tell (decision 18). Across this cycle and Slice 14's, no judge caught a missing step on any rubric that scores a journey on its own, while both caught every reversed journey and answered every pairwise question with a right answer correctly. Asked to compare two journeys, the judges are reliable; asked to score one, they are not.
-- **The studio's own stack still cannot reach the judge.** `.env` points `INFERENCE_ENGINE_BASE_URL` at an ngrok tunnel that has answered 404 through three reviews, and the studio says so only when a cycle fails. The engine runs on the host at port 8080.
-- **Calibration follows the data wherever there is data.** Airline and hotel runs as Slice 13 measured; banking from BPI 2017 after #66 approves 50% to 52%, declines 11%, and abandons 36% to 38% of submitted applications, against 49%, 13%, and 37%; telecommunications and insurance calibrate from a team's own log, mapped whole from the template, with a preview (#69).
+  Both judges caught nearly every out-of-order journey, and kept their pick when the order was swapped in 94% and 81% of those pairs. On the other two runs they kept it in 50% to 81%, as a judge that cannot tell does. Between the calibrated and uncalibrated runs, the judges moved 6 and 13 points in opposite directions, within the noise of 32 comparisons: calibration made no difference they could see.
+- **Part of what the comparison reads is not the journey.** Where the judges picked the real case, their reasons, counted by keyword, cite three tells:
 
-## Delivered: Slice 16, a judge that can tell ours from theirs
+  | Tell the reason cites | Calibrated run | Uncalibrated run |
+  |---|---|---|
+  | The generated journey stops before checkout, or is incomplete | 11 of 43 | 21 of 41 |
+  | A gap of hundreds of days is improbable | 21 of 43 | 4 of 41 |
+  | Times too precise, or missing | 9 of 43 | 3 of 41 |
 
-Delivered in one pull request covering tasks 1 to 3, and the exit criterion is met.
+  The first and third are the comparison's own doing. 13 of the 24 real cases include checkout, but a run scoped to booking, changes, and arrival never reaches it, because real cases are cut to the events the data records and not to the study's scope. And the data records dates, so every real time is a whole number of days, while 90% to 95% of the generated times after the first step are not.
+- **The long gaps are the generator's.** In a calibrated hotel run, the walker draws 14% of the waits from booking to arrival at exactly 406 days, and 33% of the waits from booking to cancellation at exactly 334 days. Calibration keeps each step's wait as three quantiles, the 10th, 50th, and 90th percentiles. The walker draws from a log-normal fitted to them and clamps the draw at twice the 90th percentile. Where the data's waits are skewed, with many near zero, the fitted spread is wide, and the tail beyond the clamp lands on that one value:
 
-1. **Generated against real** (decision 22). Where a study has a data source whose cases are journeys, a cycle sets sampled generated journeys against real cases from that source, blind and in both orders, as event types and times since the case began only, both drawn in the same form. The judge picks the more realistic; a judge that picks the real case about half the time cannot tell them apart.
-2. **Reported, never deciding** (decision 23). The cycle reports, per judge, how often it picked the real case, a tie counting half, and the reasons it gave for its picks. A judge that picks the real case in three of four comparisons or more is flagged `distinguishable`, with its reasons on the run page; the comparison decides nothing.
-3. **Real cases stay the study's.** They are drawn at calibration from the study's own source, kept only as event types and relative times, sent only to the platform's judge, and never exported.
+  | Timed step | Data median | Data 90th percentile | Drawn above it (data: 10%) | Drawn at exactly twice it |
+  |---|---|---|---|---|
+  | Hotel: booking to cancellation | 25 days | 167 days | 38% | 33% |
+  | Hotel: booking to arrival | 42 days | 203 days | 22% | 14% |
+  | BPI 2017: KYC started to review required | 0.9 days | 5.0 days | 29% | 22% |
+  | BPI 2017: review required to approved | 3.7 days | 15.7 days | 23% | 13% |
 
-Exit: in a live cycle, each judge's rate of picking the real case, with its reasons, is reported for a hotel run calibrated from the catalogue and for the same run uncalibrated.
+  Medians match; the tails are two to four times too heavy. In BPI 2017, 14 of the 16 timed steps put 5% or more of their draws on the clamp, and 10 of them 10% or more. Nothing reported it, because representativeness measures next steps (fitness, precision, and next-step divergence), not waits.
 
-Live on the local engine, two full cycles on hotel runs over booking, changes and cancellations, and arrival, six sampled journeys each, set against 24 real cases from the hotel booking demand data (`qwen3.6:27b` and `gemma4:26b`, 248 and 244 verdicts, 18 and 14 minutes):
+So the waits of every calibrated run are less representative than the next steps it reports, and the realism comparison mixes that with tells of its own.
 
-| Hotel run | `qwen3.6:27b` picked the real case | `gemma4:26b` |
-|---|---|---|
-| Calibrated from the catalogue | 62.5% of 8 | 62.5% of 8 |
-| Uncalibrated | 66.7% of 6 | 66.7% of 6 |
+## Next: Slice 18, waits as the data has them
 
-Neither judge could tell generated from real in three comparisons of four, and at six to eight comparisons the difference between the runs is noise. Their reasons say what they go by: their own expectations more than the data. Both called gaps of 222 to 298 days between confirming a reservation and arriving highly improbable, though 17% of the data's 119,390 bookings are made 200 days or more ahead, and `gemma4:26b` took several steps at one moment for a sign of generation. The measure reports what a judge believes about the domain, which is sometimes not what the data shows. Correctness decided acceptance in both cycles, since the primary judge saw its controls.
+1. **Waits from the data's own distribution** (decision 25). Calibration keeps each timed step's waits as 21 quantiles, every 5% of its sample. The walker draws a wait by interpolating between them, so no wait falls outside the range the data shows, and none piles up on one value.
+2. **Stored calibrations without a spike.** A calibration stored with three quantiles draws within the range they span, with tails bounded by the data's own spread instead of clamped, until its source is calibrated again.
+3. **Waits measured.** Representativeness reports, for each timed step the data backs, how far the generated waits lie from the data's: the share above the data's 90th percentile, and a distance over the quantiles. The run page shows the steps furthest off.
 
-## Delivered: Slice 17, a judge the stack can reach
+Exit: in calibrated hotel and banking runs, no single wait holds more than 1% of a step's draws; every timed step the data backs with enough cases puts between 5% and 15% of its draws above the data's 90th percentile; and the quality report shows each step's distance.
 
-Delivered in one pull request covering tasks 1 to 3, and the exit criterion is met.
+## Queued: Slice 19, a fair realism comparison
 
-1. **The judge checked before a cycle** (decision 24). The study page shows whether the engine answers, whether its rubric registry does, and whether both judge models are among the ones it lists, and the judge button says why it cannot run instead of queuing a cycle that will fail.
-2. **One model, said before.** When the last cycle found both judges served by one model, the study page says so before the next.
-3. **A host engine by default.** `.env.example`, Compose, and the README point the stack at an engine on the host, `http://host.docker.internal:8080`, and say how to point it elsewhere.
+1. **The same scope on both sides** (decision 26). A real case is cut to the events of the study's own sub-domains before it is shown, as the generated journey is cut to the events the data records.
+2. **The same resolution on both sides.** Calibration records the resolution of a source's times, such as whole days for a source that records dates, and both sides are drawn at it.
+3. **A control for realism.** Each cycle also sets out-of-order copies of generated journeys against real cases. A judge that does not pick the real case over the control in three of four comparisons is flagged as blind to realism, and the run page does not read its rate as a finding.
+4. **Enough comparisons to read.** Realism draws its own sample of generated journeys, 16 by default, each set against a different real case, apart from the journeys the rubrics are asked about.
 
-Exit: with the engine unreachable, the studio says so before a cycle; with the address pointed at the host's engine, a cycle from the Compose stack succeeds.
+Exit: in live cycles on hotel runs scoped to booking, changes and cancellations, and arrival, calibrated and uncalibrated, each judge catches the out-of-order control in three of four comparisons or more; no reason cites a step outside the study's scope or a time finer than a day; and each judge's rate over 16 comparisons is reported for both runs.
 
-Live, from a Compose stack built from this branch beside the running one, with only the platform key set: the check found engine 0.1.13 ready, 6 rubrics, and `qwen3.6:27b` and `gemma4:26b` listed, and a cycle on a cold banking run, two sampled journeys, finished in 5 minutes 21 seconds with 80 verdicts, 1 unreadable, each judge served by its own model. Neither judge saw enough of its controls to decide, so the run was accepted on the code's checks and safety (decision 18). With the API pointed at a port where no engine listens, the run page said "The judge cannot run", named the engine as unanswered and left the other two questions unasked, and disabled the judge button; the API refused the cycle with 503 and queued no job. Check again, after the address was restored, found the judge ready. By the time of the check, the studio's own `.env` already pointed at the host's engine.
+Considered and not proposed: telling the judge what the data says, such as how far ahead bookings are made. The code already compares those statistics, and after Slice 18 it will compare waits too; putting them in the question would make the comparison less blind.
 
 ## Out of scope
 
