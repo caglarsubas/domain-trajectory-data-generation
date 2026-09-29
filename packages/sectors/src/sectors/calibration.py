@@ -365,11 +365,12 @@ def representativeness(calibration: Calibration, generated: Counter, triples: Co
         return {"status": "not_measured", "reason": "The data sources and the generated journeys share no steps."}
     fitness = sum(value for key, value in relevant.items() if key in generated) / sum(relevant.values())
     precision = sum(value for key, value in comparable.items() if key in real) / sum(comparable.values())
-    gaps = []
+    gaps, weights = [], []
     for a in {key[0] for key in generated} & {key[0] for key in real}:
         mine = {b: count for (x, b), count in generated.items() if x == a}
         theirs = {b: count for (x, b), count in real.items() if x == a}
         gaps.append(_jensen_shannon(mine, theirs))
+        weights.append(sum(mine.values()))
     second = []
     for key in {context for context, _ in triples or {}} & set(calibration.pairs):
         theirs = {name: count for name, count in calibration.pairs[key].items() if name in events}
@@ -385,9 +386,12 @@ def representativeness(calibration: Calibration, generated: Counter, triples: Co
         "fitness": round(fitness, 3),
         "precision": round(precision, 3),
         "next_step_divergence": round(sum(gaps) / len(gaps), 3) if gaps else None,
+        # The same gaps weighted by how often the run leaves each event: the plain mean lets a step taken twice count as
+        # much as one taken a thousand times, so at a few hundred journeys its sampling noise alone reaches 0.1.
+        "weighted_divergence": round(sum(gap * weight for gap, weight in zip(gaps, weights)) / sum(weights), 3) if gaps else None,
         "second_order_divergence": round(sum(second) / len(second), 3) if second else None,
         "covered_events": len(events & covered),
-        "explanation": "Among events both the data and the run contain: fitness is the share of observed steps the generated journeys also take, precision the share of generated steps the data shows, and divergence compares next-step shares, 0 when they match, after the last event and after the last two.",
+        "explanation": "Among events both the data and the run contain: fitness is the share of observed steps the generated journeys also take, precision the share of generated steps the data shows, and divergence compares next-step shares, 0 when they match, after the last event and after the last two; the weighted divergence counts each event by how often the run leaves it.",
     }
 
 

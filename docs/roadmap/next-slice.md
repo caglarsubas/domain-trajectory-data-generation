@@ -1,4 +1,4 @@
-# Next slice: calibration people can bring
+# Next slice: a roadmap review
 
 Status: approved on 28 September 2026, together with the queued Slice 15 and decisions 18 to 21 in the [overview](overview.md#decisions), all as recommended. Slices 11 to 13, approved on 28 September, have all shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
@@ -39,14 +39,6 @@ The findings are about whether the judge's acceptance means anything, and about 
 
 Outside the code, the studio's `.env` still points the judge at an ngrok tunnel that answers 404; the engine runs on the host at port 8080, which the Compose stack reaches as `http://host.docker.internal:8080`.
 
-## Next: Slice 15, calibration people can bring
-
-1. **Banking's passed check.** Map a BPI activity to `kyc.passed`, or read the decision after a passed check from the shares the data backs there, so banking declines land within 5 points of the data's 13% while approvals and abandonment stay within 5 of theirs.
-2. **A template per pack** (decision 21). The studio offers, for each pack, a CSV template of its events with a short example log, so a telecommunications or insurance team can export its own journeys in a shape the mapper reads without guessing.
-3. **A preview before a run.** After a log is mapped, the data source shows what calibration would change: for the steps it moves most, the pack's share against the data's, and the events the data cannot see.
-
-Exit: banking calibrated from BPI 2017 declines within 5 points of 13%; a telecommunications log written from the template calibrates a run to a next-step divergence under 0.1; the preview matches the calibrated run's shares.
-
 ## Delivered: Slice 14, acceptance the judges can earn
 
 Delivered in one pull request covering tasks 1 to 4, and the exit criteria are met.
@@ -69,6 +61,30 @@ Live on the local engine, three banking journeys, their 11 controls, and a pairw
 | Pairwise control | picked the original 2 of 2 | 2 of 2 |
 
 Neither helpfulness nor correctness decided, so the run was accepted on the code's checks and safety, and the run page says the judges could not tell. With each step's usual wait in its question, the second judge caught every stretched wait on helpfulness; no judge caught a missing step on any rubric that scores a journey on its own. A second cycle naming `qwen3.8:27b` and `gemma4:26b` was served by `qwen3.8:27b` for both and flagged `same_model`.
+
+## Delivered: Slice 15, calibration people can bring
+
+Delivered in two pull requests, and the exit criteria are met. Every approved slice has now shipped; the next step is a review of the roadmap against `main`.
+
+1. **Banking's passed check.** Map a BPI activity to `kyc.passed`, or read the decision after a passed check from the shares the data backs there, so banking declines land within 5 points of the data's 13% while approvals and abandonment stay within 5 of theirs.
+2. **A template per pack** (decision 21). The studio offers, for each pack, a CSV template of its events with a short example log, so a telecommunications or insurance team can export its own journeys in a shape the mapper reads without guessing.
+3. **A preview before a run.** After a log is mapped, the data source shows what calibration would change: for the steps it moves most, the pack's share against the data's, and the events the data cannot see.
+
+Exit: banking calibrated from BPI 2017 declines within 5 points of 13%; a telecommunications log written from the template calibrates a run to a next-step divergence under 0.1; the preview matches the calibrated run's shares.
+
+- **Banking's passed check** (#66, from another session). The data holds no passed check, so a repeat of validation is followed through the data, and a step the pack reaches only through an unseen event counts for it. Calibrated from BPI 2017 over every sub-domain, two seeds, submitted applications end approved in 50% and 52%, declined in 11% and 11%, and abandoned in 38% and 36%, against 49%, 13%, and 37%.
+- **A template per pack.** `GET /sectors/{id}/log-template/events.csv` lists a pack's events with their sub-domains and meanings, and `example.csv` is 20 of the pack's own journeys as `case_id`, `activity`, and `timestamp`. An activity named exactly as a pack event maps to itself before any word is matched. The data sources panel links both.
+- **A preview before a run.** Each calibration carries what it would change in a run over every sub-domain, from 600 journeys with and without it: the steps it moves most, after events left at least 50 times, with the pack's, the calibrated run's, and the data's shares; the events the data cannot see; and the weighted divergence with and without it. The panel shows it under the data source.
+
+A telecommunications team's log written from the template, from a process that abandons orders, fails credit checks and ports, and declines plan changes three to four times as often as the pack's priors (600 journeys), maps whole and calibrates:
+
+| Step | Pack | Preview, calibrated | Data | A calibrated run of 1,500 |
+|---|---|---|---|---|
+| order started, then abandoned | 12% | 34% | 33% | 31% |
+| port requested, then failed | 13% | 33% | 42% | 35% |
+| complaint received, then escalated | 5% | 23% | 23% | 17% |
+
+The calibrated run's next-step divergence is 0.082, under 0.1, and every share the preview shows is within 0.06 of the run's. That criterion, though, does not tell a calibrated run from an uncalibrated one: the plain divergence is a mean over events however rarely the run leaves them, and resampling the team's own process scores 0.131 at 400 journeys and 0.089 at 1,500, while the uncalibrated pack scores 0.095. Counting each event by how often the run leaves it, the calibrated run reaches the team process's own 0.014 against 0.024 uncalibrated, so the quality report now gives that weighted divergence too, and the preview uses it.
 
 ## Out of scope
 

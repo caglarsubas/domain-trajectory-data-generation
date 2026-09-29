@@ -402,3 +402,15 @@ An event can carry weights that hold in some states only (`weight_when`), scaled
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/66
 
 Slice 15, first part. Calibrated banking runs declined 25% of submitted applications against 13% in BPI Challenge 2017: the data holds no passed check, so the walker decided on the shares after the first validation, and the mass behind a second validation the pack cannot repeat was dropped. A calibration now follows a repeat the journey cannot make again through the data to the steps after it (`Calibration.past_repeats`), and counts a step the data records, reached only through an event the data never contains, for that event (`Calibration.through_unseen`, `Walker.leads`); the walker, the conformance scorer, and the decision values read it through `Walker.reweighted`. A passed or failed KYC check is followed by the application's decision before a journey can stop (`banking-pack-9`). Over every sub-domain and two seeds, submitted applications end about 51% approved, 11.3% declined, and 37% abandoned, against BPI's 49.3%, 13.2%, and 37.1%, and next-step divergence fell from 0.453 to about 0.36.
+
+## 67. Let helpfulness and correctness decide acceptance only where the primary judge sees their controls, completing Slice 14
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/67
+
+Slice 14, in one pull request. Every sampled journey gets every control the pack confirms for it, a missing step, a worse choice, a slow wait, and its events reversed, asked once at temperature 0 (decision 19). Helpfulness and correctness decide acceptance only when the primary judge scored at least three of their controls lower in at least half of them, and correctness also caught the reversed copies (decision 18); otherwise they keep scoring and writing notes, are flagged `did_not_decide`, and the run stands on the code's checks and safety. Helpfulness is told each step's usual wait, the default primary judge is `qwen3.6:27b` (decision 20), and a cycle judged twice by one model is flagged. Live, neither rubric saw enough of its controls, so the run stood on the code's checks; the second judge caught every stretched wait once told the usual ones.
+
+## 68. Retry an empty judge repeat on a fresh seed, keep pairwise reasons short, and score process conformance by code alone
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/68
+
+`qwen3.8:27b` answered an empty object to the same pairwise prompt on the second repeat's seed every time, leaving 16 of 42 banking pairwise answers unreadable. The judge client now asks such a repeat once more on a seed no repeat used, and the pairwise question asks for a reason under 40 words; on six pairs, readable answers went from 14 to 18 of 18. Given the shares and the option each step took, judges still let one rare step decide conformance, so it is no longer asked: process conformance stays a code signal, and decision score is the one judge-versus-code rubric.

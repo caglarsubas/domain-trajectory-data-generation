@@ -1,7 +1,52 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api, download } from "../lib/api";
+
+const pct = (value) => (value == null ? "—" : `${Math.round(value * 100)}%`);
+
+// What a mapped log would change in a run, before one is made: the steps it moves most and what the data cannot see.
+function Preview({ preview }) {
+  if (!preview) return null;
+  const { moves = [], unseen = [], divergence = {} } = preview;
+  return (
+    <div className="preview">
+      <small>
+        Before a run: {preview.journeys.toLocaleString()} journeys over every sub-domain, with and without this source.
+        {divergence.calibrated != null
+          ? ` Next-step shares sit ${divergence.calibrated} from the data with it, against ${divergence.uncalibrated} without (weighted by how often each step is taken; 0 is a match).`
+          : ""}
+      </small>
+      {moves.length ? (
+        <table className="target-table">
+          <thead>
+            <tr>
+              <th>After</th>
+              <th>Next</th>
+              <th>Pack</th>
+              <th>Calibrated</th>
+              <th>Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            {moves.map((move) => (
+              <tr key={`${move.after}|${move.next}`}>
+                <td>{move.after}</td>
+                <td>{move.next}</td>
+                <td>{pct(move.pack)}</td>
+                <td>{pct(move.calibrated)}</td>
+                <td>{pct(move.data)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <small>It moves no step by five points or more.</small>
+      )}
+      {unseen.length ? <small>The data cannot see {unseen.join(", ")}; those keep the pack's weights.</small> : null}
+    </div>
+  );
+}
 
 function status(doc) {
   const calibration = doc.calibration;
@@ -29,6 +74,7 @@ export default function DataSources({ projectId, sector, docs, events, onChange 
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [editing, setEditing] = useState("");
+  const [previewing, setPreviewing] = useState("");
   const [draft, setDraft] = useState({});
   const sources = docs.filter((doc) => doc.kind === "data_source");
   // Poll while a source downloads or is being read; a failed one says so and stops the polling.
@@ -80,11 +126,27 @@ export default function DataSources({ projectId, sector, docs, events, onChange 
         <small>Event logs calibrate how often each legal step follows another and how long it takes. Upload CSV, Parquet, XES, or OCEL 2.0 as a data source, or add a public one.</small>
       </div>
       {error ? <div className="error">{error}</div> : null}
+      <p className="lede">
+        Bringing your own journeys? Export them with one row per event, as <code>case_id</code>, <code>activity</code>, and{" "}
+        <code>timestamp</code>, naming each activity as one of this pack's events, and they map without guessing.{" "}
+        <button className="link" type="button" onClick={() => download(`/sectors/${sector}/log-template/events.csv`, `${sector}-events.csv`).catch((err) => setError(err.message))}>
+          The pack's events
+        </button>{" "}
+        ·{" "}
+        <button className="link" type="button" onClick={() => download(`/sectors/${sector}/log-template/example.csv`, `${sector}-example.csv`).catch((err) => setError(err.message))}>
+          An example log
+        </button>
+      </p>
       {sources.map((doc) => (
         <div className="source" key={doc.id}>
           <div className="source-head">
             <span>{doc.name}</span>
             <small>{status(doc)}</small>
+            {doc.calibration?.preview ? (
+              <button className="ghost" type="button" onClick={() => setPreviewing(previewing === doc.id ? "" : doc.id)}>
+                {previewing === doc.id ? "Hide preview" : "Preview"}
+              </button>
+            ) : null}
             {doc.calibration?.status === "ready" && Object.keys(doc.calibration.mapping || {}).length ? (
               <button className="ghost" type="button" onClick={() => { setEditing(editing === doc.id ? "" : doc.id); setDraft({}); }}>
                 {editing === doc.id ? "Close" : "Mapping"}
@@ -92,6 +154,7 @@ export default function DataSources({ projectId, sector, docs, events, onChange 
             ) : null}
           </div>
           {doc.ingest?.licence ? <small className="licence">{doc.ingest.licence}{doc.ingest.snapshot_date ? ` · fetched ${doc.ingest.snapshot_date}` : ""}{doc.ingest.doi ? ` · doi:${doc.ingest.doi}` : ""}</small> : null}
+          {previewing === doc.id ? <Preview preview={doc.calibration.preview} /> : null}
           {editing === doc.id ? (
             <div className="mapping">
               <table className="target-table">
