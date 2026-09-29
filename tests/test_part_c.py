@@ -5,6 +5,7 @@ import pytest
 
 from app import jobs, runtime
 from app.db import SessionLocal
+from app.judge import JudgeUnavailable
 from app.models import Credential, Job
 from app.providers import KeyCheck, check_key
 from test_api import RecordingJudge, _auth, _link, _project, _ready_key, _run
@@ -66,25 +67,39 @@ def test_the_judge_runs_as_a_job_and_records_its_cycle(client, worker_mode):
     assert len(runtime.judge.calls) == len(done["cycles"][0]["verdicts"]) > 4
 
 
+class GoneJudge:
+    """Ready when the cycle is queued, gone by the time the worker asks it."""
+
+    def run_eval(self, **kwargs):
+        raise JudgeUnavailable(503, "The judge could not be reached. Check INFERENCE_ENGINE_BASE_URL.")
+
+
 def test_a_queued_judge_job_can_be_cancelled_and_a_failure_is_kept_on_the_job(client, worker_mode):
     headers, project_id, credential_id = _study(client, "judge-cancel@example.com")
     run = _generated_run(client, headers, project_id, credential_id)
+    # With no engine configured, the judge is refused with the reason before any job is queued.
+    refused = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={})
+    assert refused.status_code == 503 and "INFERENCE_ENGINE_API_KEY" in refused.json()["detail"]
+    assert client.get(f"/runs/{run['id']}", headers=headers).json()["judge_job"] is None
+
+    runtime.judge = GoneJudge()
     queued = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["judge_job"]
     cancelled = client.post(f"/jobs/{queued['id']}/cancel", headers=headers)
     assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
     assert client.get(f"/runs/{run['id']}", headers=headers).json()["status"] == "generated"
 
-    # With no engine configured the job fails with the reason the request used to return as a 503.
+    # A judge that stops answering after its cycle was queued fails the job, which keeps the reason.
     client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={})
     assert jobs.Worker().run_next() is True
     failed = client.get(f"/runs/{run['id']}", headers=headers).json()["judge_job"]
     assert failed["status"] == "failed" and failed["result"] == {"http_status": 503}
-    assert failed["error"]
+    assert "INFERENCE_ENGINE_BASE_URL" in failed["error"]
 
 
 def test_jobs_belong_to_their_owner(client, worker_mode):
     headers, project_id, credential_id = _study(client, "owner-job@example.com")
     run = _generated_run(client, headers, project_id, credential_id)
+    runtime.judge = RecordingJudge()
     job_id = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["judge_job"]["id"]
     other = _auth(client, "other-job@example.com", "password-123")
     assert client.get(f"/jobs/{job_id}", headers=other).status_code == 404

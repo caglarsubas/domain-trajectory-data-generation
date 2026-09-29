@@ -16,6 +16,10 @@ Environment variables, set in `.env` and never committed:
 - `INFERENCE_ENGINE_ORG_ID`
 - `INFERENCE_ENGINE_KEY_ID`
 
+Compose points `INFERENCE_ENGINE_BASE_URL` at an engine on the host, `http://host.docker.internal:8080`, unless `.env` sets another origin.
+
+Before a cycle is queued, the studio checks the judge (decision 24), each question with a 5-second timeout: the engine's `GET /v1/health`, without the key, which must answer and be ready; its rubric registry, `GET /v1/evals/rubrics`; and its model list, `GET /v1/models`, which must list every judge model. When one fails, a cycle, a regeneration, or a rubric proposal is refused with 503 and the first failing answer, and no job is queued. `GET /projects/{id}/judge` gives the run page all three answers and the study's last cycle that asked its judges, with its `served_by` and `same_model`, since the engine does not list which models it serves for one another.
+
 Each cycle runs that sector's local hard checks first. A failed check does not call the model. When checks pass, the client posts to `/v1/evals/run` with a bearer token and one of:
 
 - `helpfulness` — representativeness for the chosen sub-domain and language

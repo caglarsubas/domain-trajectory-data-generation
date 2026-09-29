@@ -5,6 +5,8 @@ from app.providers import KeyCheck
 from app.search import DeepSearchResult
 
 judge: Judge | None = None
+# Tests install an httpx transport here to stand in for the engine when the judge's readiness is checked.
+engine_transport = None
 
 
 class Searcher:

@@ -9,6 +9,7 @@ import DownloadPanel from "../../../../components/DownloadPanel";
 import EpisodeViewer from "../../../../components/EpisodeViewer";
 import DecisionViewer from "../../../../components/DecisionViewer";
 import SignalTable from "../../../../components/SignalTable";
+import JudgeCheck from "../../../../components/JudgeCheck";
 import JudgePanel, { ScoreMeters } from "../../../../components/JudgePanel";
 import StudyRubrics from "../../../../components/StudyRubrics";
 import RunDiff from "../../../../components/RunDiff";
@@ -110,6 +111,8 @@ export default function RunPage() {
   const [entries, setEntries] = useState([]);
   const [total, setTotal] = useState(0);
   const [detail, setDetail] = useState(null);
+  const [judgeCheck, setJudgeCheck] = useState(null);
+  const [checking, setChecking] = useState(false);
 
   async function load(id) {
     const [current, all] = await Promise.all([api(`/runs/${id}`), api("/runs")]);
@@ -142,6 +145,24 @@ export default function RunPage() {
   useEffect(() => {
     api("/sectors").then((data) => setSectors(data.data)).catch(() => setSectors([]));
   }, []);
+
+  // The judge is checked before a cycle, so a button that would queue a failing one says why instead.
+  async function checkJudge(fresh = false) {
+    if (!run?.project_id) return;
+    setChecking(true);
+    try {
+      setJudgeCheck(await api(`/projects/${run.project_id}/judge${fresh ? "?fresh=true" : ""}`));
+    } catch {
+      setJudgeCheck(null);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  const cycleCount = run?.cycle_count;
+  useEffect(() => {
+    checkJudge();
+  }, [run?.project_id, cycleCount]);
 
   const pending = run && ["queued", "generating"].includes(run.status);
   const judging = ["queued", "running"].includes(run?.judge_job?.status);
@@ -296,6 +317,7 @@ export default function RunPage() {
       setRun(next);
     } catch (err) {
       setError(err.message);
+      checkJudge();
     } finally {
       setBusy(false);
     }
@@ -321,6 +343,7 @@ export default function RunPage() {
     } catch (err) {
       setError(err.message);
       setBusy(false);
+      checkJudge();
     }
   }
 
@@ -335,7 +358,10 @@ export default function RunPage() {
   const judgeJob = run.judge_job;
   // judge_job is the latest attempt, so a failure there is the last word until the judge is asked again.
   const judgeFailed = judgeJob?.status === "failed";
-  const explain = (text) => (text.includes("INFERENCE_ENGINE_API_KEY") ? "The platform judge is not configured on this server yet." : text);
+  const explain = (text) => (text === "INFERENCE_ENGINE_API_KEY is missing" ? "The platform judge is not configured on this server yet." : text);
+  // Only a check that answered blocks the buttons; one that could not be read leaves them to the API.
+  const judgeBlocked = judgeCheck?.ready === false;
+  const asksJudge = !judgedFully || canRegenerate || canUseRubrics;
 
   const rerunHref = `/studio/compose?from=${run.id}&notes=${picked.join(",")}`;
 
@@ -352,16 +378,16 @@ export default function RunPage() {
       </div>
       <div className="actions">
         {!judgedFully ? (
-          <button className="primary" type="button" onClick={evaluate} disabled={busy || judging || run.cycle_count >= run.config.max_cycles}>
+          <button className="primary" type="button" onClick={evaluate} disabled={busy || judging || judgeBlocked || run.cycle_count >= run.config.max_cycles} title={judgeBlocked ? judgeCheck.reason : undefined}>
             {busy ? "Asking" : judging ? "Judging" : cycle ? "Judge again" : "Ask the judge"}
           </button>
         ) : canRegenerate ? (
-          <button className="primary" type="button" onClick={regenerate} disabled={busy}>
+          <button className="primary" type="button" onClick={regenerate} disabled={busy || judgeBlocked} title={judgeBlocked ? judgeCheck.reason : undefined}>
             {busy ? "Regenerating" : "Regenerate from notes"}
           </button>
         ) : null}
         {canUseRubrics ? (
-          <button className={canRegenerate ? "ghost" : "primary"} type="button" onClick={evaluate} disabled={busy || judging}>
+          <button className={canRegenerate ? "ghost" : "primary"} type="button" onClick={evaluate} disabled={busy || judging || judgeBlocked} title={judgeBlocked ? judgeCheck.reason : undefined}>
             {busy ? "Asking" : judging ? "Judging" : "Judge with the study rubrics"}
           </button>
         ) : null}
@@ -369,6 +395,7 @@ export default function RunPage() {
         <button className="ghost" type="button" onClick={removeRun} disabled={busy || judging}>Delete run</button>
         {cycle?.accepted ? <span className="accepted-badge">Accepted by the judge</span> : null}
       </div>
+      {asksJudge && !judging ? <JudgeCheck status={judgeCheck} checking={checking} onCheck={() => checkJudge(true)} /> : null}
       {judgedFully && !cycle.accepted && !canRegenerate ? (
         <p className="note">This study has been judged {round} {round === 1 ? "time" : "times"}, its limit. Change the configuration and run it again.</p>
       ) : null}
