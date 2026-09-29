@@ -2,14 +2,13 @@
 
 Repository: https://github.com/caglarsubas/domain-trajectory-data-generation
 
-Last reviewed: 28 September 2026, against `main` at `5de8b85`, after Slices 11 to 13 shipped; the judge cycle and the calibrated runs were measured at `afd08ea`, which #63 leaves unchanged for them. This review:
+Last reviewed: 29 September 2026, against `main` at `74ae828`, after Slices 14 and 15 shipped. This review:
 - re-ran the nine gates for all five packs
 - timed a 10,000-sequence run against the previous review's commit on the same machine
-- ran a live judge cycle with two judges, controls, and the code rubrics on the local `llm_inference_engine`
-- calibrated banking runs from BPI Challenge 2017 after #60 and #62, beside the airline and hotel runs Slice 13 measured
-- checked the studio's judge configuration and the work in flight in other sessions
+- ran a live judge cycle under Slice 14's acceptance rule, with two judges and every sampled journey's controls, on the local `llm_inference_engine`
+- checked the studio's judge address and the work in flight in other sessions
 
-The review before it, against `eaba152` earlier the same day, set Slices 11 to 13, which have been delivered; its evidence is in git history. What this review found, and the slices it set, are in [next-slice.md](next-slice.md); they and decisions 18 to 21 were approved the same day, all as recommended.
+The review before it, against `5de8b85` on 28 September, set Slices 14 and 15, which have been delivered; its evidence is in git history. What this review found, and the slices it set, are in [next-slice.md](next-slice.md); they and decisions 22 to 24 were approved the same day, all as recommended.
 
 Companion files: [delivered.md](delivered.md) records what each merged pull request established. [next-slice.md](next-slice.md) is the approved plan for the work now in front of us.
 
@@ -103,16 +102,11 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 to 15. The suite has 418 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, and every pack passes all nine gates.
+All eight slices of the first plan have shipped, and so have Slices 8 to 15. The suite has 418 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
 
-Slice 11 gave every judge cycle controls with known defects, Slice 12 made the templated text varied and the written text checked for meaning, and Slice 13 made calibration follow the last two steps.
-
-The review of 28 September, against `5de8b85`, found that what remains is about whether the judge's acceptance means anything, and about calibration where the data is thin:
-- **The judges cannot tell flawed journeys by scoring them, and the cycle still accepts.** Live, every rubric that asks for a score on its own was blind to some defect for some judge: `gemma4:26b` gave every journey and control 5 of 5 on helpfulness, and both judges passed the reversed control journey on correctness. Asked which of a journey and its flawed copy is sounder, both picked the original every time. Slice 14, now delivered, lets a rubric decide only where its judge sees its controls, measured over every sampled journey's controls, and gives helpfulness the waits it is asked about: live, neither deciding rubric saw enough of its controls, so the run stood on the code's checks, and the second judge caught every stretched wait once told the usual ones.
-- **The default judge pair could be one model**, since the engine serves `qwen3.8:27b` and `gemma4:26b` from one substitution group. Slice 14 made `qwen3.6:27b` the primary judge, records which model served each judge, and flags a cycle judged twice by one model.
-- **Banking declines too often**: 20% to 23% of submitted applications against 13% in BPI 2017, because the data holds no passed check since #62. Telecommunications and insurance have no public source, so they calibrate only from a user's own logs. Slice 15, now delivered, brought banking's declines to 11% (#66) and gave every pack a log template and a preview of what a mapped log changes.
-
-Outside the code, the studio's `.env` still points the judge at an ngrok tunnel that answers 404; the Compose stack reaches the host's engine as `http://host.docker.internal:8080`.
+The review of 29 September, against `74ae828`, found that what remains is what the judge can add, and whether the studio's own stack can reach it:
+- **The judges compare well and score badly.** Live, as in Slice 14, no judge caught a missing step on any rubric that scores a journey on its own, so the run stood on the code's checks, as decision 18 intends; both judges caught every reversed journey and answered every pairwise question with a right answer correctly. Slice 16 puts that to use: where a study has real journeys, a cycle asks the judges to tell a generated journey from a real one, and reports how often they can.
+- **The studio's stack cannot reach the judge.** Its `.env` has pointed at a dead ngrok tunnel through three reviews, and the studio says so only when a cycle fails. Slice 17 checks the judge before a cycle and points the stack at the host's engine by default.
 
 ## Roadmap
 
@@ -151,6 +145,13 @@ Approved on 28 September 2026, after the second review that day (detail in [next
 |---|---|---|
 | 14. Acceptance the judges can earn (delivered) | Controls for every sampled journey, asked once at temperature 0; a rubric decides acceptance only where its judge scores its controls lower; helpfulness told each step's usual wait; a judge pair of two models | In a live cycle, acceptance comes only from rubrics whose judge scored at least three controls lower, a blind rubric decides nothing, and a cycle judged twice by one model says so |
 | 15. Calibration people can bring (delivered) | Banking's passed check calibrated, a CSV template and example log per pack, and a preview of what a mapped log changes | Banking declines within 5 points of BPI's 13%, a telecommunications log from the template calibrates a run to a next-step divergence under 0.1, and the preview matches the run |
+
+Approved on 29 September 2026 (detail in [next-slice.md](next-slice.md)):
+
+| Slice | Goal | Exit criterion |
+|---|---|---|
+| 16. A judge that can tell ours from theirs | Where a study has real journeys, generated and real ones set side by side, blind and in both orders, as event types and relative times; how often each judge picks the real one, with its reasons, reported and never deciding | A live cycle reports each judge's rate of picking the real case, with reasons, for a hotel run calibrated from the catalogue and for the same run uncalibrated |
+| 17. A judge the stack can reach | The study page checks the engine, its rubric registry, and the judge models before a cycle, warns when the last cycle found one model behind both judges, and the stack points at the host's engine by default | With the engine unreachable the studio says so before a cycle, and with the address pointed at the host's engine a cycle from the Compose stack succeeds |
 
 ### Slice 0. Rotate credentials and fix the judge wiring
 
@@ -270,6 +271,12 @@ Settled on 28 September 2026 for Slices 14 and 15, all as recommended:
 19. **Controls for every sampled journey, asked once at temperature 0.** Each sampled journey gets every flawed copy the pack confirms for it, so a discrimination rate rests on up to six controls rather than one or two, and the controls are asked once at temperature 0, as conformance is since #58.
 20. **A judge pair of two models.** The default primary judge becomes `qwen3.6:27b`, with `gemma4:26b` second, in place of decision 5's `qwen3.8:27b`, which the engine serves from one substitution group with `gemma4:26b`. A cycle whose two judges were served by one model says so.
 21. **Calibration for packs without a public source comes from the user.** Telecommunications and insurance calibrate from a team's own logs, helped by a template and a preview; the Texas Department of Insurance's data is added only once TDI confirms in writing that aggregates may be published, which the owner may ask it for.
+
+Settled on 29 September 2026 for Slices 16 and 17, all as recommended:
+
+22. **Generated against real, where there is real.** Where a study has a data source whose cases are journeys, a cycle sets generated journeys against real cases from it, blind and in both orders, both shown only as event types and times since the case began. Real cases are drawn at calibration, kept in that form only, sent only to the platform's judge, and never exported.
+23. **Realism measures and decides nothing.** The cycle reports each judge's rate of picking the real case and its reasons, and flags a judge that picks it in three of four comparisons or more as `distinguishable`; like the controls, the comparison never decides acceptance.
+24. **The judge is checked before a cycle.** The study page shows whether the engine, its rubric registry, and the judge models answer, and the judge button says why it cannot run instead of queuing a cycle that will fail; the stack points at the host's engine by default.
 
 ## Stack
 

@@ -414,3 +414,9 @@ Slice 14, in one pull request. Every sampled journey gets every control the pack
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/68
 
 `qwen3.8:27b` answered an empty object to the same pairwise prompt on the second repeat's seed every time, leaving 16 of 42 banking pairwise answers unreadable. The judge client now asks such a repeat once more on a seed no repeat used, and the pairwise question asks for a reason under 40 words; on six pairs, readable answers went from 14 to 18 of 18. Given the shares and the option each step took, judges still let one rare step decide conformance, so it is no longer asked: process conformance stays a code signal, and decision score is the one judge-versus-code rubric.
+
+## 69. Give every pack a log template and preview what a mapped log changes before a run, completing Slice 15
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/69
+
+Slice 15's second and third tasks; #66 shipped the first. Each pack offers its events with their sub-domains and meanings, and an example log of its own journeys as `case_id`, `activity`, and `timestamp`, and an activity named exactly as a pack event maps to itself. Each calibration carries a preview from 600 journeys with and without it: the steps it moves most, the events the data cannot see, and a new weighted divergence that counts each event by how often the run leaves it. A telecommunications log written from the template, from a process far from the pack's priors, calibrates a run to a next-step divergence of 0.082, and the preview's shares are within 0.06 of the run's; the weighted divergence, 0.014 against 0.024 uncalibrated, is the one that tells the two apart.
