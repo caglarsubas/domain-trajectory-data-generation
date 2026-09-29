@@ -93,7 +93,8 @@ def test_controls_are_flawed_copies_that_read_like_their_originals():
     missing = next(control for control in controls if control["kind"] == "missing_step")
     worse = next(control for control in controls if control["kind"] == "worse_choice")
     assert _types(worse["bundle"], worse["trajectory_id"])[-1] in worse["detail"]
-    assert missing["reference"] is not None
+    # Process conformance is scored by code alone, so a removed step asks the judge only correctness and helpfulness.
+    assert missing["rubrics"] == ("correctness", "helpfulness")
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ class SeeingJudge:
             score = 0.5 if any((illegal, slow)) == any(other) else (0.0 if any((illegal, slow)) else 1.0)
         elif rubric == "helpfulness":
             score = 2 if illegal or slow else 5
-        elif rubric in ("correctness", "process_conformance"):
+        elif rubric == "correctness":
             score = 0.0 if illegal else 1.0
         else:
             score = 1.0

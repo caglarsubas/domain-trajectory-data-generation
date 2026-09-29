@@ -11,7 +11,11 @@ calibration only reweights legal choices.
 
 A source sees only part of a journey: flight records know nothing of checked bags, and hotel bookings
 nothing of loyalty sign-ups. An event a source never contains keeps its prior weight wherever it is a
-choice, and the data redistributes only the weight of the choices it can see.
+choice, and the data redistributes only the weight of the choices it can see, with two exceptions for steps
+the pack cannot take where the data takes them. A step the data records right after an event it never
+contains, such as an approval after a KYC check BPI Challenge 2017 does not record, counts for that event
+(`through_unseen`). A repeat the journey has made and cannot make again, such as validating an application
+a second time, is followed through the data to the steps after it (`past_repeats`).
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ import math
 import random
 from collections import Counter
 from dataclasses import dataclass, field
+from functools import cached_property
 
 # Observations that weigh as much as the pack's prior; more data moves the walker further toward the data.
 PRIOR_STRENGTH = 25.0
@@ -83,9 +88,12 @@ class Calibration:
     def empty(self) -> bool:
         return not self.transitions and not self.starts
 
-    @property
+    @cached_property
     def observed_events(self) -> set[str]:
-        """Every event type the data contains anywhere; the rest are ones its sources cannot see."""
+        """Every event type the data contains anywhere; the rest are ones its sources cannot see.
+
+        Read at every step of every calibrated walk, so it is computed once: a calibration is complete when built.
+        """
         found = set(self.starts) | set(self.ends) | set(self.transitions)
         for following in self.transitions.values():
             found.update(following)
@@ -112,24 +120,86 @@ class Calibration:
             return found
         return self.transitions.get(previous)
 
-    def reweight(self, previous: str | None, options: list[tuple[str, float]], before: str | None = None) -> list[tuple[str, float]]:
+    def past_repeats(self, observed: Counter, legal: set[str], taken, previous: str | None = None, depth: int = 8) -> Counter:
+        """Observed next steps with each repeat the journey cannot make followed through the data to the steps after it.
+
+        The data can go back to a step a journey has taken, such as validating an application again after asking for
+        documents, where the pack's machines take it once. What the data does after that repeat, coming after
+        `previous`, stands in for it, as `projected` follows steps through events a run leaves out. Dropping it would
+        leave only the choices made at the first pass: BPI Challenge 2017 declines 42% of the applications it decides at
+        their first validation, and 13% of those it validates again.
+        """
+        if not any(name in taken and name not in legal for name in observed):
+            return observed
+        # Each repeat is followed with the context it had in the data, the event it came after, where that pair is
+        # backed: validating again after a review approves more than a first validation.
+        kept, frontier = Counter(), Counter({(previous, event): count for event, count in observed.items()})
+        for _ in range(depth):
+            onward = Counter()
+            for (source, event), weight in frontier.items():
+                if event in legal or event not in taken:
+                    kept[event] += weight
+                    continue
+                found = self.pairs.get(pair(source, event)) if source is not None else None
+                following = found if found and sum(found.values()) >= PRIOR_STRENGTH else self.transitions.get(event)
+                total = sum(following.values()) if following else 0
+                for name, count in (following or {}).items():
+                    onward[(event, name)] += weight * count / total
+            frontier = onward
+            if not frontier:
+                break
+        return kept
+
+    def through_unseen(self, observed: Counter, options: list[tuple[str, float]], leads) -> Counter:
+        """Observed next steps with each one the pack reaches only through an event the data never contains credited to it.
+
+        The data skips what it cannot see: BPI Challenge 2017 records no passed KYC check, so an application goes from
+        validation straight to its approval, where the pack passes the check first. A step the options leave out counts
+        for the options the data never contains that lead to it, `leads(option, step)`, in proportion to their weights:
+        a decline follows a passed check or a failed one. A step no such option leads to is left out, as before.
+        """
+        visible = self.observed_events
+        unseen = [(name, weight) for name, weight in options if name not in visible]
+        legal = {name for name, _ in options}
+        if not unseen or all(name in legal for name in observed):
+            return observed
+        credited = Counter()
+        for event, count in observed.items():
+            leading = [] if event in legal else [(name, weight) for name, weight in unseen if leads(name, event)]
+            total = sum(weight for _, weight in leading)
+            if not total:
+                credited[event] += count
+                continue
+            for name, weight in leading:
+                credited[name] += count * weight / total
+        return credited
+
+    def reweight(
+        self, previous: str | None, options: list[tuple[str, float]], before: str | None = None, taken=(), leads=None
+    ) -> list[tuple[str, float]]:
         """Blend the observed shares of the next step with the prior weights, keeping their total.
 
-        The shares are the ones after `before` then `previous` where enough data backs them, else after `previous`.
-        Only the choices the data can see are reweighted, within the weight they held together; a choice whose
-        event the data never contains keeps its prior weight.
+        The shares are the ones after `before` then `previous` where enough data backs them, else after `previous`,
+        with repeats of the events `taken` so far that the options leave out followed onward (`past_repeats`), and,
+        given `leads`, steps reached through an event the data never contains credited to that event
+        (`through_unseen`). Only the choices the data can see or was credited with are reweighted, within the weight
+        they held together; any other choice keeps its prior weight.
         """
         observed = self.following(previous, options, before)
         if not observed or not options:
             return options
+        observed = self.past_repeats(observed, {name for name, _ in options}, taken, previous)
+        if leads is not None:
+            observed = self.through_unseen(observed, options, leads)
         seen = sum(observed.get(name, 0) for name, _ in options)
         if not seen:
             return options
         visible = self.observed_events
-        total = sum(weight for name, weight in options if name in visible) or 1.0
+        known = {name for name, _ in options if name in visible or observed.get(name)}
+        total = sum(weight for name, weight in options if name in known) or 1.0
         trust = seen / (seen + PRIOR_STRENGTH)
         return [
-            (name, total * ((1 - trust) * weight / total + trust * observed.get(name, 0) / seen)) if name in visible else (name, weight)
+            (name, total * ((1 - trust) * weight / total + trust * observed.get(name, 0) / seen)) if name in known else (name, weight)
             for name, weight in options
         ]
 

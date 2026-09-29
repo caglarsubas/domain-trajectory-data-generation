@@ -46,7 +46,7 @@ def test_conformance_records_the_shares_it_scores_typicality_with(scorer):
     assert point["after"] == "case.opened"
     assert list(point["shares"]) == ["case.approved", "case.paused", "case.declined"]
     assert sum(point["shares"].values()) == pytest.approx(1.0, abs=0.01)
-    # Typicality is the taken step's share over the most common one's, the same reading the judge is given.
+    # Typicality is the taken step's share over the most common one's.
     assert found["score"] == pytest.approx(point["shares"]["case.declined"] / point["shares"]["case.approved"], abs=0.01)
 
 

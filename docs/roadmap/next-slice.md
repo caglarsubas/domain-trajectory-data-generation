@@ -64,7 +64,7 @@ Live on the local engine, three banking journeys, their 11 controls, and a pairw
 |---|---|---|
 | Helpfulness | 1 of 6 controls lower (slow wait 1 of 3, missing step 0 of 3): does not decide | 3 of 6 (slow wait 3 of 3, missing step 0 of 3) |
 | Correctness | 2 of 5 lower (reversed 2 of 2, missing step 0 of 3): does not decide | 2 of 6 (reversed 2 of 3) |
-| Process conformance | 0 of 3 | 0 of 3 |
+| Process conformance, before #68 left it to code | 0 of 3 | 0 of 3 |
 | Decision score | 1 of 2 | 0 of 2 |
 | Pairwise control | picked the original 2 of 2 | 2 of 2 |
 

@@ -103,7 +103,7 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 to 14. The suite has 402 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, and every pack passes all nine gates.
+All eight slices of the first plan have shipped, and so have Slices 8 to 14. The suite has 410 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, and every pack passes all nine gates.
 
 Slice 11 gave every judge cycle controls with known defects, Slice 12 made the templated text varied and the written text checked for meaning, and Slice 13 made calibration follow the last two steps.
 

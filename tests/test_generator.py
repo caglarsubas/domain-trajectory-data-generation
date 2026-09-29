@@ -142,6 +142,32 @@ def test_an_application_can_be_abandoned_before_kyc_starts_or_while_kyc_waits_on
         assert any("application abandoned before it started, or during KYC while no documents were requested" in item for item in banking_hard_checks(illegal))
 
 
+def test_the_walker_knows_which_step_an_event_opens_at_once():
+    walker = Walker(BANKING_LIFECYCLE, allowed=BANKING_LIFECYCLE.namespace, sub_domains=list(SUB_DOMAINS))
+    pending = {("application", "application"): "submitted", ("kyc", "kyc"): "pending"}
+    assert walker.leads(pending, {}, "kyc.passed", "application.approved")
+    assert walker.leads(pending, {}, "kyc.failed", "application.declined") and walker.leads(pending, {}, "kyc.passed", "application.declined")
+    assert not walker.leads(pending, {}, "kyc.review_required", "application.approved")
+    assert not walker.leads(pending, {}, "kyc.failed", "application.approved")
+    # Through one more event the data never contains: documents, then a passed check BPI does not record, then approval.
+    from collections import Counter
+
+    from sectors.calibration import Calibration
+
+    seen = Calibration(transitions={"kyc.started": Counter({"kyc.review_required": 6, "application.approved": 3})})
+    calibrated = Walker(BANKING_LIFECYCLE, allowed=BANKING_LIFECYCLE.namespace, sub_domains=list(SUB_DOMAINS), calibration=seen)
+    review = {**pending, ("kyc", "kyc"): "review_required"}
+    assert not walker.leads(review, {}, "kyc.document_submitted", "application.approved")
+    assert calibrated.leads(review, {}, "kyc.document_submitted", "application.approved")
+    assert not calibrated.leads(review, {}, "application.abandoned", "application.approved")
+
+
+def test_a_journey_does_not_stop_between_a_kyc_result_and_the_decision():
+    bundle = _bundle(sub_domains=list(SUB_DOMAINS), target_trajectory_count=64, event_budget=None, max_events=24, seed="decided")
+    ended = [types for types in _primaries(bundle) if types[-1] in {"kyc.passed", "kyc.failed"}]
+    assert all(len(types) == 24 for types in ended), ended
+
+
 def test_feedback_drop_revise_and_keep_change_the_next_bundle():
     # Ten journeys hold a purchase and an activation to note for any seed tried, though some end at a decline.
     parent = _bundle(sub_domains=["cards_and_payments", "onboarding_and_kyc"], seed="parent", target_trajectory_count=10)

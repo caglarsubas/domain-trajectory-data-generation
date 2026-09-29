@@ -159,14 +159,14 @@ class Scorer:
         ratios = []
         observed = []
         # The shares the policy gave each legal next step wherever the journey could have gone more than one way:
-        # the reference a judge needs to score typicality as this scorer does.
+        # a record of the policy the typicality is measured against.
         reference = []
         for index, name in enumerate(types):
             options = walker.options(state, counts, first=index == 0)
             if walker.calibration is not None:
                 previous, before = walker.calibration.context(types[:index])
                 following = walker.calibration.following(previous, options, before)
-                options = walker.calibration.reweight(previous, options, before)
+                options = walker.reweighted(options, types[:index], state, counts)
                 observed.append(bool(following and following.get(name)))
             weights = dict(options)
             if name in weights and len(options) > 1:

@@ -3,6 +3,7 @@ import io
 import json
 import random
 import zipfile
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -331,6 +332,61 @@ def test_a_catalogue_download_streams_under_the_guard_and_its_limit(tmp_path):
         safe_download("https://data.example/file", tmp_path / "b", max_bytes=1000, transport=transport, resolver=resolver)
     with pytest.raises(FetchError, match="private network"):
         safe_download("https://data.example/moved", tmp_path / "c", max_bytes=10_000, transport=transport, resolver=resolver)
+
+
+def test_a_repeat_the_journey_cannot_make_is_followed_to_the_steps_after_it():
+    # Validated once, most applications are validated again; those decided at once are mostly declined.
+    calibration = Calibration(transitions={"v": Counter({"v": 50, "ok": 45, "no": 5})}, pairs={"s>v": Counter({"v": 70, "ok": 17, "no": 13})})
+    options = [("ok", 1.0), ("no", 1.0)]
+    first_pass = dict(calibration.reweight("v", options, "s"))
+    followed = dict(calibration.reweight("v", options, "s", taken={"s": 1, "v": 1}))
+    assert first_pass["no"] / sum(first_pass.values()) > 0.45
+    # 13 + 70 * 5 / 50 declines against 17 + 70 * 45 / 50 approvals, blended with the even prior.
+    assert followed["no"] / sum(followed.values()) == pytest.approx(0.26, abs=0.01)
+    # A repeat the journey has not made yet is a choice like any other, and is left alone.
+    assert calibration.reweight("v", options, "s", taken={"s": 1}) == calibration.reweight("v", options, "s")
+
+
+def test_a_step_the_data_records_after_an_event_it_never_contains_counts_for_that_event():
+    # The data never records the passed check, so validation goes straight to approval or decline.
+    calibration = Calibration(transitions={"v": Counter({"review": 60, "approved": 32, "declined": 8})})
+    options = [("review", 0.25), ("passed", 0.75), ("failed", 0.05)]
+    after = {("passed", "approved"), ("passed", "declined"), ("failed", "declined")}
+    plain = dict(calibration.reweight("v", options))
+    credited = dict(calibration.reweight("v", options, leads=lambda option, event: (option, event) in after))
+    assert plain == pytest.approx(dict(options))
+    assert credited["review"] / sum(credited.values()) == pytest.approx(0.53, abs=0.01)
+    # A decline follows a passed check or a failed one, in proportion to their weights, so failures stay rare.
+    assert credited["failed"] < options[2][1] and sum(credited.values()) == pytest.approx(sum(plain.values()))
+
+
+def test_a_calibrated_decision_follows_the_data_past_a_second_validation():
+    # BPI-like: most applications are validated a second time after documents are asked for, and are then approved;
+    # those decided at their first validation are mostly declined. 66 of 360 decisions are declines.
+    start = [("application.started", 0.0), ("application.submitted", 0.1), ("kyc.started", 1.0)]
+    again = [("kyc.review_required", 2.0), ("kyc.started", 30.0)]
+    cases = (
+        [start + [("application.declined", 5.0)]] * 36
+        + [start + [("application.approved", 5.0)]] * 24
+        + [start + again + [("application.approved", 40.0)]] * 270
+        + [start + again + [("application.declined", 40.0)]] * 30
+    )
+    calibration = build(cases, source="toy")
+    bundle = get_sector("banking").generate(
+        sub_domains=["onboarding_and_kyc", "consumer_credit"], language="en", target_trajectory_count=400, event_budget=None,
+        min_events=4, max_events=14, max_assistant_turns=4, start_mode="cold", reward_mechanism="binary_outcome",
+        signal_mechanism="outcome", consumer="post_training", target_family="llm", seed="second-validation",
+        materialization_cap=400, calibration=calibration,
+    )
+    kinds = {event.event_id: event.event_type for event in bundle.events}
+    ends = Counter(
+        next((kinds[item] for item in trajectory.event_ids if kinds[item] in {"application.approved", "application.declined"}), None)
+        for trajectory in bundle.trajectories
+        if trajectory.parent_trajectory_id is None
+    )
+    declined = ends["application.declined"] / (ends["application.approved"] + ends["application.declined"])
+    # Deciding on the first validation's shares alone would decline three in five.
+    assert 0.1 <= declined <= 0.35
 
 
 def test_a_calibration_follows_steps_through_events_a_run_leaves_out():

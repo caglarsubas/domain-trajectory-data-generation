@@ -31,7 +31,7 @@ Verdicts are stored on the run. Helpfulness, correctness, and safety scores unde
 
 ## Repeated judgments
 
-Every call asks the engine for `JUDGE_REPEATS` verdicts (default 3, at most 5) at `JUDGE_TEMPERATURE` (default 0.7), with seeds 0, 1, 2, and so on; one repeat is asked at temperature 0. `process_conformance` is always asked once at temperature 0: its question lists the share of each next step wherever the journey could branch, and the judge averages the taken option's share over the most common one's across those steps only, the code's own measure, so sampling it adds only noise. Its reason, like `decision_score`'s, is kept under 40 words. A journey's score for a rubric is the mean of its readable repeats, and it is unscored only when none is readable. Each repeat is stored as its own verdict with its `repeat` index.
+Every call asks the engine for `JUDGE_REPEATS` verdicts (default 3, at most 5) at `JUDGE_TEMPERATURE` (default 0.7), with seeds 0, 1, 2, and so on; one repeat is asked at temperature 0. A repeat that comes back as an empty JSON object, as qwen3.8:27b did on one seed for pairwise, is asked once more on a seed no repeat used; if that answer is not readable either, the repeat stays unreadable. `decision_score` and the pairwise question ask for a reason under 40 words, which keeps a long answer inside the engine's budget. A journey's score for a rubric is the mean of its readable repeats, and it is unscored only when none is readable. Each repeat is stored as its own verdict with its `repeat` index.
 
 The cycle reports agreement across repeats next to agreement across models, per rubric and model:
 
@@ -43,9 +43,9 @@ A call whose repeats straddle the threshold is flagged `repeats_disagree`. An en
 
 ## The judge against the code scorers
 
-`process_conformance` and `decision_score` are code signals on every sequence (the decision score only when the run records decisions or uses it as its signal). The studio registers both as rubrics of the platform tenant with `POST /v1/evals/rubrics` at the start of a cycle, and asks the judge each for the journeys the code scored. The definitions are in `apps/api/app/judge_rubrics.py`: the brief and a question go in as the prompt and the rendered journey as the response, and the judge answers a 1 to 5 score that the engine normalises to 0 to 1.
+`decision_score` is a code signal when the run records decisions or uses it as its signal. The studio registers it as a rubric of the platform tenant with `POST /v1/evals/rubrics` at the start of a cycle, and asks the judge it for the journeys the code scored. `process_conformance` is a code signal on every sequence and is not asked of the judge: shown each branching step's shares and the option taken, judges still let one rare step decide the score (0.25 to 0.5 for declined applications the code scores 0.71 to 0.79), so the comparison measured arithmetic rather than the judge. The definitions are in `apps/api/app/judge_rubrics.py`: the brief and a question go in as the prompt and the rendered journey as the response, and the judge answers a 1 to 5 score that the engine normalises to 0 to 1.
 
-The cycle's `agreement.code` gives, per rubric, the code's pass count and mean, and per model the judge's mean, how many journeys it agrees on, and the mean gap to the code's score. The judge's verdict passes at 0.5 for conformance, the code's own bar for typicality, and at 0.75 for the decision score, whose code bar is every decision within 0.9 of the best. A journey where they differ is flagged `code_disagrees`. The code's verdict stays the signal: these two rubrics measure the judge, never decide acceptance, and an unreadable verdict on them does not reopen the run.
+The cycle's `agreement.code` gives, per rubric, the code's pass count and mean, and per model the judge's mean, how many journeys it agrees on, and the mean gap to the code's score. The judge's verdict passes at 0.75 for the decision score, whose code bar is every decision within 0.9 of the best. A journey where they differ is flagged `code_disagrees`. The code's verdict stays the signal: the rubric measures the judge, never decides acceptance, and an unreadable verdict on it does not reopen the run.
 
 The cycle's `judging` records the repeats, their temperature, and each registered rubric's engine digest; each verdict of a registered rubric carries that `rubric_digest`. An engine without tenant rubrics still judges the other rubrics, and `judging.notes` says what was skipped.
 
@@ -55,7 +55,7 @@ Agreement between judges, and across a judge's repeats, is perfect when every jo
 
 | Control | Defect | Confirmed by | Rubrics that should score it lower |
 |---|---|---|---|
-| `missing_step` | an inner event removed, searched from the middle outward | the pack's replay fails at a later event, and so do its hard checks | correctness, process conformance, helpfulness |
+| `missing_step` | an inner event removed, searched from the middle outward | the pack's replay fails at a later event, and so do its hard checks | correctness, helpfulness |
 | `worse_choice` | at an outcome decision, the rival with the lowest simulated chance of reaching the goal, at most 0.9 of the choice made; the journey ends there | the decision values, and the hard checks still pass | decision score |
 | `slow_wait` | one wait stretched to ten times its step's longest wait, at least 30 days | the step's dwell and cycle ranges, and the hard checks still pass | helpfulness |
 | `reversed` | every event in reverse order, at the original times | the pack's replay and hard checks fail | correctness |

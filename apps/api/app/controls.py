@@ -20,7 +20,7 @@ from trajectory_contract.models import Context, Segment, TrajectoryBundle
 # The rubrics each defect should lower. A worse choice often ends in a failure, which is as representative as a success,
 # so only the decision score should see it. Safety has nothing to do with any of them; pairwise gets its own control.
 TARGETS = {
-    "missing_step": ("correctness", "process_conformance", "helpfulness"),
+    "missing_step": ("correctness", "helpfulness"),
     "worse_choice": ("decision_score",),
     "slow_wait": ("helpfulness",),
     # Every event in reverse order, which the pack's replay rejects: a correctness judge must catch it (decision 18).
@@ -174,14 +174,12 @@ def build(journeys: list[TrajectoryBundle], sector, config: dict) -> list[dict]:
             if broken != (kind in ("missing_step", "reversed")):
                 continue
             _narrated(copy, trajectory_id, pack, lang)
-            control_types, _ = _path(copy, trajectory_id)
             controls.append({
                 "kind": kind,
                 "trajectory_id": trajectory_id,
                 "bundle": copy,
                 "detail": detail,
                 "rubrics": TARGETS[kind],
-                "reference": found.conformance_reference(pack, walker, control_types, domains=domains, floor=floor, cap=cap),
             })
     return controls
 

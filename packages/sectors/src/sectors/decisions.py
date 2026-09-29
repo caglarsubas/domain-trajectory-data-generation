@@ -207,8 +207,7 @@ def decision_steps(lifecycle, walker: Walker, types: list[str]):
         if index and spec.outcome and spec.outcome not in decided:
             offered = walker.options(state, counts)
             if walker.calibration is not None:
-                previous, before = walker.calibration.context(types[:index])
-                offered = walker.calibration.reweight(previous, offered, before)
+                offered = walker.reweighted(offered, types[:index], state, counts)
             rivals = [(option, weight) for option, weight in offered if lifecycle[option].outcome == spec.outcome]
             if len(rivals) > 1 and name in dict(rivals):
                 decided.add(spec.outcome)
