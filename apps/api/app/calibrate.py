@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import io
+import random
 import re
 import zipfile
 from collections import Counter
@@ -161,6 +162,25 @@ def saved_mapping(item: CorpusItem, namespace: tuple[str, ...]) -> dict[str, str
     }
 
 
+# Real cases a judge may set against generated journeys (decision 22), kept as event types and hours since each case began.
+REAL_CASES = 24
+
+
+def _sampled(cases, keep: list, size: int = REAL_CASES):
+    """Pass a source's mapped cases through, keeping an even, seeded sample of them as `[event, hours]` steps."""
+    rng = random.Random(0)
+    seen = 0
+    for case in cases:
+        if case:
+            seen += 1
+            steps = [[event, None if when is None else round(float(when), 3)] for event, when in case]
+            if len(keep) < size:
+                keep.append(steps)
+            elif (slot := rng.randrange(seen)) < size:
+                keep[slot] = steps
+        yield case
+
+
 def _event_log(path: Path, namespace: tuple[str, ...], saved: dict | None, catalogue: dict | None, progress) -> dict:
     kind, cases = read_cases(path)
     activities = Counter()
@@ -184,7 +204,8 @@ def _event_log(path: Path, namespace: tuple[str, ...], saved: dict | None, catal
             start = next((when for _, when in case if when is not None), None)
             yield [(mapping[name], None if when is None or start is None else (when - start) / 3600.0) for name, when in case if mapping.get(name)]
 
-    calibration = build(mapped(), source=path.name)
+    real: list = []
+    calibration = build(_sampled(mapped(), real), source=path.name)
     events = sum(activities.values())
     mapped_events = sum(count for name, count in activities.items() if mapping.get(name))
     return {
@@ -196,6 +217,7 @@ def _event_log(path: Path, namespace: tuple[str, ...], saved: dict | None, catal
         "mapped_share": round(mapped_events / events, 3) if events else 0.0,
         "calibration": calibration.as_dict(),
         "channels": {},
+        "real_cases": real,
     }
 
 
@@ -344,7 +366,8 @@ def _hotel_bookings(path: Path) -> dict:
                 tally["events"] += len(steps)
                 yield steps
 
-        calibration = build(cases(), source=path.name)
+        real: list = []
+        calibration = build(_sampled(cases(), real), source=path.name)
     total = sum(statuses.values())
     if not total:
         raise LogError("the booking file has no bookings with a known final status")
@@ -356,6 +379,7 @@ def _hotel_bookings(path: Path) -> dict:
         "mapping": {},
         "mapped_share": 1.0,
         "calibration": calibration.as_dict(),
+        "real_cases": real,
         "channels": {},
         "outcomes": {
             "cancelled": round(statuses["canceled"] / total, 4),
@@ -432,7 +456,8 @@ def _on_time(path: Path) -> dict:
                     counts["on_time"] += 1
                     yield [("passenger.checked_in", None), ("passenger.boarded", None), ("flight.departed", departure), ("flight.arrived", arrival)]
 
-        calibration = build(cases(), source=name)
+        real: list = []
+        calibration = build(_sampled(cases(), real), source=name)
     flown = counts["on_time"] + counts["delayed"]
     total = flown + counts["cancelled"]
     if not total:
@@ -445,6 +470,7 @@ def _on_time(path: Path) -> dict:
         "mapping": {},
         "mapped_share": 1.0,
         "calibration": calibration.as_dict(),
+        "real_cases": real,
         "channels": {},
         "outcomes": {
             "delayed": round(counts["delayed"] / total, 4),
