@@ -166,7 +166,7 @@ class Scorer:
             if walker.calibration is not None:
                 previous, before = walker.calibration.context(types[:index])
                 following = walker.calibration.following(previous, options, before)
-                options = walker.calibration.reweight(previous, options, before)
+                options = walker.reweighted(options, types[:index], state, counts)
                 observed.append(bool(following and following.get(name)))
             weights = dict(options)
             if name in weights and len(options) > 1:

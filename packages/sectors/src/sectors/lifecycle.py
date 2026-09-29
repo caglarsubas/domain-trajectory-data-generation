@@ -256,6 +256,15 @@ class Walker:
             )
             for name in allowed
         )
+        # What each event sets and what its guards read, for asking which event a step can follow (leads), and for each
+        # event the ones the data never contains that set something it reads, which a step can come through.
+        self._sets = {name: {(effect.kind, effect.dimension): effect.state for effect in lifecycle[name].sets} for name in allowed}
+        self._guards = {name: guards for name, _, guards, _ in self._checks}
+        unseen = [] if self.calibration is None else [name for name in allowed if name not in self.calibration.observed_events]
+        self._through = {
+            name: tuple(middle for middle in unseen if middle != name and any(key in self._sets[middle] for key, _ in self._guards[name]))
+            for name in allowed
+        }
         self.goals: list[tuple[str, ...]] = []
         for domain in lifecycle.sub_domains:
             if domain not in sub_domains:
@@ -290,6 +299,34 @@ class Walker:
             return openings or found
         return found
 
+    def leads(self, state: State, counts: dict[str, int], option: str, event: str) -> bool:
+        """Whether `event`, not legal now, is legal once `option` is taken in this state, right after it or after one
+        more event the data never contains: documents, then a passed check the data does not record, then approval.
+
+        An option that sets nothing the event's guards read leaves it as it is, so only the others are checked.
+        """
+        guards = self._guards.get(event)
+        if guards is None or counts.get(event, 0) + (option == event) >= self.lifecycle[event].repeat:
+            return False
+        sets = self._sets[option]
+        if any(key in sets for key, _ in guards) and all(sets.get(key, state.get(key)) in states for key, states in guards):
+            return True
+        for middle in self._through[event]:
+            if middle == option or counts.get(middle, 0) >= self.lifecycle[middle].repeat:
+                continue
+            if all(sets.get(key, state.get(key)) in states for key, states in self._guards[middle]):
+                after = {**sets, **self._sets[middle]}
+                if all(after.get(key, state.get(key)) in states for key, states in guards):
+                    return True
+        return False
+
+    def reweighted(self, options: list[tuple[str, float]], types: list[str], state: State, counts: dict[str, int]) -> list[tuple[str, float]]:
+        """The options reweighted by the data's next-step shares after the journey so far."""
+        previous, before = self.calibration.context(types)
+        return self.calibration.reweight(
+            previous, options, before, taken=counts, leads=lambda option, event: self.leads(state, counts, option, event)
+        )
+
     def walk(
         self,
         rng: random.Random,
@@ -312,8 +349,7 @@ class Walker:
                 exhausted = True
                 break
             if self.calibration is not None:
-                previous, before = self.calibration.context([step.event_type for step in steps])
-                options = self.calibration.reweight(previous, options, before)
+                options = self.reweighted(options, [step.event_type for step in steps], state, counts)
             if forced is not None:
                 choice = forced
                 forced = None
