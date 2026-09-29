@@ -37,7 +37,7 @@ def _calibration_out(calibration: dict | None) -> dict | None:
     from sectors.calibration import Calibration
 
     summary = Calibration.from_dict(calibration.get("calibration")).summary() if calibration.get("calibration") else None
-    keep = ("status", "reason", "format", "cases", "events", "activities", "mapping", "mapped_share", "channels", "outcomes")
+    keep = ("status", "reason", "format", "cases", "events", "activities", "mapping", "mapped_share", "channels", "outcomes", "preview")
     return {**{key: calibration.get(key) for key in keep if key in calibration}, "summary": summary}
 
 

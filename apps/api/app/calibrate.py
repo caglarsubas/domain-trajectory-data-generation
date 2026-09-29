@@ -47,10 +47,14 @@ def _tokens(text: str) -> set[str]:
 
 
 def suggest(activities: list[str], namespace: tuple[str, ...]) -> dict[str, str | None]:
-    """Each activity's best event by shared words, or None when nothing fits or two events tie."""
+    """Each activity's best event by shared words, or None when nothing fits or two events tie. An activity named exactly
+    as an event, as the pack's log template writes them, is that event."""
     events = {event: set(re.split(r"[._]", event)) for event in namespace}
     mapping: dict[str, str | None] = {}
     for activity in activities:
+        if activity.strip() in events:
+            mapping[activity] = activity.strip()
+            continue
         words = _tokens(activity)
         scored = sorted(((len(words & parts) / len(parts), event) for event, parts in events.items()), reverse=True)
         best = scored[0] if scored else (0.0, None)
@@ -124,6 +128,13 @@ def calibrate_item(db: Session, item: CorpusItem, progress=None) -> dict:
         db.commit()
         raise HTTPException(status_code=422, detail=f"The data source could not be read as an event log: {exc}") from exc
     result["status"] = "ready"
+    if result.get("calibration"):
+        from app.log_template import preview
+
+        if progress is not None:
+            progress(1, 2, "Previewing what calibration changes.")
+        # What the calibration would change in a run, before one is made (Slice 15).
+        result["preview"] = preview(sector, Calibration.from_dict(result["calibration"]))
     item.calibration = result
     db.commit()
     return {"id": item.id, "cases": result["cases"], "mapped_share": result.get("mapped_share"), "format": result["format"]}

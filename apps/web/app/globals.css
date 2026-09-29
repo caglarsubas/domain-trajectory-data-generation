@@ -466,6 +466,8 @@ label.check input { width: auto; margin: 0; }
 .catalogue-entry { display: grid; gap: 4px; background: white; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; align-content: start; }
 .catalogue-entry small { color: var(--muted); line-height: 1.4; }
 .catalogue-entry[data-availability="planned"], .catalogue-entry[data-availability="reviewed"] { opacity: 0.7; }
+button.link { background: none; border: none; padding: 0; color: var(--copper); text-decoration: underline; cursor: pointer; font: inherit; }
+.data-sources .preview { display: grid; gap: 6px; margin: 6px 0 10px; }
 .catalogue-entry button { justify-self: start; }
 .episode { background: var(--paper-2); border: 1px solid var(--line); border-radius: 20px; padding: 14px; margin: 14px 0; }
 .episode h4 { margin: 12px 0 6px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 500; }

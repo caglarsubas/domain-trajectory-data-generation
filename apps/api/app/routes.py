@@ -158,6 +158,22 @@ def sectors() -> dict:
     return {"data": data}
 
 
+@router.get("/sectors/{sector_id}/log-template/{part}")
+def log_template(sector_id: str, part: str) -> Response:
+    """A pack's events, or an example log in the shape the event-log reader takes, for a team bringing its own journeys."""
+    from app.log_template import events_csv, example_csv
+
+    try:
+        sector = get_sector(sector_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    makers = {"events.csv": events_csv, "example.csv": example_csv}
+    if part not in makers:
+        raise HTTPException(status_code=404, detail="the template has events.csv and example.csv")
+    return Response(content=makers[part](sector), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{sector.id}-{part}"'})
+
+
 @router.get("/sectors/{sector_id}/lengths")
 def sector_lengths(sector_id: str, sub_domains: str = "", max_events: int = 24) -> dict:
     """How long journeys in a scope can run, so the composer can say when a minimum is beyond most of them."""
