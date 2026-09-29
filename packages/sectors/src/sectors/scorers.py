@@ -159,7 +159,7 @@ class Scorer:
         ratios = []
         observed = []
         # The shares the policy gave each legal next step wherever the journey could have gone more than one way:
-        # the reference a judge needs to score typicality as this scorer does.
+        # a record of the policy the typicality is measured against.
         reference = []
         for index, name in enumerate(types):
             options = walker.options(state, counts, first=index == 0)

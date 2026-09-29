@@ -85,10 +85,3 @@ def worse_choice(pack, walker: Walker, types: list[str], *, floor: int, cap: int
         if rival != taken and scored[taken] > 0 and scored[rival] <= WORSE * scored[taken]:
             return {"index": index, "taken": taken, "rival": rival, "taken_value": scored[taken], "rival_value": scored[rival]}
     return None
-
-
-def conformance_reference(pack, walker: Walker, types: list[str], *, domains: list[str], floor: int, cap: int) -> list[dict]:
-    """The next-step shares a conformance judge reads for a path, as the code scorer records them."""
-    from sectors.scorers import Scorer
-
-    return Scorer(pack, walker, domains=domains, floor=floor, cap=cap).conformance(types).get("reference") or []
