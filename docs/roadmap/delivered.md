@@ -462,3 +462,9 @@ Below 640 pixels the header wraps, its links on their own row within the page's 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/76
 
 Slice 19, in one pull request. Real cases are cut to the study's own sub-domains, both sides are drawn at the resolution the data records times at, whole days for a source of dates, and realism draws its own sample of the run's journeys, 16 by default. Four out-of-order copies are the control: a judge that does not pick the real case over them in three of four is flagged blind to realism, and its rate is not read (decision 26). Live on hotel runs over booking, changes, and arrival, both judges picked the real case over out-of-order journeys in 88% to 100% of comparisons and over the run's journeys in 31% to 44%, calibrated or not, and no checkout or time finer than a day was shown or cited. Its full cycles failed on 504s that its notes put down to the engine; the engine's investigation later found the laptop asleep during each.
+
+## 77. Review the roadmap after Slices 18 and 19 and approve Slice 20
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/77
+
+Docs only. Against `43c5a67` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `e00c382`. With the machine kept awake, a full live cycle on a calibrated hotel run finished in 12 minutes with 198 verdicts and accepted the run, helpfulness and correctness both deciding; `qwen3.6:27b` caught two of three missing steps by scoring, the first a judge has caught, and both judges saw realism and could not tell the run's journeys from real ones. Slice 19's failed cycles were the laptop sleeping, as `llm_inference_engine` #121 found. Slice 20 (a cycle that finishes) was approved with decision 27.

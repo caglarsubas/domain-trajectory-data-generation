@@ -103,12 +103,12 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 to 19. The suite has 451 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
+All eight slices of the first plan have shipped, and so have Slices 8 to 20. The suite has 457 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
 
 The review of 30 September, against `43c5a67`, found that the data meets every clause it is measured against, and that what remains is whether a judge cycle finishes:
 - **The whole cycle works, live.** With the machine kept awake, a full cycle on a calibrated hotel run finished in 12 minutes with 198 verdicts and accepted the run, both helpfulness and correctness deciding. Both judges saw realism and could not tell the run's journeys from real ones.
-- **A cycle stops at its first failed call and keeps nothing.** Slice 19's failed cycles were the laptop sleeping, as the engine's investigation (`llm_inference_engine` #121) found, not the engine; asked again, each call answered in seconds, but each cycle had lost up to 16 minutes and every verdict before it. Slice 20 asks such a call again and resumes a failed cycle.
-- **Some verdicts run out of room.** 3 of 198 were unreadable, `qwen3.6:27b` helpfulness justifications cut off at the engine's 512-token answer limit; helpfulness, correctness, and safety do not yet ask for a short reason, as the other questions do.
+- **A cycle stops at its first failed call and keeps nothing.** Slice 19's failed cycles were the laptop sleeping, as the engine's investigation (`llm_inference_engine` #121) found, not the engine; asked again, each call answered in seconds, but each cycle had lost up to 16 minutes and every verdict before it. Slice 20, now delivered, asks such a call again once and resumes a stopped cycle from the answers it kept.
+- **Some verdicts run out of room.** 3 of 198 were unreadable, `qwen3.6:27b` helpfulness justifications cut off at the engine's 512-token answer limit; asked to keep their justification short, the judges fit the limit but scored the same journeys differently, so Slice 20 left the questions as they were and the engine's limit decides.
 
 ## Roadmap
 
@@ -166,7 +166,7 @@ Approved on 30 September 2026 (detail in [next-slice.md](next-slice.md)):
 
 | Slice | Goal | Exit criterion |
 |---|---|---|
-| 20. A cycle that finishes | A judge call that fails with a timeout or a busy engine asked again, a failed cycle resumed from its verdicts, every question asking for a short reason, and the README saying to keep a local engine awake | With a test engine that times out one call a cycle completes; a cycle stopped halfway resumes without asking again what it holds; and in a live cycle fewer than 1 in 100 verdicts is unreadable |
+| 20. A cycle that finishes (delivered, without its third task) | A judge call that fails with a timeout or a busy engine asked again, a failed cycle resumed from its verdicts, every question asking for a short reason, and the README saying to keep a local engine awake | With a test engine that times out one call a cycle completes; a cycle stopped halfway resumes without asking again what it holds; and in a live cycle fewer than 1 in 100 verdicts is unreadable |
 
 ### Slice 0. Rotate credentials and fix the judge wiring
 
@@ -300,7 +300,7 @@ Settled on 29 September 2026 for Slices 18 and 19, all as recommended:
 
 Settled on 30 September 2026 for Slice 20, as recommended:
 
-27. **A cycle finishes what it can.** A judge call that fails with a timeout or a busy engine is asked once more before the cycle fails, and a cycle that fails keeps its verdicts, so asking the judge again resumes it instead of starting over. Every question asks for a reason short enough to fit the engine's answer.
+27. **A cycle finishes what it can.** A judge call that fails with a timeout or a busy engine is asked once more before the cycle fails, and a cycle that fails keeps its verdicts, so asking the judge again resumes it instead of starting over. Amended the same day, at the owner's choice: the questions judges score by keep their justification uncapped, since a cap changed the scores it was meant only to shorten.
 
 ## Stack
 

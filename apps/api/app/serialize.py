@@ -184,6 +184,9 @@ def run_out(run: Run, db: Session) -> dict:
         bundle = banking_fixture().model_dump(mode="json")
         source = "fixture"
     headline = cycle_payload[-1]["headline_score"] if cycle_payload else None
+    judge_job = job_out(latest_for(db, run.id, "evaluate"))
+    from app.judging import resume_state
+
     return {
         "id": run.id,
         "project_id": run.project_id,
@@ -201,7 +204,9 @@ def run_out(run: Run, db: Session) -> dict:
         "generation_active": _generation(run) is not None,
         "generation": _generation(run),
         "job": job_out(latest_for(db, run.id)),
-        "judge_job": job_out(latest_for(db, run.id, "evaluate")),
+        "judge_job": judge_job,
+        # A judge cycle that stopped keeps its answers, and asking again resumes it (decision 27).
+        "judge_resume": resume_state(run) if judge_job and judge_job["status"] in ("failed", "cancelled") else None,
         **_study_state(run, db, cycles[-1] if cycles else None),
     }
 

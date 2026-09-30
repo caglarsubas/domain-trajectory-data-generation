@@ -43,6 +43,14 @@ class AcceptingKeyChecker:
         return KeyCheck("valid", "accepted in tests")
 
 
+@pytest.fixture(autouse=True)
+def _no_retry_pause(monkeypatch):
+    """A judge call the engine timed out is asked again after a pause; tests do not wait it out."""
+    from app import evaluation
+
+    monkeypatch.setattr(evaluation, "RETRY_PAUSE_SECONDS", 0.0)
+
+
 @pytest.fixture()
 def client():
     init_db("sqlite://")

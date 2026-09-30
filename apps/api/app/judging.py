@@ -9,6 +9,8 @@ unfaithful goes back to its template in the stored run (decision 14).
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -23,7 +25,7 @@ from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable
 from app.judge_rubrics import CODE_RUBRICS, STUDY_KINDS, TURN_FAITHFULNESS
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Run
 from app.settings import Settings
-from app.store import DbStore, store_for
+from app.store import DbStore, run_dir, store_for
 from sectors.registry import get_sector
 from trajectory_contract import TrajectoryBundle, banking_fixture
 
@@ -162,6 +164,65 @@ def real_cases(db: Session, run: Run) -> dict | None:
     return {"cases": cases, "visible": sorted(visible), "untimed": untimed, "sources": sources, "resolution": source_resolution(by_source)}
 
 
+class Answers:
+    """A cycle's answers as they arrive, kept beside the run so a cycle that stops can be resumed (decision 27).
+
+    One line per answer, and one per attempt for how many questions it planned; a line cut off when the process stopped
+    is skipped.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.found: dict[str, dict] = {}
+        self.planned = 0
+        if path.is_file():
+            for line in path.read_text().splitlines():
+                try:
+                    item = json.loads(line)
+                except ValueError:
+                    continue
+                if "planned" in item:
+                    self.planned = int(item["planned"])
+                elif "key" in item:
+                    self.found[item["key"]] = item["result"]
+
+    def get(self, key: str) -> dict | None:
+        return self.found.get(key)
+
+    def keep(self, key: str, result: dict) -> None:
+        self.found[key] = result
+        self._write({"key": key, "result": result})
+
+    def plan(self, total: int) -> None:
+        self.planned = total
+        self._write({"planned": total})
+
+    def clear(self) -> None:
+        self.path.unlink(missing_ok=True)
+        try:
+            self.path.parent.rmdir()
+        except OSError:
+            pass
+
+    def _write(self, item: dict) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a") as handle:
+            handle.write(json.dumps(item, default=str) + "\n")
+
+
+def answers_path(run: Run, cycle_index: int) -> Path:
+    return run_dir(run.id) / "judging" / f"cycle-{cycle_index}.jsonl"
+
+
+def resume_state(run: Run) -> dict | None:
+    """How far the run's next cycle got before it stopped, when an attempt at it kept answers."""
+    path = answers_path(run, run.cycle_count + 1)
+    if not path.is_file():
+        return None
+    found = Answers(path)
+    return {"heard": len(found.found), "planned": found.planned} if found.found else None
+
+
 def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     """Judge a sample of the run's journeys, record the cycle and its verdicts, and return the cycle."""
     if run.cycle_count >= int(run.config["max_cycles"]):
@@ -186,6 +247,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
         "notes": [],
     }
     lazy = LazyJudge(cfg)
+    kept = Answers(answers_path(run, cycle_index))
     turns = [] if whole else faithfulness.sample_turns(found, cfg.judge_text_sample, f"{run.id}|{cycle_index}|text")
     faithful: dict | None = None
     try:
@@ -245,6 +307,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 controls=build_controls(journeys, sector, run.config),
                 faithfulness=faithful,
                 realism=prepare_realism(real_cases(db, run), found, sector, run.config, cfg.realism_sample, f"{run.id}|{cycle_index}"),
+                kept=kept,
             )
     except JudgeUnavailable as exc:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
@@ -299,4 +362,6 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     run.cycle_count += 1
     run.status = "evaluated"
     db.commit()
+    # The cycle holds every answer now, so the ones kept for resuming it go.
+    kept.clear()
     return cycle

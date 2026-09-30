@@ -14,11 +14,14 @@ to go back to its template.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import time
 from statistics import mean
 
 from trajectory_contract.models import TrajectoryBundle
 
-from app.judge import Judge
+from app.judge import Judge, JudgeUnavailable
 from app.controls import broken_copy, pairwise_pick  # noqa: F401  (broken_copy is part of this module's interface)
 from app.faithfulness import facts
 from app.judge_rubrics import FAITHFULNESS_QUESTION, JUDGE_PASS, QUESTIONS, TURN_FAITHFULNESS
@@ -50,6 +53,9 @@ FAITHFULNESS = TURN_FAITHFULNESS["name"]
 LANGUAGE_NAMES = {"en": "English", "tr": "Turkish"}
 
 # The studio's questions name what to look for, so a judge checks for the defects its controls carry.
+# These questions leave the justification as long as the judge makes it. Asked to keep it under 40 words, qwen3.6:27b
+# stopped running past the engine's 512-token answer, but scored differently on the same journeys: correctness called
+# sound journeys incorrect, and helpfulness scored every journey lower. It reasons in its justification.
 HELPFULNESS_QUESTION = (
     "Score how representative this {label} journey is. A skipped step, events out of order, or a wait far longer than "
     "such a step takes makes it less representative; a journey that plainly ends in a failure is as representative as "
@@ -59,6 +65,12 @@ CORRECTNESS_QUESTION = (
     "Do these events follow the {label} transitions in the reference, in order? A step that comes before what it "
     "depends on, or after a step it needs was skipped, means they do not."
 )
+SAFETY_QUESTION = "Confirm the journey is synthetic and holds no real personal or account identifiers."
+
+# A call the engine could not answer in time, or was too busy to take, is asked once more after this pause before the
+# cycle fails (decision 27); a host that slept, for one, answers the second time.
+RETRY_PAUSE_SECONDS = 5.0
+RETRIED = {503, 504}
 
 # Helpfulness is scored 1 to 5; the others 0 to 1. Normalized scores divide by this.
 SCALE = {"helpfulness": 5.0}
@@ -288,6 +300,7 @@ def evaluate_journeys(
     controls: list[dict] | None = None,
     faithfulness: dict | None = None,
     realism: dict | None = None,
+    kept=None,
 ) -> dict:
     """Judge a sample of journeys with every model and turn the verdicts into a cycle.
 
@@ -297,7 +310,9 @@ def evaluate_journeys(
     sampled journeys with one known defect (`app.controls`): each is asked the rubrics its defect should lower, and
     one is set against its original as a pairwise question with a right answer. `faithfulness` gives provider-written
     turns sampled from the run (`app.faithfulness`), the run's language, and the registered rubric's digest; each turn
-    is asked whether it is faithful to the facts it had to state.
+    is asked whether it is faithful to the facts it had to state. `kept` holds the answers of an attempt at this cycle that
+    stopped (`judging.Answers`): a question asked word for word before is not asked again, and each new answer is kept as
+    it arrives, so a cycle that stops can be resumed (decision 27).
     """
     compared = compared or {}
     study = study or {}
@@ -321,7 +336,7 @@ def evaluate_journeys(
         if rubric == "correctness":
             return {"prompt": CORRECTNESS_QUESTION.format(label=label), "response": text, "expected": brief}
         if rubric == "safety":
-            return {"prompt": "Confirm the journey is synthetic and holds no real personal or account identifiers.", "response": text}
+            return {"prompt": SAFETY_QUESTION, "response": text}
         return {"prompt": brief + "\n" + QUESTIONS[rubric].format(label=label), "response": text}
 
     for journey in journeys:
@@ -410,9 +425,22 @@ def evaluate_journeys(
         })
 
     planned = [(model, call) for model in models for call in calls]
+    # A control is asked once at temperature 0, so that every sampled journey can have them (decision 19).
+    asks = [
+        {"rubric": call["rubric"], "judge_model": model, "repeats": 1 if call.get("control") else repeats,
+         "temperature": 0.0 if call.get("control") else temperature, **call["payload"]}
+        for model, call in planned
+    ]
+    keys = [answer_key(ask) for ask in asks]
+    if kept is not None:
+        kept.plan(len(planned))
+        resumed = sum(1 for key in keys if kept.get(key) is not None)
+        if resumed and progress is not None:
+            progress(resumed, len(planned), f"Resuming: {resumed} of {len(planned)} answers kept from the attempt that stopped.")
     verdicts = []
     for index, (model, call) in enumerate(planned):
-        if progress is not None:
+        result = kept.get(keys[index]) if kept is not None else None
+        if progress is not None and result is None:
             what = "a control journey" if call["canary"] else call["rubric"].replace("_", " ")
             if call.get("segment_id"):
                 what += " of a written turn"
@@ -423,11 +451,11 @@ def evaluate_journeys(
             elif call.get("control"):
                 what += f" of a {call['control'].split(':')[-1].replace('_', ' ')} control"
             progress(index, len(planned), f"{model}: {what} ({index + 1} of {len(planned)}).")
-        # A control is asked once at temperature 0, so that every sampled journey can have them (decision 19).
-        fixed = bool(call.get("control"))
-        result = judge.run_eval(
-            rubric=call["rubric"], judge_model=model, repeats=1 if fixed else repeats, temperature=0.0 if fixed else temperature, **call["payload"]
-        )
+        if result is None:
+            say = (lambda message, index=index: progress(index, len(planned), message)) if progress is not None else None
+            result = _ask(judge, asks[index], say)
+            if kept is not None:
+                kept.keep(keys[index], result)
         # One entry per repeat; a judge that answers once is one repeat.
         answers = result.get("verdicts") or [result]
         for repeat, answer in enumerate(answers):
@@ -705,6 +733,24 @@ def summarize(verdicts: list[dict], sample: list[dict], models: list[str], thres
         "accepted": accepted,
         "revision_notes": notes,
     }
+
+
+def answer_key(ask: dict) -> str:
+    """A question's identity: the same judge asked the same thing the same way gets the same key."""
+    return hashlib.sha256(json.dumps(ask, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _ask(judge: Judge, ask: dict, say=None) -> dict:
+    """One judge call, asked once more when the engine timed out or was busy (decision 27)."""
+    try:
+        return judge.run_eval(**ask)
+    except JudgeUnavailable as exc:
+        if exc.status not in RETRIED:
+            raise
+        if say is not None:
+            say(f"{ask['judge_model']}: {exc.message} Asking once more.")
+        time.sleep(RETRY_PAUSE_SECONDS)
+        return judge.run_eval(**ask)
 
 
 def _realism(verdicts: list[dict], models: list[str], flags: list[dict], realism: dict) -> dict:

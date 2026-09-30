@@ -379,7 +379,7 @@ export default function RunPage() {
       <div className="actions">
         {!judgedFully ? (
           <button className="primary" type="button" onClick={evaluate} disabled={busy || judging || judgeBlocked || run.cycle_count >= run.config.max_cycles} title={judgeBlocked ? judgeCheck.reason : undefined}>
-            {busy ? "Asking" : judging ? "Judging" : cycle ? "Judge again" : "Ask the judge"}
+            {busy ? "Asking" : judging ? "Judging" : run.judge_resume ? "Resume the judge" : cycle ? "Judge again" : "Ask the judge"}
           </button>
         ) : canRegenerate ? (
           <button className="primary" type="button" onClick={regenerate} disabled={busy || judgeBlocked} title={judgeBlocked ? judgeCheck.reason : undefined}>
@@ -414,6 +414,12 @@ export default function RunPage() {
         </div>
       ) : null}
       {judgeFailed ? <div className="error">The judge did not finish: {explain(judgeJob.error || judgeJob.message)}</div> : null}
+      {run.judge_resume && !judging ? (
+        <p className="note">
+          The last attempt stopped after {run.judge_resume.heard} of {run.judge_resume.planned || "its"} questions. Its answers are kept, so asking the
+          judge again picks up where it stopped.
+        </p>
+      ) : null}
       {error ? <div className="error">{explain(error)}</div> : null}
       {run.bundle_source === "fixture" ? (
         <p className="note">This is the banking sample. Generation is not running yet, so the canvas stays filled while you practice the loop.</p>
