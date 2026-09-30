@@ -468,3 +468,9 @@ Slice 19, in one pull request. Real cases are cut to the study's own sub-domains
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/77
 
 Docs only. Against `43c5a67` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `e00c382`. With the machine kept awake, a full live cycle on a calibrated hotel run finished in 12 minutes with 198 verdicts and accepted the run, helpfulness and correctness both deciding; `qwen3.6:27b` caught two of three missing steps by scoring, the first a judge has caught, and both judges saw realism and could not tell the run's journeys from real ones. Slice 19's failed cycles were the laptop sleeping, as `llm_inference_engine` #121 found. Slice 20 (a cycle that finishes) was approved with decision 27.
+
+## 78. Ask a timed-out judge call once more and resume a stopped cycle from its kept answers, completing Slice 20
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/78
+
+Slice 20, without its third task. A judge call the engine answers 504 or 503 is asked once more after five seconds, and each answer is kept beside the run as it arrives, so asking the judge again resumes a stopped cycle and asks only what it has not heard; the run page says how far it got (decision 27). The README says a laptop-hosted engine answers 504 once the laptop sleeps. Asking helpfulness, correctness, and safety for a justification under 40 words kept every verdict inside the engine's limit but changed the scores on the same journeys, so it was dropped at the owner's choice and the questions stay uncapped.

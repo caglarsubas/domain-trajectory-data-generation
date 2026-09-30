@@ -1,12 +1,12 @@
-# Next slice: a roadmap review
+# Next slice: questions the studio owns
 
-Status: approved on 30 September 2026, with decision 27 in the [overview](overview.md#decisions), as recommended; it has shipped, so a review comes next. Slices 18 and 19, approved on 29 September, have shipped; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: approved on 30 September 2026, with decision 28 in the [overview](overview.md#decisions) and closing the roadmap after it, all as recommended. Slice 20, approved earlier the same day, has shipped without its third task; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
-Branch off `main` at `43c5a67`.
+Branch off `main` at `96fd248`.
 
 ## Why this comes next
 
-The review re-ran every gate against `43c5a67`, and every pack passes all nine, with the same measures as at `e00c382`:
+The review re-ran every gate against `96fd248`, and every pack passes all nine, with the same measures as at `43c5a67`:
 
 | Pack | Distinct sequences in 64 journeys | Distinct sentences, English and Turkish | Lowest sub-domain's accepted groups |
 |---|---|---|---|
@@ -16,39 +16,35 @@ The review re-ran every gate against `43c5a67`, and every pack passes all nine, 
 | Insurance | 43 | 53% | servicing, 32% |
 | Telecommunications | 51 | 56% | activation and porting, 27% |
 
-A 10,000-sequence banking run costs what it did at `e00c382`. Timed on the same machine, the two commits interleaved, it took 4.7 to 4.9 seconds plain against 4.9 to 5.2, and 7.3 to 8.0 with episodes, decision records, and the decision-score signal against 6.9 to 7.4. CI passes on `main`, and no pull request is open.
+A 10,000-sequence banking run costs what it did at `43c5a67`. Timed on the same machine, the two commits interleaved, it took 4.6 seconds plain against 4.5 to 4.9, and 6.8 to 7.0 with episodes, decision records, and the decision-score signal against 6.9 to 7.1. CI passes on `main`, and no pull request is open.
 
-The data meets every clause it is measured against, calibrated waits included. What remains is whether a judge cycle finishes.
+This review was to say whether the roadmap has reached its end. Every clause of the purpose is met, but two, and those two are held back from outside the studio. Telecommunications and insurance have no public data, so a team brings its own log. And today's judges see a missing step only now and then. One dependency the review found is inside it, though.
 
-- **The whole cycle works, live.** With the machine kept awake, a full cycle judged a hotel run calibrated from the hotel booking demand data, over booking, changes and cancellations, and arrival (198 verdicts, 12 minutes). It covered three sampled journeys and their controls, three repeats of each rubric, and the fair realism comparison, with `qwen3.6:27b` and `gemma4:26b`. The run was accepted, and for the first time live both helpfulness and correctness decided:
+- **The engine fixed what it owed.** `llm_inference_engine` #121 traced Slice 19's failed cycles to the laptop sleeping. #122 keeps the score of a verdict cut off at the engine's 512-token answer limit, marked `truncated`, which the studio already reads as a score.
+- **The engine also rewrote the questions the studio scores by.** #122 made the engine's built-in helpfulness, correctness, and pairwise rubrics ask for a justification of one or two sentences, without a live measure. The studio asks those rubrics by name, so their wording is the engine's. The review asked review 6's cycle again against today's engine: the same run, sampled journeys, controls, and questions (198 verdicts, 8 minutes, with the machine kept awake).
 
-  | | `qwen3.6:27b`, primary | `gemma4:26b` |
+  | | Review 6's engine | Today's engine, with #122 |
   |---|---|---|
-  | Helpfulness controls scored lower | 2 of 4 (a missing step 1 of 3, a slow wait 1 of 1) | 0 of 6: blind |
-  | Correctness controls scored lower | 4 of 6 (a missing step 2 of 3, reversed 2 of 3) | 4 of 6 (missing step 1 of 3, reversed 3 of 3) |
-  | Pairwise, a journey against its flawed copy | 2 of 2 | 2 of 2 |
-  | Picked the real case over an out-of-order journey | 100% of 8 | 88% of 8 |
-  | Picked the real case over the run's journeys | 56% of 32 | 47% of 32 |
+  | Unreadable verdicts | 3 | 0 |
+  | Verdicts with a different score | | 16 of 198 |
+  | `qwen3.6:27b`: sound journeys called correct | 8 of 9 (0.89) | 5 of 9 (0.56) |
+  | `qwen3.6:27b`: helpfulness of the sound journeys | 5.0 | 4.6 |
+  | `qwen3.6:27b`: correctness controls scored lower | 4 of 6 | 4 of 6 |
+  | `gemma4:26b`: missing steps its correctness caught | 1 of 3 | 0 of 3 |
+  | `gemma4:26b`: real case over an out-of-order journey | 88% | 75% |
+  | Justification length, median | 598 characters | 255 |
 
-  It is the first cycle in which a judge caught a missing step by scoring a journey alone. Both judges see realism and cannot tell the run's journeys from real ones, and no step outside the scope or time finer than a day was shown.
-- **Slice 19's failed cycles were the laptop sleeping, not the engine.** The engine's investigation, `llm_inference_engine` #121, matched each of the four 504s to the host asleep with its lid closed. The engine's clock ran on through sleep, so its 240-second limit fired the moment the host woke. Slice 19's notes blamed the engine; this corrects them. A cycle still stops at its first failed call and keeps none of the verdicts before it, though asked again the call answers in seconds. Each of those cycles lost up to 16 minutes and everything it had heard.
-- **Some verdicts run out of room.** 3 of this cycle's 198 verdicts were unreadable, all `qwen3.6:27b` helpfulness answers. Each justification kept reasoning, re-reading the question, until the engine's 512-token answer limit cut it off. The engine counts 49 of 1,347 `qwen3.6:27b` verdicts cut off the same way, and leaves raising its limit to a follow-up. The studio already asks for a reason under 40 words in the pairwise and realism questions and the rubrics it registers, but not in helpfulness, correctness, or safety.
+  The run is still accepted, but correctness now clears its bar by a hair: the primary judge calls four of nine verdicts on sound journeys incorrect, where it called one. Slice 20 found the same effect when the studio capped the justification itself, and kept its questions uncapped. The engine's built-in wording is outside the studio's hands, so the studio's acceptance moved when the engine changed.
 
-## Delivered: Slice 20, a cycle that finishes
+## Next: Slice 21, questions the studio owns
 
-Delivered in one pull request covering tasks 1, 2, and 4. Task 3 was measured, found to change what the judges score, and dropped at the owner's choice, so the exit's last clause is left unmet.
+1. **The studio's own rubrics** (decision 28). Helpfulness, correctness, safety, and pairwise quality are registered as the platform tenant's rubrics, worded as the engine's built-ins were through review 6, with the studio's questions unchanged, and asked by name, as the code rubrics and `decision_score` already are. The cycle records each one's digest.
+2. **A wording change said.** When a rubric's digest differs from the one the study's last cycle recorded, the run page says so beside the scores, so a change to what the judges are asked never passes unseen.
+3. **Cut-off verdicts still scored.** The engine keeps the score of a tenant rubric's verdict cut off at its limit, as #122 does for its built-ins, and the studio reads it as a score.
 
-1. **A failed call asked again** (decision 27). A judge call that fails with a timeout or a busy engine is asked once more before the cycle fails, and the job's progress says so while it waits.
-2. **A cycle resumed, not restarted.** A cycle keeps its verdicts as they come. When it fails anyway, asking the judge again resumes it: it asks only what it has not yet heard, and the run page says how far the failed cycle got.
-3. **Verdicts that fit.** Helpfulness, correctness, and safety ask for a reason under 40 words, as the other questions do.
-4. **An engine kept awake.** The README says an engine on a laptop answers 504 once the laptop sleeps, and to keep the host awake while cycles run.
+Exit: asked review 6's cycle again against today's engine, the studio's own questions give `qwen3.6:27b` 8 of 9 sound-journey verdicts correct or more, as review 6 did, with no verdict unreadable. A test changes a rubric's wording, and the run page says so.
 
-Exit: with a test engine that times out one call, a cycle completes with every verdict; a cycle stopped halfway resumes and asks none of the verdicts it holds again; and in a live cycle fewer than 1 in 100 verdicts is unreadable.
-
-- **A failed call asked again.** A call the engine answers 504 or 503 is asked once more after five seconds, and the job's progress says so. A test engine that times out one call and is busy for another yields every verdict, exactly as a clean run does; a call that fails twice, or a rejected key, still fails the cycle.
-- **A cycle resumed, not restarted.** Each answer is kept beside the run as it arrives, keyed by the judge and the exact question. When a cycle stops, the run page says how far it got and offers to resume, and asking the judge again asks only what it has not heard: through the API, a cycle stopped after 6 answers finished by asking only the rest. A question worded differently is asked again, and the kept answers go once the cycle is stored.
-- **An engine kept awake.** The README says an engine on a laptop answers 504 once the laptop sleeps, a closed lid included.
-- **Verdicts that fit, dropped.** Asked for a justification under 40 words, `qwen3.6:27b` fit the engine's answer: no verdict of a live cycle's 198 was unreadable, against 3 before, and its longest helpfulness answer fell from 2,504 characters to 355. But it scored the same journeys differently. Replaying two cycles' questions both ways, correctness with the cap called two of three sound journeys incorrect that it called correct without it, and caught 3 of 6 flawed copies against 4 of 6. Helpfulness with the cap scored sound journeys 1 to 3.7 instead of 5, and 10 of 12 flawed copies 1. The judge reasons in its justification, so the questions keep it uncapped, and a justification the engine cuts off stays an unreadable verdict, 1.5% to 3.6% of `qwen3.6:27b`'s, until the engine raises its limit.
+After Slice 21, the roadmap closes, as the owner approved: every clause is met as far as the data and today's judges allow. CI and the gates stay as they are. A new roadmap opens when a study asks for something out of scope, or when a judge model sees what these cannot.
 
 ## Out of scope
 
