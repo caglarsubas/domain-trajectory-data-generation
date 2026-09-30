@@ -1,6 +1,6 @@
-# Next slice: a fair realism comparison
+# Next slice: a roadmap review
 
-Status: approved on 29 September 2026, together with the queued Slice 19 and decisions 25 and 26 in the [overview](overview.md#decisions), all as recommended; Slice 18 has shipped. Slices 16 and 17, approved on 29 September, shipped before them; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: approved on 29 September 2026, together with the queued Slice 19 and decisions 25 and 26 in the [overview](overview.md#decisions), all as recommended; both slices have shipped, so a review comes next. Slices 16 and 17, approved on 29 September, shipped before them; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
 Branch off `main` at `e00c382`.
 
@@ -51,17 +51,6 @@ This review asked whether the one measure where a judge compares, generated agai
 
 So the waits of every calibrated run are less representative than the next steps it reports, and the realism comparison mixes that with tells of its own.
 
-## Next: Slice 19, a fair realism comparison
-
-1. **The same scope on both sides** (decision 26). A real case is cut to the events of the study's own sub-domains before it is shown, as the generated journey is cut to the events the data records.
-2. **The same resolution on both sides.** Calibration records the resolution of a source's times, such as whole days for a source that records dates, and both sides are drawn at it.
-3. **A control for realism.** Each cycle also sets out-of-order copies of generated journeys against real cases. A judge that does not pick the real case over the control in three of four comparisons is flagged as blind to realism, and the run page does not read its rate as a finding.
-4. **Enough comparisons to read.** Realism draws its own sample of generated journeys, 16 by default, each set against a different real case, apart from the journeys the rubrics are asked about.
-
-Exit: in live cycles on hotel runs scoped to booking, changes and cancellations, and arrival, calibrated and uncalibrated, each judge catches the out-of-order control in three of four comparisons or more; no reason cites a step outside the study's scope or a time finer than a day; and each judge's rate over 16 comparisons is reported for both runs.
-
-Considered and not proposed: telling the judge what the data says, such as how far ahead bookings are made. The code already compares those statistics, and after Slice 18 it will compare waits too; putting them in the question would make the comparison less blind.
-
 ## Delivered: Slice 18, waits as the data has them
 
 Delivered in one pull request covering tasks 1 to 3, and the exit criterion is met.
@@ -86,6 +75,28 @@ Measured on calibrated runs of 1,500 journeys over every sub-domain, two seeds e
 The run's wait distance fell from 0.24 to 0.31 to 0.04 to 0.13. Every timed step with at least 25 cases in the data and 100 draws lands within 5% to 15% of its draws past the data's 90th percentile; where the data records dates, as the hotel data does, generated waits are read between dates too, and its many one-night stays tie at the 90th percentile, which puts departures at the low end. A step drawn fewer than 100 times, such as BPI's review to abandonment, cannot show a share below 1% at all, and its distance, 0.27, is mostly sampling noise. Calibrations stored before the slice, with three quantiles, draw as cleanly: at most 0.6% on one value, and 8% to 13% past the 90th percentile.
 
 Found on the way: a calibrated run large enough to be written in batches recorded an event name in place of each batch's name, because counting its second-order steps reused the batch's variable, so its journeys could not be opened and anything reading its batches by name missed them. Fixed, with a test that opens one.
+
+## Delivered: Slice 19, a fair realism comparison
+
+Delivered in one pull request covering tasks 1 to 4, and the exit criterion is met.
+
+1. **The same scope on both sides** (decision 26). A real case is cut to the events of the study's own sub-domains before it is shown, as the generated journey is cut to the events the data records.
+2. **The same resolution on both sides.** Calibration records the resolution of a source's times, such as whole days for a source that records dates, and both sides are drawn at it.
+3. **A control for realism.** Each cycle also sets out-of-order copies of generated journeys against real cases. A judge that does not pick the real case over the control in three of four comparisons is flagged as blind to realism, and the run page does not read its rate as a finding.
+4. **Enough comparisons to read.** Realism draws its own sample of generated journeys, 16 by default, each set against a different real case, apart from the journeys the rubrics are asked about.
+
+Exit: in live cycles on hotel runs scoped to booking, changes and cancellations, and arrival, calibrated and uncalibrated, each judge catches the out-of-order control in three of four comparisons or more; no reason cites a step outside the study's scope or a time finer than a day; and each judge's rate over 16 comparisons is reported for both runs.
+
+Live on the local engine, the realism comparison of hotel runs over booking, changes and cancellations, and arrival, calibrated from the hotel booking demand data and not, each with 16 of the run's journeys set against 24 real cases and four out-of-order controls, in both orders, once at temperature 0 (160 verdicts, none unreadable):
+
+| Hotel run | `qwen3.6:27b` picked the real case | `gemma4:26b` | Over an out-of-order journey |
+|---|---|---|---|
+| Calibrated | 44% of 32 | 31% of 32 | 100% and 88% of 8 |
+| Uncalibrated | 41% of 32 | 34% of 32 | 100% and 100% of 8 |
+
+Both judges see realism, catching nearly every out-of-order journey, and neither can tell the run's journeys from real ones: with the comparison's own tells gone, both leaned toward the generated journey, where the review before this slice measured 53% to 75% picking the real case. Calibrated and uncalibrated runs came out alike, within the noise of 32 comparisons. Of 1,004 lines shown, none held a checkout or a time finer than a day, and of 160 reasons none cited either: the three that name a time speak of last-minute bookings, of a one-day gap as 24 hours, and of steps the data does not time. The resolution is read from the real cases each source keeps at calibration, whole days for this data.
+
+The comparison ran through the cycle's own path, `app.realism.prepare` and `evaluate_journeys`, with the rubric sample left empty: full cycles on the same runs failed four times on the rubrics, because the engine held a `qwen3.6:27b` call past its own 240-second limit for about 16 minutes before answering 504, and a cycle stops at the first failure. The same calls, asked again alone, answered in 8 seconds. The measurement asked a call that stalled once more, five times for `qwen3.6:27b` and once for `gemma4:26b`; the studio does not.
 
 ## Out of scope
 
