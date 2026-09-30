@@ -170,6 +170,12 @@ export default function JudgePanel({ cycle, onPick }) {
       {(judging?.notes || []).map((note) => (
         <p className="lede" key={note}>{note}</p>
       ))}
+      {judging?.wording_changed?.length ? (
+        <p className="warn">
+          The judges were asked {judging.wording_changed.map((rubric) => label(rubric, names)).join(", ")} in other words than this study&apos;s
+          last cycle, so these scores may not compare with its (decision 28).
+        </p>
+      ) : null}
       {deciding?.rubrics && Object.keys(deciding.rubrics).length ? (
         <p className="lede">
           {deciding.code_only

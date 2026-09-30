@@ -109,6 +109,7 @@ class Judge:
         return {"name": definition["name"], "digest": "sha256:" + definition["name"]}
 
     def run_eval(self, *, rubric, judge_model=None, repeats=1, temperature=0.0, **payload):
+        rubric = rubric.removeprefix("trajectory_")  # the studio asks its own copies of these rubrics (decision 28)
         if rubric == "pairwise_quality" and "recorded from a real customer" in payload["prompt"]:
             self.asked.append({"model": judge_model, "repeats": repeats, "temperature": temperature, **payload})
             score, reason = self.pick(payload["response"], payload["response_b"])

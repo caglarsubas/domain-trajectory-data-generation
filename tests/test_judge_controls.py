@@ -121,6 +121,7 @@ class SeeingJudge:
         return {"name": definition["name"], "digest": "sha256:" + definition["name"]}
 
     def run_eval(self, *, rubric, judge_model=None, repeats=1, temperature=0.0, **payload):
+        rubric = rubric.removeprefix("trajectory_")  # the studio asks its own copies of these rubrics (decision 28)
         illegal, slow = _defects(payload["response"])
         if rubric == "pairwise_quality":
             other = _defects(payload["response_b"])
@@ -137,6 +138,7 @@ class SeeingJudge:
 
 class BlindJudge(SeeingJudge):
     def run_eval(self, *, rubric, judge_model=None, repeats=1, temperature=0.0, **payload):
+        rubric = rubric.removeprefix("trajectory_")  # the studio asks its own copies of these rubrics (decision 28)
         score = {"helpfulness": 5, "pairwise_quality": 1.0}.get(rubric, 1.0)
         verdicts = [{"score": score, "parsed": {"reason": "fine"}, "raw": "{}", "readable": True}] * repeats
         return {**verdicts[0], "verdicts": verdicts, "judge_model": judge_model, "duration_ms": 1}

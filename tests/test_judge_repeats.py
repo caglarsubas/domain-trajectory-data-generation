@@ -204,6 +204,7 @@ class RepeatingJudge:
         return {"name": definition["name"], "digest": f"sha256:{definition['name']}"}
 
     def run_eval(self, *, rubric, judge_model=None, repeats=1, temperature=0.0, **payload):
+        rubric = rubric.removeprefix("trajectory_")  # the studio asks its own copies of these rubrics (decision 28)
         self.calls.append({"rubric": rubric, "model": judge_model, "repeats": repeats, "temperature": temperature, **payload})
         base = {"helpfulness": 4, "correctness": 1, "safety": 1, "pairwise_quality": 1, "decision_score": 0.25}[rubric]
         if rubric == "pairwise_quality" and payload["response"].split("\n")[0].endswith("alternative."):
@@ -236,13 +237,22 @@ def test_a_cycle_repeats_every_rubric_and_scores_the_judge_against_code(client, 
     assert body.status_code == 200, body.text
     cycle = body.json()["cycles"][0]
 
-    assert [item["name"] for item in judge.registered] == ["decision_score"]
+    # The studio's own questions first (decision 28), then the code rubric the sample can be compared on.
+    assert [item["name"] for item in judge.registered] == [
+        "trajectory_helpfulness", "trajectory_correctness", "trajectory_safety", "trajectory_pairwise_quality", "decision_score"
+    ]
+    platform = {
+        name: {"source": "platform", "asked_as": f"trajectory_{name}", "digest": f"sha256:trajectory_{name}"}
+        for name in ("helpfulness", "correctness", "safety", "pairwise_quality")
+    }
     assert cycle["judging"] == {
         "repeats": 3,
         "temperature": 0.7,
-        "rubrics": {"decision_score": {"source": "tenant", "digest": "sha256:decision_score"}},
+        "rubrics": {**platform, "decision_score": {"source": "tenant", "digest": "sha256:decision_score"}},
         "notes": [],
         "study": [],
+        # The study's first cycle has nothing to compare its wording with.
+        "wording_changed": [],
     }
     # A control is asked once at temperature 0 so that every journey can have them (decision 19); every other call is repeated.
     once = [call for call in judge.calls if call["repeats"] == 1]
@@ -308,7 +318,10 @@ def test_a_judge_without_a_registry_still_judges_and_says_what_it_skipped(client
     cycle = client.post(f"/runs/{run['id']}/evaluate", headers=headers, json={}).json()["cycles"][0]
     assert {call["rubric"] for call in runtime.judge.calls} == {"helpfulness", "correctness", "safety", "pairwise_quality"}
     assert cycle["judging"]["rubrics"] == {}
-    assert cycle["judging"]["notes"] == ["This judge does not accept rubrics. The judge did not score decision_score."]
+    assert cycle["judging"]["notes"] == [
+        "This judge does not accept rubrics. The judges were asked the engine's own helpfulness, correctness, safety, and pairwise questions, whose wording the engine sets.",
+        "This judge does not accept rubrics. The judge did not score decision_score.",
+    ]
     assert cycle["agreement"]["code"] == {} and cycle["agreement"]["repeats"] == {}
 
 

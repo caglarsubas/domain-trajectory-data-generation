@@ -474,3 +474,9 @@ Docs only. Against `43c5a67` every pack passes all nine gates, and a 10,000-sequ
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/78
 
 Slice 20, without its third task. A judge call the engine answers 504 or 503 is asked once more after five seconds, and each answer is kept beside the run as it arrives, so asking the judge again resumes a stopped cycle and asks only what it has not heard; the run page says how far it got (decision 27). The README says a laptop-hosted engine answers 504 once the laptop sleeps. Asking helpfulness, correctness, and safety for a justification under 40 words kept every verdict inside the engine's limit but changed the scores on the same journeys, so it was dropped at the owner's choice and the questions stay uncapped.
+
+## 79. Review the roadmap after Slice 20, approve Slice 21, and plan to close the roadmap after it
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/79
+
+Docs only. Against `96fd248` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `43c5a67`. Every clause of the purpose is met but two, both held back from outside the studio. `llm_inference_engine` #122 keeps the score of a verdict cut off at its answer limit, but also made its built-in rubrics ask for a one- or two-sentence justification; asked the last review's cycle again against today's engine, 16 of 198 verdicts changed and the primary judge called four of nine verdicts on sound journeys incorrect, where it called one. Slice 21 (questions the studio owns) was approved with decision 28, and the roadmap closes after it.

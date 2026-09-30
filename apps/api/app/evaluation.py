@@ -301,6 +301,7 @@ def evaluate_journeys(
     faithfulness: dict | None = None,
     realism: dict | None = None,
     kept=None,
+    asked_as: dict[str, str] | None = None,
 ) -> dict:
     """Judge a sample of journeys with every model and turn the verdicts into a cycle.
 
@@ -312,7 +313,8 @@ def evaluate_journeys(
     turns sampled from the run (`app.faithfulness`), the run's language, and the registered rubric's digest; each turn
     is asked whether it is faithful to the facts it had to state. `kept` holds the answers of an attempt at this cycle that
     stopped (`judging.Answers`): a question asked word for word before is not asked again, and each new answer is kept as
-    it arrives, so a cycle that stops can be resumed (decision 27).
+    it arrives, so a cycle that stops can be resumed (decision 27). `asked_as` names the engine rubric each of the studio's
+    own rubrics is asked as, where the studio registered its own copy (decision 28); a verdict keeps the studio's name.
     """
     compared = compared or {}
     study = study or {}
@@ -426,8 +428,9 @@ def evaluate_journeys(
 
     planned = [(model, call) for model in models for call in calls]
     # A control is asked once at temperature 0, so that every sampled journey can have them (decision 19).
+    asked_as = asked_as or {}
     asks = [
-        {"rubric": call["rubric"], "judge_model": model, "repeats": 1 if call.get("control") else repeats,
+        {"rubric": asked_as.get(call["rubric"], call["rubric"]), "judge_model": model, "repeats": 1 if call.get("control") else repeats,
          "temperature": 0.0 if call.get("control") else temperature, **call["payload"]}
         for model, call in planned
     ]
