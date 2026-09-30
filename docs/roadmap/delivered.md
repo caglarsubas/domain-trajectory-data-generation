@@ -456,3 +456,9 @@ Slice 18, in one pull request. Calibration keeps each timed step's waits every 5
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/75
 
 Below 640 pixels the header wraps, its links on their own row within the page's 16-pixel gutter, and long run headings on the studio page break anywhere, so no studio page scrolls sideways at 375 or 320 pixels; desktop is unchanged.
+
+## 76. Set generated journeys against real cases on equal terms, with an out-of-order control, completing Slice 19
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/76
+
+Slice 19, in one pull request. Real cases are cut to the study's own sub-domains, both sides are drawn at the resolution the data records times at, whole days for a source of dates, and realism draws its own sample of the run's journeys, 16 by default. Four out-of-order copies are the control: a judge that does not pick the real case over them in three of four is flagged blind to realism, and its rate is not read (decision 26). Live on hotel runs over booking, changes, and arrival, both judges picked the real case over out-of-order journeys in 88% to 100% of comparisons and over the run's journeys in 31% to 44%, calibrated or not, and no checkout or time finer than a day was shown or cited. Its full cycles failed on 504s that its notes put down to the engine; the engine's investigation later found the laptop asleep during each.
