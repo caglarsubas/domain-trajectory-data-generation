@@ -22,7 +22,7 @@ from app.evaluation import code_signals, evaluate_journeys
 from app.realism import prepare as prepare_realism
 from app.retrieval import reference as reference_passages
 from app.judge import EvalNotConfigured, InferenceEngineClient, JudgeUnavailable, RubricLimitReached, RubricsUnsupported
-from app.judge_rubrics import CODE_RUBRICS, STUDY_KINDS, TURN_FAITHFULNESS
+from app.judge_rubrics import CODE_RUBRICS, PLATFORM_RUBRICS, STUDY_KINDS, TURN_FAITHFULNESS
 from app.models import CorpusItem, EvalCycle, EvalVerdict, Run
 from app.settings import Settings
 from app.store import DbStore, run_dir, store_for
@@ -223,6 +223,21 @@ def resume_state(run: Run) -> dict | None:
     return {"heard": len(found.found), "planned": found.planned} if found.found else None
 
 
+def wording_changed(db: Session, run: Run, rubrics: dict) -> list[str]:
+    """The studio's rubrics this cycle asked in other words than the study's last cycle did: a different digest, or the
+    engine's built-in where the last cycle had the studio's own (decision 28)."""
+    earlier = db.scalars(
+        select(EvalCycle).join(Run, Run.id == EvalCycle.run_id).where(Run.project_id == run.project_id).order_by(EvalCycle.created_at.desc())
+    )
+    for cycle in earlier:
+        before = (cycle.judging or {}).get("rubrics") or {}
+        asked = {name: info.get("digest") for name, info in before.items() if info.get("source") == "platform"}
+        if not asked:
+            continue
+        return sorted(name for name, digest in asked.items() if ((rubrics.get(name) or {}).get("digest")) != digest)
+    return []
+
+
 def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     """Judge a sample of the run's journeys, record the cycle and its verdicts, and return the cycle."""
     if run.cycle_count >= int(run.config["max_cycles"]):
@@ -253,7 +268,16 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
     try:
         compared: dict[str, str] = {}
         study: dict[str, dict] = {}
+        platform: dict[str, dict] = {}
         if not whole:
+            # The questions the studio scores by, as its own rubrics (decision 28). An engine without tenant rubrics is
+            # asked its built-in ones, whose wording it sets, and the cycle says so.
+            try:
+                for name, definition in PLATFORM_RUBRICS.items():
+                    platform[name] = {"asked_as": definition["name"], "digest": register(lazy, definition, db)}
+            except RubricsUnsupported as exc:
+                platform = {}
+                judging["notes"].append(f"{exc.message} The judges were asked the engine's own helpfulness, correctness, safety, and pairwise questions, whose wording the engine sets.")
             # Register the code-comparison rubrics this sample can be compared on, and the study's approved rubrics; an
             # engine without tenant rubrics still judges the rest.
             wanted = {name for journey, entry in zip(journeys, entries) for name in code_signals(journey, entry["trajectory_id"])}
@@ -276,7 +300,8 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 skipped = sorted(wanted & set(CODE_RUBRICS)) + (["the written turns' faithfulness"] if turns else []) + [f"the study's {row.kind} rubric" for row in approved]
                 judging["notes"].append(f"{exc.message} The judge did not score {', '.join(skipped)}.")
                 compared, study, faithful = {}, {}, None
-            judging["rubrics"] = {name: {"source": "tenant", "digest": digest} for name, digest in compared.items()}
+            judging["rubrics"] = {name: {"source": "platform", **info} for name, info in platform.items()}
+            judging["rubrics"].update({name: {"source": "tenant", "digest": digest} for name, digest in compared.items()})
             if faithful:
                 judging["rubrics"][TURN_FAITHFULNESS["name"]] = {"source": "tenant", "digest": faithful["digest"]}
             judging["rubrics"].update(
@@ -306,6 +331,7 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
                 study=study,
                 controls=build_controls(journeys, sector, run.config),
                 faithfulness=faithful,
+                asked_as={name: info["asked_as"] for name, info in platform.items()},
                 realism=prepare_realism(real_cases(db, run), found, sector, run.config, cfg.realism_sample, f"{run.id}|{cycle_index}"),
                 kept=kept,
             )
@@ -313,6 +339,8 @@ def judge_run(db: Session, run: Run, cfg: Settings, progress=None) -> EvalCycle:
         raise HTTPException(status_code=exc.status, detail=exc.detail()) from exc
     finally:
         lazy.close()
+    if result["called_judge"]:
+        judging["wording_changed"] = wording_changed(db, run, judging["rubrics"])
     found_turns = (result.get("agreement") or {}).get("faithfulness")
     if found_turns:
         rows = [row for row in found_turns["rows"] if row["revert"]]

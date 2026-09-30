@@ -127,6 +127,7 @@ class FaithfulnessJudge:
         return {"name": definition["name"], "digest": "sha256:" + definition["name"]}
 
     def run_eval(self, *, rubric, judge_model=None, repeats=1, temperature=0.0, **payload):
+        rubric = rubric.removeprefix("trajectory_")  # the studio asks its own copies of these rubrics (decision 28)
         if rubric == "turn_faithfulness":
             self.asked.append(payload)
             faithful = PLANTED.strip() not in payload["response"]

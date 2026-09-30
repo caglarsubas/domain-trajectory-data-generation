@@ -1,10 +1,10 @@
-# Next slice: questions the studio owns
+# Next slice: none, the roadmap is closed
 
-Status: approved on 30 September 2026, with decision 28 in the [overview](overview.md#decisions) and closing the roadmap after it, all as recommended. Slice 20, approved earlier the same day, has shipped without its third task; that plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
+Status: closed on 30 September 2026. Slice 21, decision 28, and closing the roadmap after it were approved at the seventh review, all as recommended, and Slice 21 has shipped. Every earlier plan and its evidence are in git history, and [delivered.md](delivered.md) lists each pull request.
 
 Branch off `main` at `96fd248`.
 
-## Why this comes next
+## Why the roadmap closes
 
 The review re-ran every gate against `96fd248`, and every pack passes all nine, with the same measures as at `43c5a67`:
 
@@ -36,7 +36,9 @@ This review was to say whether the roadmap has reached its end. Every clause of 
 
   The run is still accepted, but correctness now clears its bar by a hair: the primary judge calls four of nine verdicts on sound journeys incorrect, where it called one. Slice 20 found the same effect when the studio capped the justification itself, and kept its questions uncapped. The engine's built-in wording is outside the studio's hands, so the studio's acceptance moved when the engine changed.
 
-## Next: Slice 21, questions the studio owns
+## Delivered: Slice 21, questions the studio owns
+
+Delivered in one pull request covering tasks 1 to 3, and the exit criterion is met.
 
 1. **The studio's own rubrics** (decision 28). Helpfulness, correctness, safety, and pairwise quality are registered as the platform tenant's rubrics, worded as the engine's built-ins were through review 6, with the studio's questions unchanged, and asked by name, as the code rubrics and `decision_score` already are. The cycle records each one's digest.
 2. **A wording change said.** When a rubric's digest differs from the one the study's last cycle recorded, the run page says so beside the scores, so a change to what the judges are asked never passes unseen.
@@ -44,7 +46,13 @@ This review was to say whether the roadmap has reached its end. Every clause of 
 
 Exit: asked review 6's cycle again against today's engine, the studio's own questions give `qwen3.6:27b` 8 of 9 sound-journey verdicts correct or more, as review 6 did, with no verdict unreadable. A test changes a rubric's wording, and the run page says so.
 
-After Slice 21, the roadmap closes, as the owner approved: every clause is met as far as the data and today's judges allow. CI and the gates stay as they are. A new roadmap opens when a study asks for something out of scope, or when a judge model sees what these cannot.
+Asked review 6's cycle again against today's engine, with the studio's own questions: 195 of the 198 verdicts came back exactly as review 6 recorded them (10 minutes, the machine kept awake). The other three were the three review 6 could not read, `qwen3.6:27b` helpfulness justifications cut off at the engine's answer limit, which the engine now scores. The primary judge called 8 of 9 verdicts on sound journeys correct, as review 6 did, against 5 of 9 with the engine's rewritten built-ins, and no verdict was unreadable. Read in full, helpfulness scored 2 of its 6 controls lower rather than 2 of 4, so it no longer decides; correctness decides, and the run is accepted.
+
+The copies match the built-ins to the character. The engine sends a system prompt as written, and its built-ins wrote their JSON shape with doubled braces for a template it never rendered, so the judges saw `{{"score": int, ...}}`. A first copy with single braces, two tokens shorter, changed 23 of 198 verdicts, and the primary judge called only 6 of 9 sound journeys correct. Asked twice in a row, the same question gave the same answer every time, so the difference was the prompt, not the model.
+
+## The roadmap closed
+
+Every clause of the purpose is met as far as the data and today's judges allow. Telecommunications and insurance calibrate from a team's own log, since no public data allows more, and today's judges see a missing step only now and then, so acceptance rests on the code's checks wherever they cannot see. CI and the gates run on every pull request as before. A new roadmap opens when a study asks for something out of scope below, or when a judge model sees what these cannot; the next review then starts from [overview.md](overview.md).
 
 ## Out of scope
 

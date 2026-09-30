@@ -47,6 +47,7 @@ class StudyJudge:
         return {"name": definition["name"], "digest": "sha256:" + definition["name"]}
 
     def run_eval(self, *, rubric, judge_model=None, repeats=1, temperature=0.0, **payload):
+        rubric = rubric.removeprefix("trajectory_")  # the studio asks its own copies of these rubrics (decision 28)
         self.calls.append({"rubric": rubric, "model": judge_model, **payload})
         if rubric == "rubric_proposal":
             kind = "solution" if "solution rubric" in payload["prompt"] else "behavior"

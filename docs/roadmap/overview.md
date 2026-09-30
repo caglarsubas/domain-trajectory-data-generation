@@ -11,7 +11,7 @@ Last reviewed: 30 September 2026, against `main` at `96fd248`, after Slice 20 sh
 
 The review before it, against `43c5a67` earlier the same day, set Slice 20, which has been delivered without its third task; its evidence is in git history. What this review found, and the slice it set, are in [next-slice.md](next-slice.md); it, decision 28, and closing the roadmap after it were approved the same day, all as recommended.
 
-Companion files: [delivered.md](delivered.md) records what each merged pull request established. [next-slice.md](next-slice.md) is the approved plan for the work now in front of us.
+Companion files: [delivered.md](delivered.md) records what each merged pull request established. [next-slice.md](next-slice.md) records why the roadmap closed, with its last slice's evidence, and what would open a new one.
 
 ## Purpose
 
@@ -103,12 +103,12 @@ These hold across every slice and should not be renegotiated silently.
 
 ## Position today
 
-All eight slices of the first plan have shipped, and so have Slices 8 to 20. The suite has 457 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
+All eight slices of the first plan have shipped, and so have Slices 8 to 21, and the roadmap closed on 30 September 2026. The suite has 463 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
 
 The review of 30 September, against `96fd248`, found every clause of the purpose met but two, both held back from outside the studio: telecommunications and insurance have no public data, and today's judges see a missing step only now and then. It found one dependency inside:
-- **The engine rewrote the questions the studio scores by.** `llm_inference_engine` #122 keeps the score of a verdict cut off at its answer limit, so the last review's cycle, asked again, had no unreadable verdict, where it had three. But #122 also made the engine's built-in helpfulness, correctness, and pairwise rubrics ask for a one- or two-sentence justification. On the same cycle, 16 of 198 verdicts changed, and the primary judge called four of nine verdicts on sound journeys incorrect, where it called one. The studio asks those rubrics by name, so its acceptance moved with the engine's wording. Slice 21 registers the studio's own copies, worded as before, and says on the run page when a question's wording changes.
+- **The engine rewrote the questions the studio scores by.** `llm_inference_engine` #122 keeps the score of a verdict cut off at its answer limit, so the last review's cycle, asked again, had no unreadable verdict, where it had three. But #122 also made the engine's built-in helpfulness, correctness, and pairwise rubrics ask for a one- or two-sentence justification. On the same cycle, 16 of 198 verdicts changed, and the primary judge called four of nine verdicts on sound journeys incorrect, where it called one. The studio asks those rubrics by name, so its acceptance moved with the engine's wording. Slice 21, now delivered, registers the studio's own copies, worded to the character as before, and says on the run page when a question's wording changes: asked the last review's cycle again, 195 of 198 verdicts came back as they were, and the primary judge again called 8 of 9 sound journeys correct.
 
-After it the roadmap closes, as approved, with CI and the gates kept, and a new one opened when a study asks for something out of scope or a judge model sees what these cannot.
+With it the roadmap closed, as approved, with CI and the gates kept, and a new one opened when a study asks for something out of scope or a judge model sees what these cannot.
 
 ## Roadmap
 
@@ -172,7 +172,7 @@ Approved on 30 September 2026, after the second review that day (detail in [next
 
 | Slice | Goal | Exit criterion |
 |---|---|---|
-| 21. Questions the studio owns | Helpfulness, correctness, safety, and pairwise quality registered as the platform tenant's rubrics, worded as the engine's built-ins were through review 6; a changed wording said on the run page; cut-off verdicts still scored | Asked the last review's cycle again, the studio's questions give the primary judge 8 of 9 sound-journey verdicts correct or more, as before, with none unreadable, and a wording change shows on the run page |
+| 21. Questions the studio owns (delivered) | Helpfulness, correctness, safety, and pairwise quality registered as the platform tenant's rubrics, worded as the engine's built-ins were through review 6; a changed wording said on the run page; cut-off verdicts still scored | Asked the last review's cycle again, the studio's questions give the primary judge 8 of 9 sound-journey verdicts correct or more, as before, with none unreadable, and a wording change shows on the run page |
 
 ### Slice 0. Rotate credentials and fix the judge wiring
 
