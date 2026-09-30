@@ -2,14 +2,14 @@
 
 Repository: https://github.com/caglarsubas/domain-trajectory-data-generation
 
-Last reviewed: 29 September 2026, against `main` at `e00c382`, after Slices 16 and 17 shipped. This review:
+Last reviewed: 30 September 2026, against `main` at `43c5a67`, after Slices 18 and 19 shipped. This review:
 - re-ran the nine gates for all five packs
 - timed a 10,000-sequence run against the previous review's commit on the same machine
-- set calibrated, uncalibrated, and out-of-order hotel journeys against real cases, with two judges on the local `llm_inference_engine`
-- followed the judges' reasons into the calibrated waits of hotel and BPI 2017 runs
-- checked the studio's judge address, CI, and the work in flight in other sessions
+- ran a full live judge cycle, with every control and the fair realism comparison, on a calibrated hotel run, with the machine kept awake
+- read the engine's account of the cycles that failed during Slice 19
+- checked CI and the work in flight in other sessions
 
-The review before it, against `74ae828` earlier the same day, set Slices 16 and 17, which have been delivered; its evidence is in git history. What this review found, and the slices it set, are in [next-slice.md](next-slice.md); they and decisions 25 and 26 were approved the same day, all as recommended.
+The review before it, against `e00c382` on 29 September, set Slices 18 and 19, which have been delivered; its evidence is in git history. What this review found, and the slice it set, are in [next-slice.md](next-slice.md); it and decision 27 were approved the same day, as recommended.
 
 Companion files: [delivered.md](delivered.md) records what each merged pull request established. [next-slice.md](next-slice.md) is the approved plan for the work now in front of us.
 
@@ -26,7 +26,7 @@ Users upload warm-start material: deep-search reports, papers, GitHub repositori
 | Complete | Every journey legal end to end: zero impossible transitions, referential integrity, a terminal or horizon state | Every pack's journeys replay through its own machines. The gates' sweep of 150 random configurations per pack breaks no rule, and every event of every pack is reachable. | Met |
 | Comprehensive | Coverage of the selected sub-domains, event types, variants, and rare paths | 43 to 57 distinct sequences in 64 journeys across the five packs, and every sub-domain reaches its milestones alone and together | Met |
 | Representative | Transition and dwell-time distributions calibrated from warm-start material, with conformance measured against it | Event logs in CSV, Parquet, XES, or OCEL 2.0 calibrate any pack, and the catalogue calibrates banking, hotel, and airline runs; fitness, precision, and next-step divergence after the last event and the last two are reported. Next-step shares follow the last two events wherever the data backs them: delayed flights arrive late in 80% to 84% of calibrated journeys against 84% in the data, and hotel reservations are cancelled in 33% against 36%. Banking from BPI 2017 approves 50% to 52%, declines 11%, and abandons 36% to 38% of submitted applications, against 49%, 13%, and 37%. Telecommunications and insurance have no public source their terms and data allow, so a team brings its own log from the pack's template and sees, before a run, what it would change. Waits are drawn between each step's own quantiles, every 5% of the data's, and measured: calibrated hotel and banking runs put 5% to 15% of each well-backed step's waits past the data's 90th percentile, and none piles up on one value. | Met, where a team brings a log for the last two packs |
-| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, repeats above temperature 0, study-specific rubrics, controls with one known defect in every cycle, audit flags, and regeneration from notes. Helpfulness and correctness decide acceptance only where the primary judge scored at least three of their controls lower, and a cycle judged twice by one model says so; live, neither did, so the run stood on the code's checks, while both judges picked a journey over its flawed copy every time. Set against real cases on equal terms, cut to the study's scope and drawn at the data's resolution, both judges catch nearly every journey shown out of order, and neither can tell the run's journeys from real ones, calibrated or not. Templated text has 53% to 62% distinct sentences in every pack and language; written text is checked for faithfulness, and a turn every judge calls unfaithful goes back to its template. | Text met; the judge partly: its scores rarely see a missing step |
+| Qualitative | Judge scores that can be trusted, and natural text in the chosen language | Two judges, pairwise in both orders, repeats above temperature 0, study-specific rubrics, controls with one known defect in every cycle, audit flags, and regeneration from notes. Helpfulness and correctness decide acceptance only where the primary judge scored at least three of their controls lower, and a cycle judged twice by one model says so; live, neither did, so the run stood on the code's checks, while both judges picked a journey over its flawed copy every time. Set against real cases on equal terms, cut to the study's scope and drawn at the data's resolution, both judges catch nearly every journey shown out of order, and neither can tell the run's journeys from real ones, calibrated or not. In a full live cycle on a calibrated hotel run, both deciding rubrics saw their controls and the primary judge caught two of three missing steps by scoring, the first a judge has caught. Templated text has 53% to 62% distinct sentences in every pack and language; written text is checked for faithfulness, and a turn every judge calls unfaithful goes back to its template. | Text met; the judge partly: its scores rarely see a missing step |
 | Post-training | Groups of sequences per prompt, MiMo rewards, tool-using agent episodes, export | Groups of up to 16, the shared MiMo rewards with every signal scored, episodes in three harness formats with provider rollouts, and history prefixes. Every sub-domain of every pack yields accepted groups, which the `group_signal` gate enforces, and a journey ends at its natural length in its scope. | Met |
 | Decision scoring | Decision records at branch points: state, options, outcome, score | Decision points with policy shares and simulated values, exported as typed questions under a versioned schema every record validates against | Met |
 | Evaluation | Tasks with verifiers, held-out splits, avg@k and pass@k | Journey and agent tasks with environment, verifiers, and references, reported as avg@k and pass@k by verifier and by policy, including each provider model | Met |
@@ -105,9 +105,10 @@ These hold across every slice and should not be renegotiated silently.
 
 All eight slices of the first plan have shipped, and so have Slices 8 to 19. The suite has 451 tests, and GitHub Actions runs them and the studio build on every pull request. The data serves all three stated uses, every pack passes all nine gates, and calibration follows the data wherever a study has some, from the catalogue or from a team's own log.
 
-The review of 29 September, against `e00c382`, found that the one measure where a judge compares, generated against real, reads less of the journey than it appears to, and that the judges' reasons point at the data's waits:
-- **Realism detects a broken journey, not calibration.** Both judges picked the real case over an out-of-order journey in 91% to 97% of 32 comparisons, but calibrated and uncalibrated runs came out at 53% to 75%, with no difference between them beyond noise. Half the judges' reasons against the uncalibrated run cite a checkout the study's scope excludes, since real cases are not cut to it, and the data's whole-day times give generated times away. Slice 19, now delivered, makes the comparison fair and gives it a control: live, both judges picked the real case over out-of-order journeys in 88% to 100% of comparisons, and over the run's journeys in 31% to 44%, calibrated or not.
-- **Calibrated waits have tails two to four times too heavy.** The judges called gaps of 334 and 406 days improbable, and the generator draws a third of hotel cancellations and a seventh of hotel arrivals at exactly those values: each wait comes from a log-normal fitted to three quantiles and clamped at twice the 90th percentile. In BPI 2017, 14 of 16 timed steps put 5% or more of their draws on the clamp. Representativeness measured next steps, not waits, so nothing reported it. Slice 18, now delivered, draws waits between the data's own quantiles and measures each step's against the data's: no wait now piles up on one value, and each well-backed step puts 5% to 15% of its waits past the data's 90th percentile.
+The review of 30 September, against `43c5a67`, found that the data meets every clause it is measured against, and that what remains is whether a judge cycle finishes:
+- **The whole cycle works, live.** With the machine kept awake, a full cycle on a calibrated hotel run finished in 12 minutes with 198 verdicts and accepted the run, both helpfulness and correctness deciding. Both judges saw realism and could not tell the run's journeys from real ones.
+- **A cycle stops at its first failed call and keeps nothing.** Slice 19's failed cycles were the laptop sleeping, as the engine's investigation (`llm_inference_engine` #121) found, not the engine; asked again, each call answered in seconds, but each cycle had lost up to 16 minutes and every verdict before it. Slice 20 asks such a call again and resumes a failed cycle.
+- **Some verdicts run out of room.** 3 of 198 were unreadable, `qwen3.6:27b` helpfulness justifications cut off at the engine's 512-token answer limit; helpfulness, correctness, and safety do not yet ask for a short reason, as the other questions do.
 
 ## Roadmap
 
@@ -160,6 +161,12 @@ Approved on 29 September 2026, after the second review that day (detail in [next
 |---|---|---|
 | 18. Waits as the data has them (delivered) | Each timed step's waits kept as 21 quantiles and drawn between them, stored calibrations drawn without a spike, and each step's waits measured against the data's | In calibrated hotel and banking runs, no wait holds more than 1% of a step's draws, every timed step the data backs puts 5% to 15% of its draws above the data's 90th percentile, and the quality report shows each step's distance |
 | 19. A fair realism comparison (delivered) | Real cases cut to the study's scope, both sides drawn at the data's time resolution, an out-of-order control for realism, and 16 comparisons of the run's own | On calibrated and uncalibrated hotel runs, each judge catches the control in three of four, no reason cites a step outside the scope or a time finer than a day, and each judge's rate over 16 comparisons is reported |
+
+Approved on 30 September 2026 (detail in [next-slice.md](next-slice.md)):
+
+| Slice | Goal | Exit criterion |
+|---|---|---|
+| 20. A cycle that finishes | A judge call that fails with a timeout or a busy engine asked again, a failed cycle resumed from its verdicts, every question asking for a short reason, and the README saying to keep a local engine awake | With a test engine that times out one call a cycle completes; a cycle stopped halfway resumes without asking again what it holds; and in a live cycle fewer than 1 in 100 verdicts is unreadable |
 
 ### Slice 0. Rotate credentials and fix the judge wiring
 
@@ -290,6 +297,10 @@ Settled on 29 September 2026 for Slices 18 and 19, all as recommended:
 
 25. **Waits come from the data's own distribution, and are measured.** Calibration keeps each timed step's waits as 21 quantiles and the walker interpolates between them, never outside the range the data shows; a calibration stored with three quantiles draws within their span with bounded tails until its source is calibrated again. Representativeness reports each timed step's waits against the data's, as it does next steps.
 26. **Realism is compared on equal terms, with a control.** Real cases are cut to the study's scope, both sides are drawn at the resolution of the data's times, and out-of-order copies test whether a judge sees realism at all; a judge that misses them is flagged as blind to it. As decision 23 holds, realism still decides nothing: live, a judge's expectations, such as how far ahead people book, can differ from the data, and its picks follow them.
+
+Settled on 30 September 2026 for Slice 20, as recommended:
+
+27. **A cycle finishes what it can.** A judge call that fails with a timeout or a busy engine is asked once more before the cycle fails, and a cycle that fails keeps its verdicts, so asking the judge again resumes it instead of starting over. Every question asks for a reason short enough to fit the engine's answer.
 
 ## Stack
 
