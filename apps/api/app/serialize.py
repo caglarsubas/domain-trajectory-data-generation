@@ -247,7 +247,8 @@ def _study_state(run: Run, db: Session, cycle: EvalCycle | None) -> dict:
 def _generation(run: Run) -> dict | None:
     candidate = run.candidate if isinstance(run.candidate, dict) else None
     if not candidate:
-        return run.generation if run.status == "generated" else None
+        # A large run stores its summary on the run. Judging sets the status to evaluated and leaves that summary in place.
+        return run.generation if run.status in {"generated", "evaluated"} else None
     trajectories = candidate.get("trajectories") or []
     meta = candidate.get("generation")
     generated = isinstance(meta, dict) or any(item.get("generator_id") for item in trajectories)

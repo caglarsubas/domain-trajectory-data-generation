@@ -168,6 +168,22 @@ def test_a_large_run_can_be_cancelled_between_batches(client, monkeypatch):
     assert after["job"]["status"] == "cancelled"
 
 
+def test_judging_a_large_run_keeps_the_generation_summary(client):
+    """The run page mounts Export only when generation is present. Judging must not drop it."""
+    headers, run = _large(client, "large-judged@example.com")
+    db = SessionLocal()
+    row = db.get(Run, run["id"])
+    row.status = "evaluated"
+    db.commit()
+    db.close()
+    again = client.get(f"/runs/{run['id']}", headers=headers).json()
+    assert again["status"] == "evaluated"
+    assert again["bundle_source"] == "paged"
+    assert again["generation_active"] is True
+    assert again["generation"]["primary_trajectories"] == 150
+    assert again["generation"]["storage"]["batches"] == 4
+
+
 def test_a_run_above_the_sequence_limit_is_refused(client):
     headers = _auth(client, "too-big@example.com", "password-123")
     project_id = _project(client, headers)
