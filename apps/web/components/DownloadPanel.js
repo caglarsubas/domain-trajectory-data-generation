@@ -111,14 +111,15 @@ export default function DownloadPanel({ run, paged = false }) {
     }
   }
 
-  if (!run.generation) return null;
+  // Large runs are read a journey at a time after judging, including when the generation summary is absent.
+  if (!run.generation && !paged) return null;
   return (
     <div className="download-panel">
       <div className="panel-head">
         <h3>Export</h3>
         <small>
           Every record is synthetic. The split is fixed by the run and sample ids, so a re-export gives the same partition.
-          {paged ? ` This run is stored in ${run.generation.storage?.batches} batches, so its export is prepared as files first and the data parts download gzipped.` : ""}
+          {paged ? ` This run is stored in ${run.generation?.storage?.batches ? `${run.generation.storage.batches} batches` : "batches"}, so its export is prepared as files first and the data parts download gzipped.` : ""}
         </small>
       </div>
       <div className="row" style={{ alignItems: "end" }}>
