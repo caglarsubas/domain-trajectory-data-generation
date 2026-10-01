@@ -59,7 +59,7 @@ export default function KeyRows({ rows, onChange, onError }) {
               <button className="ghost" type="button" onClick={() => { setEditing(""); setSecret(""); }}>Cancel</button>
             </form>
           ) : (
-            <span style={{ display: "flex", gap: 8 }}>
+            <span style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <button className="ghost" type="button" onClick={() => check(row.id)} disabled={checking === row.id}>
                 {checking === row.id ? "Checking" : "Check now"}
               </button>

@@ -21,6 +21,11 @@ function label(policy) {
   return POLICY[policy] || (policy.startsWith("provider:") ? `${policy.slice(9)} on your key` : policy);
 }
 
+// Arguments as JSON with a space after each comma, so a long call wraps between arguments rather than inside one.
+function argumentsText(args) {
+  return `{${Object.entries(args || {}).map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`).join(", ")}}`;
+}
+
 function shown(value) {
   return typeof value === "number" ? (Number.isInteger(value) ? String(value) : value.toFixed(2)) : "—";
 }
@@ -52,7 +57,7 @@ export default function EpisodeViewer({ episode }) {
           <ul className="episode-tools">
             {episode.tools.map((tool) => (
               <li key={tool.name} data-legal={episode.skeleton.legal_tools.includes(tool.name)}>
-                <code>{tool.name}</code>({Object.keys(tool.parameters.properties).join(", ")})
+                <code>{tool.name}</code><wbr />({Object.keys(tool.parameters.properties).join(", ")})
                 {tool.http ? <small> · {tool.http.method} {tool.http.path}</small> : null}
               </li>
             ))}
@@ -69,7 +74,7 @@ export default function EpisodeViewer({ episode }) {
             ))}
           </div>
           <div className="episode-call">
-            {call ? <code>{call.name}({JSON.stringify(call.arguments || {})})</code> : <code>No operation call</code>}
+            {call ? <code>{call.name}({argumentsText(call.arguments)})</code> : <code>No operation call</code>}
             {rollout.checks ? (
               <p className="episode-checks">
                 Checked against the skeleton: {CHECKS.map(([key, text]) => `${rollout.checks[key] ? "✓" : "✗"} ${text}`).join(" · ")}
