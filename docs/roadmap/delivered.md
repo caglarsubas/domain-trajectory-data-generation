@@ -480,3 +480,9 @@ Slice 20, without its third task. A judge call the engine answers 504 or 503 is 
 https://github.com/caglarsubas/domain-trajectory-data-generation/pull/79
 
 Docs only. Against `96fd248` every pack passes all nine gates, and a 10,000-sequence run costs what it did at `43c5a67`. Every clause of the purpose is met but two, both held back from outside the studio. `llm_inference_engine` #122 keeps the score of a verdict cut off at its answer limit, but also made its built-in rubrics ask for a one- or two-sentence justification; asked the last review's cycle again against today's engine, 16 of 198 verdicts changed and the primary judge called four of nine verdicts on sound journeys incorrect, where it called one. Slice 21 (questions the studio owns) was approved with decision 28, and the roadmap closes after it.
+
+## 80. Ask the judges the studio's own copies of the questions it scores by, completing Slice 21 and closing the roadmap
+
+https://github.com/caglarsubas/domain-trajectory-data-generation/pull/80
+
+Slice 21, in one pull request. Helpfulness, correctness, safety, and pairwise quality are registered as the platform tenant's own rubrics, worded to the character as the engine's built-ins were before `llm_inference_engine` #122, doubled braces included, and asked by those names; verdicts keep the studio's rubric names, each cycle records the questions' digests, and the run page says when a question was asked in other words than the study's last cycle (decision 28). A verdict the engine cut off keeps its score. Asked review 6's cycle again against today's engine, 195 of 198 verdicts came back as review 6 recorded them and the other three, review 6's unreadable ones, are now scored; the primary judge called 8 of 9 sound journeys correct, as before, against 5 of 9 with the engine's rewritten built-ins. The roadmap closes with this slice.

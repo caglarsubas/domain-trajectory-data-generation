@@ -406,7 +406,7 @@ export default function JudgePanel({ cycle, onPick }) {
         {cycle.sample.map((entry) => (
           <details key={entry.trajectory_id}>
             <summary>
-              <span>{entry.trajectory_type}</span>
+              <span>{entry.trajectory_type.replaceAll("_", " ")}</span>
               <small>
                 {entry.events} events{entry.outcome ? ` · ${entry.outcome === "pass" ? "reached its goal" : "missed its goal"}` : ""}
                 {entry.truncated ? " · shortened" : ""}
